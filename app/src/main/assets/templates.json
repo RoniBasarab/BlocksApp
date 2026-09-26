@@ -1,0 +1,44 @@
+{
+  "templates": [
+    {
+      "id": "MON_THU",
+      "name": "Mon/Thu",
+      "blocks": [
+        {"type": "cv", "start": "09:00", "end": "09:30"},
+        {"type": "coding", "start": "09:30", "end": "11:30", "pomodoro": {"focusMinutes": 50, "breakMinutes": 10}},
+        {"type": "free", "start": "11:30", "end": "12:00"},
+        {"type": "gym", "start": "12:00", "end": "14:00"},
+        {"type": "free", "start": "14:00", "end": "16:20"},
+        {"type": "coding", "start": "16:20", "end": "17:20", "pomodoro": {"focusMinutes": 50, "breakMinutes": 10}},
+        {"type": "free", "start": "17:20", "end": "19:00"},
+        {"type": "kidTime", "start": "19:00", "end": "22:30", "quiet": true}
+      ]
+    },
+    {
+      "id": "SUN_TUE_WED",
+      "name": "Sun/Tue/Wed",
+      "blocks": [
+        {"type": "cv", "start": "09:00", "end": "09:30"},
+        {"type": "coding", "start": "09:30", "end": "11:30", "pomodoro": {"focusMinutes": 50, "breakMinutes": 10}},
+        {"type": "free", "start": "11:30", "end": "14:00"},
+        {"type": "coding", "start": "14:00", "end": "15:30", "pomodoro": {"focusMinutes": 50, "breakMinutes": 10}},
+        {"type": "free", "start": "15:30", "end": "16:20"},
+        {"type": "kidTime", "start": "16:20", "end": "22:30", "quiet": true}
+      ]
+    },
+    {
+      "id": "FRI_SAT",
+      "name": "Fri/Sat",
+      "blocks": [
+        {"type": "kidTime", "start": "09:00", "end": "13:00", "quiet": true},
+        {"type": "free", "start": "13:00", "end": "15:00"},
+        {"type": "kidTime", "start": "15:00", "end": "22:30", "quiet": true}
+      ]
+    },
+    {
+      "id": "OFF",
+      "name": "Off",
+      "blocks": []
+    }
+  ]
+}
