@@ -1,0 +1,12 @@
+- Kotlin stays at 2.2.10 because AGP 9.4 built-in Kotlin rejects the kotlin-android plugin; KSP 2.3.12 is the AGP 9-compatible processor. Latest Kotlin overall is newer, but that pair is what this AGP build accepts.
+- `kotlin.time.Clock` / `Instant` (kotlinx-datetime 0.8) need `-opt-in=kotlin.time.ExperimentalTime`.
+- Template id is stored as its own `day` prefs key. `KidTime` / `Evening` / `Ended` do not carry it, and history flush needs it.
+- Kid-time planned end is 22:30 so the calendar can draw an open-ended block.
+- Empty CV slot: a CV window with no recorded work after it has passed becomes synthetic Free.
+- `EndBlockEarly` returns the same `Running`. Segment changes belong to the engine, not the state machine.
+- `StartDay(OFF)` and `TakeOffDay` both enter `Off`.
+- Release signing falls back to the debug keystore when `keystore.properties` is absent.
+- Home calendar draws the hour grid, block layout, and now line, but leak overflow, evening choice sheet, and auto-scroll are not finished.
+- Weekly, Insights, History, and Time Debt navigate and render a first cut. They do not yet match every visual in `visuals.md`.
+- Macrobenchmark module is not added.
+- Receivers call `goAsync()` and finish the pending result immediately; suspend work is launched on the app scope, so a killed process can drop the tail of `onAlarm`.
