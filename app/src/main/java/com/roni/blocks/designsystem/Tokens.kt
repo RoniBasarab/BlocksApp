@@ -55,4 +55,7 @@ object Metrics {
     val borderSuggested = 1.5.dp
     val pressScale = 0.97f
     val currentScale = 1.02f
+    val blockOneLineMax = 36.dp
+    val leakLabelMin = 18.dp
+    val scrollLeadIn = 96.dp
 }

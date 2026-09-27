@@ -49,7 +49,9 @@ data class AppColors(
     val good: Color = Good,
     val neutralTrend: Color = TextSecondary,
     val blocks: Map<String, BlockColors> = emptyMap(),
-)
+) {
+    fun block(type: BlockType): BlockColors = blockColors(type)
+}
 
 val LocalAppColors = staticCompositionLocalOf { AppPalette }
 
