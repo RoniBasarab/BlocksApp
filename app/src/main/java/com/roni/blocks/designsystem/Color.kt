@@ -21,18 +21,29 @@ val TextMuted = Color(0xFF6F6A62)
 val Leak = Color(0xFFD97070)
 val LeakContainer = Color(0xFF4A2C2C)
 val Good = Color(0xFF8FB58A)
+val Lavender = Color(0xFFA99BC9)
 
 @Immutable
 data class BlockColors(val container: Color, val accent: Color)
 
 @Immutable
 data class AppColors(
+    val background: Color = Background,
+    val surface: Color = Surface,
+    val surfaceRaised: Color = SurfaceRaised,
+    val outline: Color = Outline,
+    val outlineStrong: Color = OutlineStrong,
+    val primary: Color = Primary,
+    val onPrimary: Color = OnPrimary,
+    val secondary: Color = Secondary,
+    val textPrimary: Color = TextPrimary,
+    val textSecondary: Color = TextSecondary,
+    val textMuted: Color = TextMuted,
     val leak: Color = Leak,
     val leakContainer: Color = LeakContainer,
     val good: Color = Good,
     val neutralTrend: Color = TextSecondary,
-    val textMuted: Color = TextMuted,
-    val outlineStrong: Color = OutlineStrong,
+    val blocks: Map<String, BlockColors> = emptyMap(),
 )
 
 val LocalAppColors = staticCompositionLocalOf { AppColors() }
