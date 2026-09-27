@@ -26,26 +26,30 @@ import kotlinx.serialization.Serializable
 @Composable
 fun AppNav(startOnPicker: Boolean) {
     val backStack = rememberNavBackStack(if (startOnPicker) TemplatePickerKey else HomeKey)
+    fun openTab(key: NavKey) {
+        backStack.clear()
+        backStack.add(key)
+    }
     NavDisplay(
         backStack = backStack,
         onBack = { if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) },
         entryProvider = entryProvider {
             entry<TemplatePickerKey> {
-                TemplatePickerRoute(onStarted = { backStack.clear(); backStack.add(HomeKey) })
+                TemplatePickerRoute(onStarted = { openTab(HomeKey) })
             }
             entry<HomeKey> {
                 HomeRoute(
-                    onMenu = { key -> backStack.add(key) },
+                    onMenu = { backStack.add(it) },
                     onSwap = { backStack.add(TemplatePickerKey) },
-                    onTab = { key -> backStack.clear(); backStack.add(key) },
+                    onTab = ::openTab,
                 )
             }
-            entry<WeeklyKey> { WeeklyRoute(onTab = { key -> backStack.clear(); backStack.add(key) }) }
-            entry<InsightsKey> { InsightsRoute(onTab = { key -> backStack.clear(); backStack.add(key) }) }
-            entry<HistoryKey> { HistoryRoute(onDay = { backStack.add(HistoryDayKey(it)) }) }
-            entry<HistoryDayKey> { key -> HistoryRoute(date = key.date, onDay = {}) }
-            entry<TimeDebtKey> { TimeDebtRoute() }
-            entry<SettingsKey> { SettingsRoute() }
+            entry<WeeklyKey> { WeeklyRoute(onTab = ::openTab, onMenu = { backStack.add(it) }) }
+            entry<InsightsKey> { InsightsRoute(onTab = ::openTab, onMenu = { backStack.add(it) }) }
+            entry<HistoryKey> { HistoryRoute(onBack = { backStack.removeAt(backStack.lastIndex) }, onDay = { backStack.add(HistoryDayKey(it)) }) }
+            entry<HistoryDayKey> { key -> HistoryRoute(date = key.date, onBack = { backStack.removeAt(backStack.lastIndex) }, onDay = {}) }
+            entry<TimeDebtKey> { TimeDebtRoute(onBack = { backStack.removeAt(backStack.lastIndex) }) }
+            entry<SettingsKey> { SettingsRoute(onBack = { backStack.removeAt(backStack.lastIndex) }) }
         },
     )
 }
