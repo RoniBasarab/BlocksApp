@@ -11,6 +11,7 @@ import com.roni.blocks.designsystem.Good
 import com.roni.blocks.designsystem.Lavender
 import com.roni.blocks.designsystem.Leak
 import com.roni.blocks.designsystem.TextSecondary
+import com.roni.blocks.designsystem.blockColors
 import com.roni.blocks.feature.history.HistoryDay
 import com.roni.blocks.feature.history.HistoryUiState
 import com.roni.blocks.feature.history.HistoryWeek
@@ -27,10 +28,11 @@ import com.roni.blocks.feature.templatepicker.PickerCard
 import com.roni.blocks.feature.templatepicker.PickerUiState
 import com.roni.blocks.feature.timedebt.DebtDay
 import com.roni.blocks.feature.timedebt.TimeDebtUiState
-import com.roni.blocks.feature.weekly.WeeklyBar
+import com.roni.blocks.feature.weekly.PairedBar
 import com.roni.blocks.feature.weekly.WeeklyStat
 import com.roni.blocks.feature.weekly.WeeklyUiState
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toPersistentList
 
 /** The NowCard shapes from Task-4 §2.2, one per state row. */
 object FakeStates {
@@ -130,23 +132,22 @@ object FakeStates {
 
     fun weeklyWithData(): WeeklyUiState = WeeklyUiState(
         hasData = true,
-        weekLabel = "13 – 19 Sep",
-        heroLine = "5 of 7 days logged",
+        weekLabel = "20 – 26 Sep",
+        canGoNext = false,
+        plannedFraction = 0.87f,
+        plannedSummary = "16h 05m of 18h 30m",
         stats = listOf(
-            WeeklyStat("Focus", "12 h"),
-            WeeklyStat("Meetings", "6 h"),
-            WeeklyStat("Leaks", "45 min"),
-            WeeklyStat("Kids", "8 h"),
+            WeeklyStat("Leak total", "2h 10m"),
+            WeeklyStat("Gym sessions", "1 / 2"),
+            WeeklyStat("Off days", "1"),
+            WeeklyStat("Evenings skipped", "2"),
         ),
         bars = listOf(
-            WeeklyBar("Mon", 0.9f),
-            WeeklyBar("Tue", 0.7f),
-            WeeklyBar("Wed", 1f),
-            WeeklyBar("Thu", 0.5f),
-            WeeklyBar("Fri", 0.8f),
-            WeeklyBar("Sat", 0.3f),
-            WeeklyBar("Sun", 0.6f),
-        ),
+            PairedBar("CV", 150, 140, blockColors(BlockType.Cv).accent),
+            PairedBar("Coding", 700, 560, blockColors(BlockType.Coding).accent),
+            PairedBar("Gym", 260, 120, blockColors(BlockType.Gym).accent),
+            PairedBar("Free", 240, 200, blockColors(BlockType.Free).accent),
+        ).toPersistentList(),
     )
 
     fun insightsEmpty(daysLogged: Int): InsightsUiState =
