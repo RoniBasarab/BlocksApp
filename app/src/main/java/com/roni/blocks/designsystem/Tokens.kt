@@ -24,6 +24,7 @@ object AppShapes {
 
 object Metrics {
     val iconCircle = 32.dp
+    val iconSm = 18.dp
     val iconInCircle = 20.dp
     val iconCircleRow = 36.dp
     val emptyIconCircle = 72.dp

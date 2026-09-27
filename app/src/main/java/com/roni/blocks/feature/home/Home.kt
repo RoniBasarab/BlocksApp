@@ -34,6 +34,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -62,6 +65,7 @@ import androidx.navigation3.runtime.NavKey
 import com.roni.blocks.core.daystate.DayEvent
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.daystate.DayState
+import com.roni.blocks.core.daystate.isDishesSlot
 import com.roni.blocks.core.daystate.templateId
 import com.roni.blocks.core.debug.RecompositionCounter
 import com.roni.blocks.core.model.BlockType
@@ -115,6 +119,7 @@ class HomeViewModel @Inject constructor(
 
     private var selectedBlockId: String? = null
     private var resumePrompt = false
+    private var eveningSheetOpen = false
 
     val minuteOfDay: StateFlow<Int> =
         ticker.minutes.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
@@ -150,8 +155,12 @@ class HomeViewModel @Inject constructor(
             HomeAction.ResumeWhereIWas -> day.send(DayEvent.Resume(ResumeMode.RESUME_WHERE_I_WAS))
             HomeAction.JumpToNow -> day.send(DayEvent.Resume(ResumeMode.JUMP_TO_NOW))
             HomeAction.KidAsleep -> day.send(DayEvent.KidAsleep)
+            HomeAction.ChooseEvening -> eveningSheetOpen = true
             HomeAction.EndDay -> day.send(DayEvent.EndDay)
-            is HomeAction.PickEvening -> day.send(DayEvent.EveningChoice(action.choice))
+            is HomeAction.PickEvening -> {
+                eveningSheetOpen = false
+                day.send(DayEvent.EveningChoice(action.choice))
+            }
             is HomeAction.BlockClicked -> selectedBlockId = action.id
             HomeAction.DismissBlockSheet -> selectedBlockId = null
             HomeAction.DismissResume -> resumePrompt = false
@@ -186,6 +195,7 @@ class HomeViewModel @Inject constructor(
             selectedBlockId = null
             resumePrompt = false
         }
+        if (!dayState.isDishesSlot) eveningSheetOpen = false
 
         _state.value = HomeState(
             weekdayShort = now.toLocalDateTime(zone).dayOfWeek.name.take(3),
@@ -197,7 +207,8 @@ class HomeViewModel @Inject constructor(
             currentBlockId = current?.id,
             leakFromMin = if (leaking) effectiveEndMin else null,
             nowCard = nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel),
-            eveningChoicePending = dayState is DayState.Evening && dayState.blockIndex == 0,
+            eveningChoicePending = dayState.isDishesSlot,
+            eveningSheetOpen = eveningSheetOpen,
             blockSheet = blockSheet(blocks.firstOrNull { it.id == selectedBlockId }, segments, minute),
             resumePrompt = resumePrompt && dayState is DayState.Interrupted,
         )
@@ -291,27 +302,38 @@ class HomeViewModel @Inject constructor(
                 buttons = persistentListOf(NowButton(NowButtonId.NEXT, "Start", NowButtonStyle.PRIMARY)),
             )
             is DayState.Running -> {
-                val type = current?.type
-                val pomodoro = type != null && current.subtitle != null
-                NowCardUi(
-                    title = current?.title ?: "Running",
-                    type = type,
-                    chip = if (pomodoro) "Focus" else null,
-                    chipTone = if (leaking) ChipTone.LEAK else ChipTone.NEUTRAL,
-                    subtitle = effectiveEndMin?.let { "until ${hhmm(it)}" },
-                    isLeaking = leaking,
-                    showProgress = pomodoro,
-                    buttons = persistentListOf(
-                        NowButton(NowButtonId.PAUSE, "Pause", NowButtonStyle.ICON),
-                        NowButton(NowButtonId.INTERRUPT, "Emergency interrupt", NowButtonStyle.ICON),
-                        NowButton(NowButtonId.END_EARLY, "End early", NowButtonStyle.TEXT),
-                        NowButton(
-                            NowButtonId.NEXT,
-                            if (leaking && nextTitle != null) "Next: $nextTitle" else "Next",
-                            NowButtonStyle.PRIMARY,
+                val title = current?.title ?: "Running"
+                val pomodoro = current?.subtitle != null
+                if (leaking) {
+                    NowCardUi(
+                        title = title,
+                        type = current?.type,
+                        chip = "Ran over",
+                        chipTone = ChipTone.LEAK,
+                        subtitle = effectiveEndMin?.let { "$title ended at ${hhmm(it)}" },
+                        isLeaking = true,
+                        showProgress = false,
+                        buttons = buildList {
+                            nextTitle?.let { add(NowButton(NowButtonId.NEXT, "Start $it", NowButtonStyle.PRIMARY)) }
+                            add(NowButton(NowButtonId.INTERRUPT, "Emergency", NowButtonStyle.SECONDARY))
+                        }.toPersistentList(),
+                    )
+                } else {
+                    NowCardUi(
+                        title = title,
+                        type = current?.type,
+                        chip = if (pomodoro) "Focus" else null,
+                        chipTone = ChipTone.NEUTRAL,
+                        subtitle = effectiveEndMin?.let { "until ${hhmm(it)}" },
+                        isLeaking = false,
+                        showProgress = pomodoro,
+                        buttons = persistentListOf(
+                            NowButton(NowButtonId.PAUSE, "Pause", NowButtonStyle.SECONDARY),
+                            NowButton(NowButtonId.INTERRUPT, "Emergency", NowButtonStyle.SECONDARY),
+                            NowButton(NowButtonId.END_EARLY, "Finish early", NowButtonStyle.SECONDARY),
                         ),
-                    ),
-                )
+                    )
+                }
             }
             is DayState.Paused -> NowCardUi(
                 title = "Paused",
@@ -321,17 +343,20 @@ class HomeViewModel @Inject constructor(
                 subtitle = effectiveEndMin?.let { "until ${hhmm(it)}" },
                 isLeaking = false,
                 showProgress = false,
-                buttons = persistentListOf(NowButton(NowButtonId.RESUME, "Resume", NowButtonStyle.PRIMARY)),
+                buttons = persistentListOf(
+                    NowButton(NowButtonId.RESUME, "Resume", NowButtonStyle.PRIMARY),
+                    NowButton(NowButtonId.INTERRUPT, "Emergency", NowButtonStyle.SECONDARY),
+                ),
             )
             is DayState.Interrupted -> NowCardUi(
-                title = "Interrupted",
+                title = "Frozen",
                 type = current?.type,
                 chip = null,
                 chipTone = ChipTone.NEUTRAL,
                 subtitle = null,
                 isLeaking = false,
                 showProgress = false,
-                buttons = persistentListOf(NowButton(NowButtonId.RESUME, "Resume", NowButtonStyle.PRIMARY)),
+                buttons = persistentListOf(NowButton(NowButtonId.RESUME, "I'm back", NowButtonStyle.PRIMARY)),
             )
             DayState.KidTime -> NowCardUi(
                 title = "Kid time",
@@ -343,19 +368,35 @@ class HomeViewModel @Inject constructor(
                 showProgress = false,
                 buttons = persistentListOf(
                     NowButton(NowButtonId.KID_ASLEEP, "Kid asleep", NowButtonStyle.PRIMARY),
-                    NowButton(NowButtonId.END_DAY, "End day", NowButtonStyle.TEXT),
+                    NowButton(NowButtonId.END_DAY, "End day", NowButtonStyle.SECONDARY),
                 ),
             )
-            is DayState.Evening -> NowCardUi(
-                title = current?.title ?: "Evening",
-                type = current?.type,
-                chip = null,
-                chipTone = ChipTone.NEUTRAL,
-                subtitle = "until ${hhmm(22 * 60 + 30)}",
-                isLeaking = false,
-                showProgress = false,
-                buttons = persistentListOf(NowButton(NowButtonId.END_DAY, "End day", NowButtonStyle.PRIMARY)),
-            )
+            is DayState.Evening -> if (dayState.isDishesSlot) {
+                NowCardUi(
+                    title = "Dishes",
+                    type = BlockType.Dishes,
+                    chip = null,
+                    chipTone = ChipTone.NEUTRAL,
+                    subtitle = "Pick what tonight is about",
+                    isLeaking = false,
+                    showProgress = false,
+                    buttons = persistentListOf(
+                        NowButton(NowButtonId.CHOOSE_EVENING, "Choose evening", NowButtonStyle.PRIMARY),
+                        NowButton(NowButtonId.END_DAY, "End day", NowButtonStyle.SECONDARY),
+                    ),
+                )
+            } else {
+                NowCardUi(
+                    title = current?.title ?: "Evening",
+                    type = current?.type,
+                    chip = null,
+                    chipTone = ChipTone.NEUTRAL,
+                    subtitle = "until ${hhmm(22 * 60 + 30)}",
+                    isLeaking = false,
+                    showProgress = false,
+                    buttons = persistentListOf(NowButton(NowButtonId.END_DAY, "End day", NowButtonStyle.SECONDARY)),
+                )
+            }
             DayState.Ended -> NowCardUi(
                 title = "Day done",
                 type = null,
@@ -481,7 +522,8 @@ fun HomeScreen(
                 onAction = onAction,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(horizontal = Spacing.l, vertical = Spacing.s),
+                    .padding(horizontal = Spacing.l, vertical = Spacing.s)
+                    .testTag("now_card"),
             )
         }
     }
@@ -489,7 +531,7 @@ fun HomeScreen(
     state.blockSheet?.let { sheet ->
         BlockDetailSheet(ui = sheet, onDismiss = { onAction(HomeAction.DismissBlockSheet) })
     }
-    if (state.eveningChoicePending) {
+    if (state.eveningChoicePending || state.eveningSheetOpen) {
         EveningChoiceSheet(onPick = { onAction(HomeAction.PickEvening(it)) })
     }
     if (state.resumePrompt) {
@@ -590,11 +632,16 @@ fun NowCard(
     countdownText: () -> String,
     progress: () -> Float,
     onAction: (HomeAction) -> Unit,
+    infoDialogOpen: Boolean = false,
+    onDismissInfoDialog: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     SideEffect { RecompositionCounter.hit("NowCard") }
     val c = AppTheme.colors
     val accent = ui.type?.let { c.block(it).accent } ?: c.primary
+    var dialog by remember { mutableStateOf<NowCardDialog?>(if (infoDialogOpen) NowCardDialog.Info else null) }
+    var dontAskAgain by remember { mutableStateOf(setOf<NowButtonId>()) }
+
     AppCard(modifier.fillMaxWidth(), borderColor = if (ui.isLeaking) c.leak else null) {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -608,6 +655,10 @@ fun NowCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 ui.chip?.let { AppChip(it, ui.chipTone.color(c)) }
+                IconButton(
+                    onClick = { dialog = NowCardDialog.Info },
+                    modifier = Modifier.size(Metrics.touch),
+                ) { Icon(Icons.Outlined.Info, "What the buttons do") }
             }
             Row(verticalAlignment = Alignment.Bottom) {
                 CountdownText(countdownText, if (ui.isLeaking) c.leak else c.textPrimary, Modifier.weight(1f))
@@ -616,8 +667,48 @@ fun NowCard(
                 }
             }
             if (ui.showProgress) ProgressLine(progress, accent)
-            NowButtonsRow(ui.buttons, onAction)
+            ui.buttons.filter { it.style == NowButtonStyle.PRIMARY }.forEach { button ->
+                NowPrimaryButton(button) { onAction(button.id.toAction()) }
+            }
+            val secondary = ui.buttons.filter { it.style == NowButtonStyle.SECONDARY }
+            if (secondary.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                    secondary.forEach { button ->
+                        NowSecondaryButton(
+                            button = button,
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                if (button.id.needsConfirmation && button.id !in dontAskAgain) {
+                                    dialog = NowCardDialog.Confirm(button.id)
+                                } else {
+                                    onAction(button.id.toAction())
+                                }
+                            },
+                        )
+                    }
+                }
+            }
         }
+    }
+
+    when (val open = dialog) {
+        null -> Unit
+        NowCardDialog.Info -> NowCardInfoDialog(
+            blockTitle = ui.title,
+            onDismiss = {
+                dialog = null
+                onDismissInfoDialog()
+            },
+        )
+        is NowCardDialog.Confirm -> ConfirmationDialog(
+            spec = checkNotNull(open.id.confirmation(ui.title)),
+            onConfirm = { askedAgain ->
+                if (askedAgain) dontAskAgain = dontAskAgain + open.id
+                dialog = null
+                onAction(open.id.toAction())
+            },
+            onDismiss = { dialog = null },
+        )
     }
 }
 
@@ -648,35 +739,42 @@ private fun ProgressLine(progress: () -> Float, color: Color) {
 }
 
 @Composable
-private fun NowButtonsRow(buttons: List<NowButton>, onAction: (HomeAction) -> Unit) {
-    if (buttons.isEmpty()) return
-    val icons: Map<NowButtonId, ImageVector> = mapOf(
-        NowButtonId.PAUSE to Icons.Outlined.Pause,
-        NowButtonId.INTERRUPT to Icons.Outlined.WarningAmber,
-        NowButtonId.RESUME to Icons.Outlined.PlayArrow,
-        NowButtonId.KID_ASLEEP to Icons.Outlined.Nightlight,
-        NowButtonId.END_DAY to Icons.Outlined.Stop,
-        NowButtonId.END_EARLY to Icons.Outlined.Stop,
-        NowButtonId.NEXT to Icons.Outlined.PlayArrow,
-    )
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        buttons.filter { it.style == NowButtonStyle.ICON }.forEach { b ->
-            IconButton(onClick = { onAction(b.id.toAction()) }, modifier = Modifier.size(Metrics.touch)) {
-                Icon(icons[b.id] ?: Icons.Outlined.Stop, b.label)
-            }
-        }
-        Spacer(Modifier.weight(1f))
-        buttons.filter { it.style == NowButtonStyle.TEXT }.forEach { b ->
-            TextButton(onClick = { onAction(b.id.toAction()) }) { Text(b.label) }
-        }
-        buttons.filter { it.style == NowButtonStyle.PRIMARY }.forEach { b ->
-            Button(
-                onClick = { onAction(b.id.toAction()) },
-                colors = ButtonDefaults.buttonColors(containerColor = AppTheme.colors.primary, contentColor = AppTheme.colors.onPrimary),
-                shape = AppShapes.chip,
-            ) { Text(b.label) }
-        }
+private fun NowPrimaryButton(button: NowButton, onClick: () -> Unit) {
+    val c = AppTheme.colors
+    Button(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().heightIn(min = Metrics.touch).testTag("now_primary"),
+        shape = AppShapes.chip,
+        colors = ButtonDefaults.buttonColors(containerColor = c.primary, contentColor = c.onPrimary),
+    ) {
+        Text(button.label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
     }
+}
+
+@Composable
+private fun NowSecondaryButton(button: NowButton, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val c = AppTheme.colors
+    FilledTonalButton(
+        onClick = onClick,
+        modifier = modifier.heightIn(min = Metrics.touch),
+        shape = AppShapes.chip,
+        colors = ButtonDefaults.filledTonalButtonColors(containerColor = c.surfaceRaised, contentColor = c.textPrimary),
+    ) {
+        Icon(nowButtonIcon(button.id), contentDescription = null, modifier = Modifier.size(Metrics.iconSm))
+        Spacer(Modifier.width(Spacing.xs))
+        Text(button.label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+    }
+}
+
+private fun nowButtonIcon(id: NowButtonId): ImageVector = when (id) {
+    NowButtonId.PAUSE -> Icons.Outlined.Pause
+    NowButtonId.INTERRUPT -> Icons.Outlined.WarningAmber
+    NowButtonId.END_EARLY -> Icons.Outlined.Stop
+    NowButtonId.END_DAY -> Icons.Outlined.Stop
+    NowButtonId.NEXT -> Icons.Outlined.PlayArrow
+    NowButtonId.RESUME -> Icons.Outlined.PlayArrow
+    NowButtonId.KID_ASLEEP -> Icons.Outlined.Nightlight
+    NowButtonId.CHOOSE_EVENING -> Icons.Outlined.Nightlight
 }
 
 private fun NowButtonId.toAction(): HomeAction = when (this) {
@@ -686,6 +784,7 @@ private fun NowButtonId.toAction(): HomeAction = when (this) {
     NowButtonId.NEXT -> HomeAction.Next
     NowButtonId.RESUME -> HomeAction.Resume
     NowButtonId.KID_ASLEEP -> HomeAction.KidAsleep
+    NowButtonId.CHOOSE_EVENING -> HomeAction.ChooseEvening
     NowButtonId.END_DAY -> HomeAction.EndDay
 }
 

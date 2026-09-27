@@ -21,9 +21,10 @@ data class CalendarBlockUi(
 
 enum class ChipTone { NEUTRAL, BREAK, LEAK }
 
-enum class NowButtonId { PAUSE, INTERRUPT, END_EARLY, NEXT, RESUME, KID_ASLEEP, END_DAY }
+enum class NowButtonId { PAUSE, INTERRUPT, END_EARLY, NEXT, RESUME, KID_ASLEEP, CHOOSE_EVENING, END_DAY }
 
-enum class NowButtonStyle { ICON, TEXT, PRIMARY }
+/** [PRIMARY] is the full-width action; [SECONDARY] buttons share one weighted row. */
+enum class NowButtonStyle { SECONDARY, PRIMARY }
 
 @Immutable
 data class NowButton(val id: NowButtonId, val label: String, val style: NowButtonStyle)
@@ -62,6 +63,7 @@ data class HomeState(
     val leakFromMin: Int? = null,
     val nowCard: NowCardUi? = null,
     val eveningChoicePending: Boolean = false,
+    val eveningSheetOpen: Boolean = false,
     val blockSheet: BlockSheetUi? = null,
     val resumePrompt: Boolean = false,
 )
@@ -76,6 +78,7 @@ sealed interface HomeAction {
     data object ResumeWhereIWas : HomeAction
     data object JumpToNow : HomeAction
     data object KidAsleep : HomeAction
+    data object ChooseEvening : HomeAction
     data object EndDay : HomeAction
     data class BlockClicked(val id: String) : HomeAction
     data object DismissBlockSheet : HomeAction
@@ -86,7 +89,8 @@ sealed interface HomeAction {
     data object Settings : HomeAction
 
     val affectsOverlays: Boolean
-        get() = this is BlockClicked || this is DismissBlockSheet || this is DismissResume || this is Resume
+        get() = this is BlockClicked || this is DismissBlockSheet || this is DismissResume ||
+            this is Resume || this is ChooseEvening || this is PickEvening
 }
 
 val NowCardReservedHeight: Dp = 220.dp

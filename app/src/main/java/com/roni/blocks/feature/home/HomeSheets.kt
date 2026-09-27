@@ -182,17 +182,18 @@ fun ResumeDialog(
         onDismissRequest = onDismiss,
         containerColor = colors.surface,
         title = {
-            Text("Interrupted", style = MaterialTheme.typography.titleLarge, color = colors.textPrimary)
+            Text("Welcome back", style = MaterialTheme.typography.titleLarge, color = colors.textPrimary)
         },
         text = {
             Text(
-                "Pick up where you left off, or jump ahead to now.",
+                "Continue where you left off (the rest of the day moves later) or jump to where the clock is " +
+                    "now (missed blocks are marked as skipped).",
                 style = MaterialTheme.typography.bodyMedium,
                 color = colors.textSecondary,
             )
         },
         confirmButton = {
-            TextButton(onClick = onResumeWhereIWas) { Text("Resume where I was") }
+            TextButton(onClick = onResumeWhereIWas) { Text("Continue where I was") }
         },
         dismissButton = {
             TextButton(onClick = onJumpToNow) { Text("Jump to now") }

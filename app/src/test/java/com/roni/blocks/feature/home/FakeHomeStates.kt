@@ -18,10 +18,9 @@ object FakeHomeStates {
             isLeaking = false,
             showProgress = true,
             buttons = persistentListOf(
-                NowButton(NowButtonId.PAUSE, "Pause", NowButtonStyle.ICON),
-                NowButton(NowButtonId.INTERRUPT, "Emergency interrupt", NowButtonStyle.ICON),
-                NowButton(NowButtonId.END_EARLY, "End early", NowButtonStyle.TEXT),
-                NowButton(NowButtonId.NEXT, "Next", NowButtonStyle.PRIMARY),
+                NowButton(NowButtonId.PAUSE, "Pause", NowButtonStyle.SECONDARY),
+                NowButton(NowButtonId.INTERRUPT, "Emergency", NowButtonStyle.SECONDARY),
+                NowButton(NowButtonId.END_EARLY, "Finish early", NowButtonStyle.SECONDARY),
             ),
         ),
     )
@@ -32,16 +31,14 @@ object FakeHomeStates {
         nowCard = NowCardUi(
             title = "CV",
             type = BlockType.Cv,
-            chip = "Focus",
+            chip = "Ran over",
             chipTone = ChipTone.LEAK,
-            subtitle = "until 09:30",
+            subtitle = "CV ended at 09:30",
             isLeaking = true,
             showProgress = false,
             buttons = persistentListOf(
-                NowButton(NowButtonId.PAUSE, "Pause", NowButtonStyle.ICON),
-                NowButton(NowButtonId.INTERRUPT, "Emergency interrupt", NowButtonStyle.ICON),
-                NowButton(NowButtonId.END_EARLY, "End early", NowButtonStyle.TEXT),
-                NowButton(NowButtonId.NEXT, "Next: Coding", NowButtonStyle.PRIMARY),
+                NowButton(NowButtonId.NEXT, "Start Coding", NowButtonStyle.PRIMARY),
+                NowButton(NowButtonId.INTERRUPT, "Emergency", NowButtonStyle.SECONDARY),
             ),
         ),
     )
@@ -59,10 +56,9 @@ object FakeHomeStates {
             isLeaking = false,
             showProgress = false,
             buttons = persistentListOf(
-                NowButton(NowButtonId.PAUSE, "Pause", NowButtonStyle.ICON),
-                NowButton(NowButtonId.INTERRUPT, "Emergency interrupt", NowButtonStyle.ICON),
-                NowButton(NowButtonId.END_EARLY, "End early", NowButtonStyle.TEXT),
-                NowButton(NowButtonId.NEXT, "Next", NowButtonStyle.PRIMARY),
+                NowButton(NowButtonId.PAUSE, "Pause", NowButtonStyle.SECONDARY),
+                NowButton(NowButtonId.INTERRUPT, "Emergency", NowButtonStyle.SECONDARY),
+                NowButton(NowButtonId.END_EARLY, "Finish early", NowButtonStyle.SECONDARY),
             ),
         ),
     )
@@ -81,7 +77,7 @@ object FakeHomeStates {
             showProgress = false,
             buttons = persistentListOf(
                 NowButton(NowButtonId.KID_ASLEEP, "Kid asleep", NowButtonStyle.PRIMARY),
-                NowButton(NowButtonId.END_DAY, "End day", NowButtonStyle.TEXT),
+                NowButton(NowButtonId.END_DAY, "End day", NowButtonStyle.SECONDARY),
             ),
         ),
     )

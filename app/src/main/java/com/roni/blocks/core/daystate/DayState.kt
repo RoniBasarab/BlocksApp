@@ -92,6 +92,9 @@ fun DayState.isActive(): Boolean = when (this) {
     DayState.NotStarted, DayState.Ended, DayState.Off -> false
 }
 
+val DayState.isDishesSlot: Boolean
+    get() = this is DayState.Evening && blockIndex == 0
+
 fun DayState.templateId(): TemplateId? = when (this) {
     is DayState.Running -> template
     is DayState.Paused -> running.template
