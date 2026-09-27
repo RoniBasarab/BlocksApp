@@ -10,12 +10,13 @@ import com.roni.blocks.core.model.LocalDateSerializer
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.notifications.ActionEvent
-import com.roni.blocks.core.notifications.AppNotifier
-import com.roni.blocks.core.notifications.NoticeAction
+import com.roni.blocks.core.notifications.NotificationModelMapper
+import com.roni.blocks.core.notifications.NotificationPort
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.schedule.DayBook
 import com.roni.blocks.core.schedule.ScheduleEngine
 import com.roni.blocks.core.schedule.SegmentBook
+import com.roni.blocks.core.schedule.timelineAt
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
@@ -41,7 +42,8 @@ class DayOrchestrator @Inject constructor(
     private val templates: TemplateManager,
     private val history: HistoryManager,
     private val alarms: AlarmScheduler,
-    private val notifier: AppNotifier,
+    private val notificationMapper: NotificationModelMapper,
+    private val notificationRenderer: NotificationPort,
     private val clock: Clock,
     private val zone: TimeZone,
     private val logger: AppLogger,
@@ -69,11 +71,16 @@ class DayOrchestrator @Inject constructor(
     suspend fun handle(event: DayEvent) = apply(event)
 
     /**
-     * A tap on a notification button. [expectedBlockId] is the block the button was built for and
-     * travels with the tap so a stale tap can be recognised; the guard itself lands with the
-     * orchestrator's notification wiring.
+     * A tap on a notification button. [expectedBlockId] is the block the button was built for: a
+     * tap whose block is no longer the current one is stale and does nothing, which is also what
+     * makes a double tap advance exactly once.
      */
     suspend fun handleNotificationAction(event: ActionEvent, expectedBlockId: String?) {
+        val current = _state.value.currentBlockId()
+        if (expectedBlockId != null && expectedBlockId != current) {
+            logger.info("stale $event for $expectedBlockId, now ${current ?: "-"}")
+            return
+        }
         handle(event.toDayEvent())
     }
 
@@ -127,7 +134,7 @@ class DayOrchestrator @Inject constructor(
         if (next == DayState.Ended || next == DayState.Off) {
             flush((if (next == DayState.Off) setOf(DayFlag.OFF_DAY) else emptySet()) + if (fromKid && event == DayEvent.EndDay) setOf(DayFlag.EVENING_SKIPPED) else book.flags)
         } else {
-            sideEffects()
+            sideEffects(transition = true)
         }
     }
 
@@ -163,7 +170,7 @@ class DayOrchestrator @Inject constructor(
         val record = DayRecord(today, template, _segments.value, flags)
         history.writeDay(record)
         history.writeDebt(DebtRecord(today, history.debtMinutes(_segments.value), 0))
-        notifier.cancelAll()
+        notificationRenderer.render(null, transition = true)
         alarms.cancel()
         if (_state.value != DayState.Off && _state.value != DayState.Ended) {
             _state.value = DayState.Ended
@@ -172,24 +179,15 @@ class DayOrchestrator @Inject constructor(
         logger.info("flushed $today $flags")
     }
 
-    private suspend fun sideEffects() {
+    private suspend fun sideEffects(transition: Boolean = false) {
+        val now = clock.now()
         val today = today()
         val template = _state.value.templateId()?.let { templates.get(it) }
         val index = (_state.value as? DayState.Running)?.blockIndex ?: 0
-        val wake = engine.nextWakeUp(_state.value, today, clock.now(), template, index)
+        val wake = engine.nextWakeUp(_state.value, today, now, template, index)
         if (wake == null) alarms.cancel() else alarms.schedule(wake)
-        when (val current = _state.value) {
-            DayState.NotStarted -> notifier.postAlert(current, "Pick a template")
-            is DayState.Running -> {
-                val block = template?.blocks?.getOrNull(current.blockIndex)
-                notifier.postStatus(current, block?.type?.toString() ?: "Running")
-                notifier.postAlert(current, "Block update", listOf(NoticeAction.NEXT))
-            }
-            DayState.KidTime -> notifier.postAlert(current, "Kid asleep?", listOf(NoticeAction.KID_ASLEEP, NoticeAction.END_DAY))
-            is DayState.Evening -> notifier.postStatus(current, "Evening")
-            DayState.Ended, DayState.Off -> notifier.cancelAll()
-            else -> notifier.postStatus(current, current.toString())
-        }
+        val timeline = engine.timelineAt(template, today, zone, _segments.value, now)
+        notificationRenderer.render(notificationMapper.from(_state.value, timeline, now), transition)
     }
 
     private suspend fun restore() {
@@ -210,6 +208,13 @@ class DayOrchestrator @Inject constructor(
     }
 
     private fun today() = clock.now().toLocalDateTime(zone).date
+
+    private fun DayState.currentBlockId(): String? = when (this) {
+        is DayState.Running -> "b$blockIndex"
+        is DayState.Paused -> "b${running.blockIndex}"
+        is DayState.Interrupted -> "b${running.blockIndex}"
+        DayState.NotStarted, DayState.KidTime, is DayState.Evening, DayState.Ended, DayState.Off -> null
+    }
 
     private companion object {
         const val STATE = "day_state"
