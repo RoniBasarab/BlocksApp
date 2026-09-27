@@ -88,36 +88,17 @@ class ScheduleEngine @Inject constructor(
         }
     }
 
-    fun effectiveEnd(plannedEnd: Instant, paused: kotlin.time.Duration): Instant = plannedEnd + paused
-
-    fun pause(template: Template, date: LocalDate, blockIndex: Int, pauseStart: Instant, pauseEnd: Instant): List<Segment> {
-        val blocks = planned(template, date)
-        val current = blocks[blockIndex]
-        val paused = pauseEnd - pauseStart
-        val extended = effectiveEnd(current.plannedEnd, paused)
-        val following = blocks.getOrNull(blockIndex + 1)
-        val eaten = following?.let { next ->
-            if (extended >= next.plannedEnd) {
-                segment(next.spec.type, SegmentKind.CONSUMED, next.plannedStart, next.plannedEnd, next.plannedStart, next.plannedEnd)
-            } else {
-                segment(next.spec.type, SegmentKind.PLANNED, next.plannedStart, next.plannedEnd, maxOf(next.plannedStart, extended), next.plannedEnd)
-            }
-        }
-        return listOfNotNull(
-            segment(current.spec.type, SegmentKind.PLANNED, current.plannedStart, current.plannedEnd, current.plannedStart, null),
-            segment(current.spec.type, SegmentKind.PAUSE, null, null, pauseStart, pauseEnd),
-            eaten,
-        )
-    }
-
-    fun pomodoroPhase(start: LocalTime, at: LocalTime, pomodoro: Pomodoro, blockMinutes: Int): PomodoroPhase {
-        val elapsed = (at.toSecondOfDay() - start.toSecondOfDay()) / 60
+    fun pomodoroPhase(start: Instant, end: Instant, at: Instant, pomodoro: Pomodoro): PomodoroPhase {
+        val elapsed = (at - start).inWholeMinutes.coerceAtLeast(0L).toInt()
+        val span = (end - start).inWholeMinutes.coerceAtLeast(0L).toInt()
         val cycle = pomodoro.focusMinutes + pomodoro.breakMinutes
         val into = elapsed.mod(cycle)
         val focusing = into < pomodoro.focusMinutes
-        val left = if (focusing) pomodoro.focusMinutes - into else pomodoro.breakMinutes - (into - pomodoro.focusMinutes)
-        val total = (blockMinutes + cycle - 1) / cycle
-        return PomodoroPhase(focusing, elapsed / cycle + 1, total.coerceAtLeast(1), left)
+        val phaseLeft = if (focusing) pomodoro.focusMinutes - into else cycle - into
+        val blockLeft = (end - at).inWholeMinutes.coerceAtLeast(0L).toInt()
+        val left = minOf(phaseLeft, blockLeft)
+        val total = ((span + cycle - 1) / cycle).coerceAtLeast(1)
+        return PomodoroPhase(focusing, elapsed / cycle + 1, total, left)
     }
 
     fun eveningPlan(asleepAt: LocalTime): List<BlockSpec> {

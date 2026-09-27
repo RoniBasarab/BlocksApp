@@ -62,17 +62,6 @@ class HistoryManager @Inject constructor(
         prefs.keys(PrefsFile.HISTORY).forEach { prefs.remove(PrefsFile.HISTORY, it) }
     }
 
-    fun debtMinutes(segments: List<Segment>): Int {
-        val leak = segments.filter { it.kind == SegmentKind.PLANNED && it.actualEnd != null && it.plannedEnd != null }
-            .sumOf { segment ->
-                val over = (segment.actualEnd!! - segment.plannedEnd!!).inWholeMinutes
-                over.coerceAtLeast(0)
-            }
-        val pause = segments.filter { it.kind == SegmentKind.PAUSE && it.actualEnd != null }
-            .sumOf { (it.actualEnd!! - it.actualStart).inWholeMinutes }
-        return (leak + pause).toInt()
-    }
-
     fun weekStart(date: LocalDate): LocalDate {
         var cursor = date
         while (cursor.dayOfWeek != DayOfWeek.SUNDAY) cursor = cursor.minus(1, DateTimeUnit.DAY)
@@ -96,3 +85,12 @@ fun missedGym(template: TemplateId?, segments: List<Segment>): Boolean {
     if (template != TemplateId.MON_THU) return false
     return segments.none { it.type == BlockType.Gym && it.kind == SegmentKind.PLANNED && it.actualEnd != null }
 }
+
+/** Debt is time a block ran past its planned end. Pause time is logged, but it is not debt. */
+fun debtMinutes(segments: List<Segment>): Int =
+    segments.filter { it.kind == SegmentKind.PLANNED && it.actualEnd != null && it.plannedEnd != null }
+        .sumOf { segment ->
+            val over = (segment.actualEnd!! - segment.plannedEnd!!).inWholeMinutes
+            over.coerceAtLeast(0)
+        }
+        .toInt()

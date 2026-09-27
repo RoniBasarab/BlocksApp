@@ -7,7 +7,6 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
 
 /**
  * The timeline is **computed, never persisted**. It is derived on demand from the template,
@@ -62,17 +61,18 @@ fun currentBlock(blocks: List<ResolvedBlock>, now: Instant): ResolvedBlock? =
 fun landingBlockForStartNext(blocks: List<ResolvedBlock>, now: Instant): ResolvedBlock? =
     blocks.firstOrNull { now < it.plannedEnd } ?: blocks.lastOrNull()
 
-/** The current block's effective end: its planned end pushed later by the paused minutes. */
-fun effectiveEnd(timeline: DayTimeline, now: Instant): Instant? {
-    val planned = timeline.open?.plannedEnd ?: return null
-    return planned + timeline.pausedMinutes.minutes
-}
+/** The current block's end. A pause never moves it: the pause shortens the block instead. */
+fun effectiveEnd(timeline: DayTimeline, now: Instant): Instant? = timeline.open?.plannedEnd
 
 /** Null when the block has no Pomodoro configured. */
-fun ScheduleEngine.pomodoroStatus(block: ResolvedBlock, now: Instant, zone: TimeZone): PomodoroStatus? {
+fun ScheduleEngine.pomodoroStatus(
+    block: ResolvedBlock,
+    now: Instant,
+    zone: TimeZone,
+    actualStart: Instant = block.plannedStart,
+): PomodoroStatus? {
     val pomodoro = block.spec.pomodoro ?: return null
-    val blockMinutes = (block.plannedEnd - block.plannedStart).inWholeMinutes.toInt()
-    val phase = pomodoroPhase(block.spec.start, now.toLocalDateTime(zone).time, pomodoro, blockMinutes)
+    val phase = pomodoroPhase(actualStart, block.plannedEnd, now, pomodoro)
     return PomodoroStatus(
         onBreak = !phase.focusing,
         index = phase.index,

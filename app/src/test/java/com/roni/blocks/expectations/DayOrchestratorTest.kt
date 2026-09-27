@@ -58,7 +58,8 @@ class DayOrchestratorTest {
     private lateinit var clock: MovableClock
     private lateinit var orchestrator: DayOrchestrator
     private lateinit var history: HistoryManager
-    private val rendered = mutableListOf<NotificationModel?>()
+    private val rendered: java.util.concurrent.CopyOnWriteArrayList<NotificationModel?> =
+        java.util.concurrent.CopyOnWriteArrayList()
 
     @Before
     fun setUp() {
@@ -99,11 +100,16 @@ class DayOrchestratorTest {
     }
 
     @Test
-    fun doubleTap_advancesOnce() = runBlocking {
+    fun doubleTap_nextSlot_advancesOnce() = runBlocking {
         orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
         orchestrator.handleNotificationAction(ActionEvent.START_NEXT, firstBlockId)
         orchestrator.handleNotificationAction(ActionEvent.START_NEXT, firstBlockId)
         assertEquals(1, (orchestrator.state.value as DayState.Running).blockIndex)
+        assertEquals(
+            "the second tap must not open anything else",
+            1,
+            orchestrator.segments.value.count { it.actualEnd == null },
+        )
     }
 
     @Test

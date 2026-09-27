@@ -168,11 +168,11 @@ class NotificationModelMapperTest {
     }
 
     @Test
-    fun running_pausedBlock_pushesTheCountdownOut() {
-        // 8 minutes of pause move Coding's end from 11:30 to 11:38.
+    fun running_pausedBlock_countdownStaysOnThePlannedEnd() {
+        // A pause shortens the block instead of moving its end, so the countdown is unchanged.
         val model = mapper.from(running(1, at(11, 0)), timeline(1, at(9, 30), pausedMinutes = 8), at(11, 0))
-        assertEquals("until 11:38", model?.text)
-        assertEquals(at(11, 30) + 8.minutes, model?.countdownTo)
+        assertEquals("until 11:30", model?.text)
+        assertEquals(at(11, 30), model?.countdownTo)
     }
 
     // ── Leaking ──────────────────────────────────────────────────────────────────────────────

@@ -92,7 +92,7 @@ class NotificationModelMapper @Inject constructor(
         val block = blocks.getOrNull(state.blockIndex) ?: return null
         val id = block.spec.id
         val end = timeline?.let { effectiveEnd(it, now) } ?: block.plannedEnd
-        val pomodoro = engine.pomodoroStatus(block, now, zone)
+        val pomodoro = engine.pomodoroStatus(block, now, zone, timeline?.open?.actualStart ?: block.plannedStart)
 
         if (end != null && now >= end) {
             val landing = landingBlockForStartNext(blocks, now) ?: return null

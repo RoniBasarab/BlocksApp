@@ -1,11 +1,13 @@
 package com.roni.blocks.core.schedule
 
+import com.roni.blocks.core.model.BlockSpec
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.Template
+import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.time.at
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -19,6 +21,7 @@ data class DayBook(
     val shift: Duration = Duration.ZERO,
     val index: Int = 0,
     val flags: Set<DayFlag> = emptySet(),
+    val plannedBlocks: List<BlockSpec> = emptyList(),
 )
 
 object SegmentBook {
@@ -27,23 +30,35 @@ object SegmentBook {
         val index = blocks.indexOfFirst { now >= it.plannedStart && now < it.plannedEnd }
             .let { if (it >= 0) it else blocks.indexOfFirst { block -> now < block.plannedEnd }.coerceAtLeast(0) }
         val consumed = blocks.take(index).map { consumed(it) }
-        val current = blocks.getOrNull(index) ?: return DayBook(consumed)
-        return DayBook(consumed + open(current, now), index = index)
+        val current = blocks.getOrNull(index) ?: return DayBook(consumed, plannedBlocks = template.blocks)
+        return DayBook(consumed + open(current, now), index = index, plannedBlocks = template.blocks)
     }
 
     fun next(book: DayBook, template: Template, date: LocalDate, zone: TimeZone, now: Instant): DayBook {
-        val openFree = book.segments.lastOrNull { it.kind == SegmentKind.SYNTHETIC_FREE && it.actualEnd == null }
-        if (openFree != null && openFree.plannedEnd != null && now >= openFree.plannedEnd) {
-            return advanceAfter(book, template, date, zone, openFree.plannedEnd)
+        val open = book.segments.lastOrNull { it.actualEnd == null } ?: return advanceAfter(book, template, date, zone, now)
+        val end = open.plannedEnd ?: return advanceAfter(book, template, date, zone, now)
+
+        if (open.kind == SegmentKind.SYNTHETIC_FREE) {
+            return advanceAfter(book, template, date, zone, if (now < end) now else end)
         }
-        val end = effectiveEnd(book, now)
-        return if (now >= end) advanceAfter(book, template, date, zone, now) else openSyntheticFree(book, now, end)
+        if (now >= end) {
+            return advanceAfter(book, template, date, zone, now)
+        }
+        return if (open.type.isWork) {
+            openSyntheticFree(book, now, end)
+        } else {
+            advanceAfter(book, template, date, zone, now)
+        }
     }
 
     fun pause(book: DayBook, now: Instant): DayBook =
         book.copy(segments = book.segments + segment(currentType(book), SegmentKind.PAUSE, null, null, now, null))
 
-    fun resumePause(book: DayBook, now: Instant): DayBook = book.copy(segments = closeKind(book.segments, SegmentKind.PAUSE, now))
+    fun resumePause(book: DayBook, now: Instant): DayBook {
+        val blockEnd = book.segments.lastOrNull { it.kind == SegmentKind.PLANNED && it.actualEnd == null }?.plannedEnd
+        val at = if (blockEnd != null && now > blockEnd) blockEnd else now
+        return book.copy(segments = closeKind(book.segments, SegmentKind.PAUSE, at))
+    }
 
     fun enterKidTime(book: DayBook, template: Template, date: LocalDate, zone: TimeZone): DayBook {
         val kid = resolve(template, date, zone, book.shift).first { it.spec.type == BlockType.KidTime }
@@ -83,12 +98,8 @@ object SegmentBook {
         return actual - paused < 30
     }
 
-    fun effectiveEnd(book: DayBook, now: Instant): Instant {
-        val current = book.segments.lastOrNull { it.kind == SegmentKind.PLANNED && it.actualEnd == null }
-        val planned = current?.plannedEnd ?: now
-        val paused = book.segments.filter { it.kind == SegmentKind.PAUSE }.sumOf { ((it.actualEnd ?: now) - it.actualStart).inWholeMinutes }
-        return planned + paused.minutes
-    }
+    fun effectiveEnd(book: DayBook, now: Instant): Instant =
+        book.segments.lastOrNull { it.kind == SegmentKind.PLANNED && it.actualEnd == null }?.plannedEnd ?: now
 
     private fun advanceAfter(book: DayBook, template: Template, date: LocalDate, zone: TimeZone, at: Instant): DayBook {
         val closed = closeOpen(book.segments, at)

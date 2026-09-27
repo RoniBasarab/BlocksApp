@@ -76,38 +76,32 @@ class ScheduleEngineTest {
     }
 
     @Test
-    fun pauseEatsTheFollowingBlock() {
-        val segments = engine.pause(
-            template,
-            date,
-            blockIndex = 1,
-            pauseStart = Instant.parse("2026-09-21T10:00:00Z"),
-            pauseEnd = Instant.parse("2026-09-21T10:20:00Z"),
-        )
-        assertTrue(segments.any { it.kind == SegmentKind.PAUSE })
-        val coding = segments.first { it.type == BlockType.Coding }
-        assertEquals(
-            Instant.parse("2026-09-21T11:50:00Z"),
-            engine.effectiveEnd(coding.plannedEnd!!, 20.minutes),
-        )
-        val following = segments.first { it.type == BlockType.Free }
-        assertEquals(Instant.parse("2026-09-21T11:50:00Z"), following.actualStart)
-        assertEquals(Instant.parse("2026-09-21T12:00:00Z"), following.plannedEnd)
-        assertEquals(Instant.parse("2026-09-21T12:00:00Z"), following.actualEnd)
-    }
-
-    @Test
     fun pomodoroPhaseAtAnyMinute() {
-        val start = LocalTime(9, 30)
-        val focus = engine.pomodoroPhase(start, LocalTime(9, 40), pomo, 120)
+        val plannedStart = Instant.parse("2026-09-21T09:30:00Z")
+        val end = Instant.parse("2026-09-21T11:30:00Z")
+        val focus = engine.pomodoroPhase(plannedStart, end, Instant.parse("2026-09-21T09:40:00Z"), pomo)
         assertTrue(focus.focusing)
         assertEquals(1, focus.index)
         assertEquals(2, focus.total)
-        val second = engine.pomodoroPhase(start, LocalTime(10, 30), pomo, 120)
+        val second = engine.pomodoroPhase(plannedStart, end, Instant.parse("2026-09-21T10:30:00Z"), pomo)
         assertTrue(second.focusing)
         assertEquals(2, second.index)
-        val brk = engine.pomodoroPhase(start, LocalTime(10, 25), pomo, 120)
+        val brk = engine.pomodoroPhase(plannedStart, end, Instant.parse("2026-09-21T10:25:00Z"), pomo)
         assertTrue(!brk.focusing)
+    }
+
+    @Test
+    fun pomodoro_phasesFollowActualStart() {
+        val start = engine.pomodoroPhase(
+            Instant.parse("2026-09-21T09:20:00Z"),
+            Instant.parse("2026-09-21T11:30:00Z"),
+            Instant.parse("2026-09-21T11:25:00Z"),
+            pomo,
+        )
+        assertTrue(start.focusing)
+        assertEquals(3, start.index)
+        assertEquals(3, start.total)
+        assertEquals("the last phase is cut at the block's end", 5, start.minutesLeft)
     }
 
     @Test

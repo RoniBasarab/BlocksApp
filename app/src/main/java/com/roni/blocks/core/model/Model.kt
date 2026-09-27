@@ -69,6 +69,10 @@ sealed interface BlockType {
     data class EveningChoice(val choice: Choice) : BlockType
 }
 
+/** CV, Coding and Gym: the blocks that count as worked time and may be paused. */
+val BlockType.isWork: Boolean
+    get() = this == BlockType.Cv || this == BlockType.Coding || this == BlockType.Gym
+
 @Serializable
 data class Pomodoro(
     val focusMinutes: Int = 50,
@@ -112,6 +116,7 @@ data class DayRecord(
     val template: TemplateId?,
     val segments: List<Segment>,
     val flags: Set<DayFlag> = emptySet(),
+    val plannedBlocks: List<BlockSpec>? = null,
 )
 
 @Serializable

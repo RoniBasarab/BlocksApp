@@ -3,21 +3,24 @@ package com.roni.blocks.core.daystate
 import com.roni.blocks.core.alarms.AlarmScheduler
 import com.roni.blocks.core.di.ApplicationScope
 import com.roni.blocks.core.logging.AppLogger
+import com.roni.blocks.core.model.BlockType
+import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
 import com.roni.blocks.core.model.DebtRecord
 import com.roni.blocks.core.model.LocalDateSerializer
 import com.roni.blocks.core.model.Segment
+import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.notifications.ActionEvent
 import com.roni.blocks.core.notifications.NotificationModelMapper
 import com.roni.blocks.core.notifications.NotificationPort
-import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.schedule.DayBook
 import com.roni.blocks.core.schedule.ScheduleEngine
 import com.roni.blocks.core.schedule.SegmentBook
 import com.roni.blocks.core.schedule.timelineAt
 import com.roni.blocks.core.storage.HistoryManager
+import com.roni.blocks.core.storage.debtMinutes
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
@@ -101,20 +104,27 @@ class DayOrchestrator @Inject constructor(
             _segments.value = emptyList()
             persist()
         }
-        val template = currentTemplate()
-        val now = clock.now()
-        if (template != null && _state.value is DayState.Running) {
-            val kidStart = template.blocks.firstOrNull { it.type == com.roni.blocks.core.model.BlockType.KidTime }?.start
-            if (kidStart != null && now >= kidStart.at(today, zone)) {
-                apply(DayEvent.KidTimeStarted)
-                return
-            }
-            val freeEnd = book.segments.lastOrNull { it.kind == com.roni.blocks.core.model.SegmentKind.SYNTHETIC_FREE && it.actualEnd == null }?.plannedEnd
-            if (freeEnd != null && now >= freeEnd) {
-                apply(DayEvent.Next(_state.value.currentBlockId().orEmpty()))
-                return
-            }
+    val template = currentTemplate()
+    val now = clock.now()
+    if (template != null && _state.value is DayState.Paused) {
+        val blockEnd = book.segments.lastOrNull { it.kind == SegmentKind.PLANNED && it.actualEnd == null }?.plannedEnd
+        if (blockEnd != null && now >= blockEnd) {
+            apply(DayEvent.Resume)
+            return
         }
+    }
+    if (template != null && _state.value is DayState.Running) {
+        val kidStart = template.blocks.firstOrNull { it.type == BlockType.KidTime }?.start
+        if (kidStart != null && now >= kidStart.at(today, zone)) {
+            apply(DayEvent.KidTimeStarted)
+            return
+        }
+        val freeEnd = book.segments.lastOrNull { it.kind == SegmentKind.SYNTHETIC_FREE && it.actualEnd == null }?.plannedEnd
+        if (freeEnd != null && now >= freeEnd) {
+            apply(DayEvent.Next(_state.value.currentBlockId().orEmpty()))
+            return
+        }
+    }
         if (endDayIfDue()) return
         sideEffects()
     }
@@ -187,9 +197,9 @@ class DayOrchestrator @Inject constructor(
     private suspend fun flush(flags: Set<DayFlag>) {
         val today = today()
         val template = _state.value.templateId() ?: prefs.read(PrefsFile.DAY, TEMPLATE, TemplateId.serializer())
-        val record = DayRecord(today, template, _segments.value, flags)
+        val record = DayRecord(today, template, _segments.value, flags, book.plannedBlocks.ifEmpty { null })
         history.writeDay(record)
-        history.writeDebt(DebtRecord(today, history.debtMinutes(_segments.value), 0))
+        history.writeDebt(DebtRecord(today, debtMinutes(_segments.value), 0))
         notificationRenderer.render(null, transition = true)
         alarms.cancel()
         if (_state.value != DayState.Off && _state.value != DayState.Ended) {
