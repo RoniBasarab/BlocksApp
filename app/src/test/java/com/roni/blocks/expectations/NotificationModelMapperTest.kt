@@ -58,6 +58,7 @@ class NotificationModelMapperTest {
         breakMinutes: Int = 0,
         quiet: Boolean = false,
     ) = com.roni.blocks.core.model.BlockSpec(
+        id = "${type}_${startHour}_$startMinute",
         type = type,
         start = LocalTime(startHour, startMinute),
         end = LocalTime(endHour, endMinute),

@@ -80,8 +80,13 @@ data class Pomodoro(
     val breakMinutes: Int = 10,
 )
 
+/** Ids for the two evening blocks the app builds at runtime rather than loading from the asset. */
+const val EVENING_DISHES_ID = "evening.dishes"
+const val EVENING_CHOICE_ID = "evening.choice"
+
 @Serializable
 data class BlockSpec(
+    val id: String,
     val type: BlockType,
     @Serializable(with = LocalTimeSerializer::class) val start: LocalTime,
     @Serializable(with = LocalTimeSerializer::class) val end: LocalTime,

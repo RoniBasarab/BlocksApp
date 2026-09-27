@@ -114,7 +114,12 @@ class TemplatePickerTest {
     )
 
     private fun block(type: BlockType, start: String, end: String) =
-        BlockSpec(type = type, start = LocalTime.parse(start), end = LocalTime.parse(end))
+        BlockSpec(
+            id = "${type}_$start",
+            type = type,
+            start = LocalTime.parse(start),
+            end = LocalTime.parse(end),
+        )
 
     private fun monThuBlocks() = listOf(
         block(BlockType.Cv, "09:00", "09:30"),

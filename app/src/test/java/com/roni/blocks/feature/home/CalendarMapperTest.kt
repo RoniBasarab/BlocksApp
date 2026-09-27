@@ -99,5 +99,5 @@ class CalendarMapperTest {
         end: String,
         pomodoro: Pomodoro? = null,
         quiet: Boolean = false,
-    ) = BlockSpec(type, LocalTime.parse(start), LocalTime.parse(end), pomodoro, quiet)
+    ) = BlockSpec("${type}_$start", type, LocalTime.parse(start), LocalTime.parse(end), pomodoro, quiet)
 }

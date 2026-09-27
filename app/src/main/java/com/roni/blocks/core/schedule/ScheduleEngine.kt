@@ -4,6 +4,8 @@ import com.roni.blocks.core.daystate.DayState
 import com.roni.blocks.core.model.BlockSpec
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.DayFlag
+import com.roni.blocks.core.model.EVENING_CHOICE_ID
+import com.roni.blocks.core.model.EVENING_DISHES_ID
 import com.roni.blocks.core.model.Pomodoro
 import com.roni.blocks.core.model.ResumeMode
 import com.roni.blocks.core.model.Segment
@@ -151,9 +153,9 @@ class ScheduleEngine @Inject constructor(
         val dayEnd = LocalTime(22, 30)
         if (asleepAt >= dayEnd) return emptyList()
         val dishesEnd = minOf(asleepAt.plusMinutes(20), dayEnd)
-        val dishes = BlockSpec(BlockType.Dishes, asleepAt, dishesEnd)
+        val dishes = BlockSpec(EVENING_DISHES_ID, BlockType.Dishes, asleepAt, dishesEnd)
         if (dishesEnd >= dayEnd) return listOf(dishes)
-        return listOf(dishes, BlockSpec(BlockType.Free, dishesEnd, dayEnd))
+        return listOf(dishes, BlockSpec(EVENING_CHOICE_ID, BlockType.Free, dishesEnd, dayEnd))
     }
 
     fun autoEndFlags(state: DayState, now: Instant, date: LocalDate): Set<DayFlag>? {

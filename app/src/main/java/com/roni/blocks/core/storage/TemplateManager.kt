@@ -49,6 +49,7 @@ private data class TemplateDto(
 
 @Serializable
 private data class BlockDto(
+    val id: String,
     val type: String,
     val start: String,
     val end: String,
@@ -57,6 +58,7 @@ private data class BlockDto(
     val choice: String? = null,
 ) {
     fun toSpec(): BlockSpec = BlockSpec(
+        id = id,
         type = when (type) {
             "cv" -> BlockType.Cv
             "coding" -> BlockType.Coding

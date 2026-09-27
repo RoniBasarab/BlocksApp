@@ -23,11 +23,11 @@ class SegmentBookTest {
         TemplateId.MON_THU,
         "Mon/Thu",
         listOf(
-            BlockSpec(BlockType.Cv, LocalTime(9, 0), LocalTime(9, 30)),
-            BlockSpec(BlockType.Coding, LocalTime(9, 30), LocalTime(11, 30)),
-            BlockSpec(BlockType.Free, LocalTime(11, 30), LocalTime(12, 0)),
-            BlockSpec(BlockType.Gym, LocalTime(12, 0), LocalTime(14, 0)),
-            BlockSpec(BlockType.KidTime, LocalTime(19, 0), LocalTime(22, 30), quiet = true),
+            BlockSpec("cv", BlockType.Cv, LocalTime(9, 0), LocalTime(9, 30)),
+            BlockSpec("coding", BlockType.Coding, LocalTime(9, 30), LocalTime(11, 30)),
+            BlockSpec("free", BlockType.Free, LocalTime(11, 30), LocalTime(12, 0)),
+            BlockSpec("gym", BlockType.Gym, LocalTime(12, 0), LocalTime(14, 0)),
+            BlockSpec("kid_time", BlockType.KidTime, LocalTime(19, 0), LocalTime(22, 30), quiet = true),
         ),
     )
 
