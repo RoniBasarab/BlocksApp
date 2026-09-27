@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.builtins.ListSerializer
@@ -210,6 +211,7 @@ class DayOrchestrator @Inject constructor(
         val record = DayRecord(today, template, _segments.value, flags, book.plannedBlocks.ifEmpty { null })
         history.writeDay(record)
         history.writeDebt(DebtRecord(today, debtMinutes(_segments.value), 0))
+        rebuildWeek(today)
         notificationRenderer.render(null, transition = true)
         alarms.cancel()
         if (_state.value != DayState.Off && _state.value != DayState.Ended) {
@@ -217,6 +219,15 @@ class DayOrchestrator @Inject constructor(
         }
         persist()
         logger.info("flushed $today $flags")
+    }
+
+    private suspend fun rebuildWeek(date: LocalDate) {
+        val week = history.weekStart(date)
+        val weekDays = history.days().filter { history.weekStart(it.date) == week }
+        val debts = weekDays.mapNotNull { day ->
+            history.readDebt(day.date)?.let { debt -> day.date to debt }
+        }.toMap()
+        history.writeWeek(history.aggregateWeek(week, weekDays, debts))
     }
 
     private suspend fun endDayIfDue(): Boolean {

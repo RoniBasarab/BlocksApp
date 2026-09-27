@@ -117,6 +117,7 @@ data class DayRecord(
     val segments: List<Segment>,
     val flags: Set<DayFlag> = emptySet(),
     val plannedBlocks: List<BlockSpec>? = null,
+    val demo: Boolean = false,
 )
 
 @Serializable

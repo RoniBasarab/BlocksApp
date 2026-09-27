@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.roni.blocks.core.alarms.AlarmScheduler
+import com.roni.blocks.core.demo.DemoDataGenerator
 import com.roni.blocks.core.daystate.DayEvent
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.daystate.DayState
@@ -102,6 +103,7 @@ class SettingsViewModelTest {
             orchestrator = orchestrator,
             notificationPort = port,
             statuses = statuses,
+            demoData = DemoDataGenerator(TemplateManager(context), history, clock, zone),
             clock = clock,
             zone = zone,
         )

@@ -49,6 +49,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.roni.blocks.BuildConfig
+import com.roni.blocks.core.demo.DemoDataGenerator
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.logging.AppLogger
 import com.roni.blocks.core.notifications.NotificationPort
@@ -108,6 +109,7 @@ class SettingsViewModel @Inject constructor(
     private val orchestrator: DayOrchestrator,
     private val notificationPort: NotificationPort,
     private val statuses: SystemStatuses,
+    private val demoData: DemoDataGenerator,
     private val clock: Clock,
     private val zone: TimeZone,
 ) : ViewModel() {
@@ -146,6 +148,14 @@ class SettingsViewModel @Inject constructor(
     fun clearHistory() {
         val keepToday = clock.now().toLocalDateTime(zone).date
         viewModelScope.launch { history.clear(keepToday) }
+    }
+
+    fun loadDemoData() {
+        viewModelScope.launch { demoData.seed(weeks = 4) }
+    }
+
+    fun clearDemoData() {
+        viewModelScope.launch { demoData.clear() }
     }
 
     fun logFile() = logger.shareFile()
@@ -423,9 +433,8 @@ fun SettingsRoute(
                         SettingsAction.ShareLog -> viewModel.shareLog(context)
                         SettingsAction.ResetToday -> pending = ConfirmDialogSpec.RESET_TODAY
                         SettingsAction.ClearHistory -> pending = ConfirmDialogSpec.CLEAR_HISTORY
-                        SettingsAction.LoadDemoData,
-                        SettingsAction.ClearDemoData,
-                        -> Unit
+                        SettingsAction.LoadDemoData -> viewModel.loadDemoData()
+                        SettingsAction.ClearDemoData -> viewModel.clearDemoData()
                     }
                 },
             )

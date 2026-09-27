@@ -8,6 +8,7 @@ import com.roni.blocks.core.model.LocalDateSerializer
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.TemplateId
+import com.roni.blocks.core.model.isWork
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.datetime.DateTimeUnit
@@ -67,6 +68,64 @@ class HistoryManager @Inject constructor(
         var cursor = date
         while (cursor.dayOfWeek != DayOfWeek.SUNDAY) cursor = cursor.minus(1, DateTimeUnit.DAY)
         return cursor
+    }
+
+    /** The one weekly builder: the day-end flush and demo seeding both go through this. */
+    fun aggregateWeek(
+        weekStart: LocalDate,
+        days: List<DayRecord>,
+        debts: Map<LocalDate, DebtRecord> = emptyMap(),
+    ): WeekAggregate {
+        val minutesByType = mutableMapOf<String, Int>()
+        var leakMinutes = 0
+        var underMinutes = 0
+        var pauseMinutes = 0
+        var interruptionMinutes = 0
+        val flags = mutableSetOf<DayFlag>()
+        days.forEach { day ->
+            flags += day.flags
+            debts[day.date]?.let { leakMinutes += it.leakMinutes } ?: run { leakMinutes += debtMinutes(day.segments) }
+            day.segments.forEach { segment ->
+                when (segment.kind) {
+                    SegmentKind.PLANNED -> segment.actualEnd?.let { actualEnd ->
+                        val worked = ((actualEnd - segment.actualStart).inWholeMinutes.coerceAtLeast(0L)).toInt()
+                        minutesByType.merge(segment.type.toString(), worked, Int::plus)
+                        val planned = segment.plannedStart?.let { plannedStart ->
+                            segment.plannedEnd?.let { plannedEnd -> ((plannedEnd - plannedStart).inWholeMinutes).toInt() }
+                        } ?: 0
+                        if (segment.type.isWork) underMinutes += maxOf(0, planned - worked)
+                    }
+                    SegmentKind.PAUSE -> pauseMinutes += ((segment.actualEnd ?: segment.actualStart) - segment.actualStart).inWholeMinutes.toInt()
+                    SegmentKind.INTERRUPTION -> interruptionMinutes += ((segment.actualEnd ?: segment.actualStart) - segment.actualStart).inWholeMinutes.toInt()
+                    else -> Unit
+                }
+            }
+        }
+        return WeekAggregate(
+            weekStart = weekStart,
+            minutesByType = minutesByType,
+            leakMinutes = leakMinutes,
+            underMinutes = underMinutes,
+            pauseMinutes = pauseMinutes,
+            interruptionMinutes = interruptionMinutes,
+            flags = flags,
+        )
+    }
+
+    suspend fun clearDemoData(): Set<LocalDate> {
+        val removedDates = mutableSetOf<LocalDate>()
+        prefs.keys(PrefsFile.HISTORY).filter { it.startsWith("record_") }.forEach { key ->
+            prefs.read(PrefsFile.HISTORY, key, DayRecord.serializer())?.takeIf { it.demo }?.let { record ->
+                prefs.remove(PrefsFile.HISTORY, key)
+                prefs.remove(PrefsFile.HISTORY, debtKey(record.date))
+                removedDates += record.date
+            }
+        }
+        return removedDates
+    }
+
+    suspend fun removeWeek(weekStart: LocalDate) {
+        prefs.remove(PrefsFile.HISTORY, weekKey(weekStart))
     }
 
     private suspend fun prune(today: LocalDate) {

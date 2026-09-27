@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.roni.blocks.core.daystate.DayOrchestrator
+import com.roni.blocks.core.demo.DemoDataGenerator
 import com.roni.blocks.core.di.ApplicationScope
 import com.roni.blocks.core.logging.AppLogger
 import com.roni.blocks.core.time.DebugClock
@@ -37,8 +38,35 @@ class TimeTravelReceiver : BroadcastReceiver() {
     @Inject lateinit var logger: AppLogger
     @Inject lateinit var zone: TimeZone
     @Inject @ApplicationScope lateinit var appScope: CoroutineScope
+    @Inject lateinit var demoData: DemoDataGenerator
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.getBooleanExtra(EXTRA_SEED_DEMO, false)) {
+            val pending = goAsync()
+            appScope.launch {
+                try {
+                    withTimeout(9_000) { demoData.seed(weeks = 4) }
+                } catch (t: Throwable) {
+                    logger.error("TimeTravelReceiver", t)
+                } finally {
+                    pending.finish()
+                }
+            }
+            return
+        }
+        if (intent.getBooleanExtra(EXTRA_CLEAR_DEMO, false)) {
+            val pending = goAsync()
+            appScope.launch {
+                try {
+                    withTimeout(9_000) { demoData.clear() }
+                } catch (t: Throwable) {
+                    logger.error("TimeTravelReceiver", t)
+                } finally {
+                    pending.finish()
+                }
+            }
+            return
+        }
         val target = when {
             intent.getBooleanExtra(EXTRA_RESET, false) -> 0
             intent.hasExtra(EXTRA_TO) -> offsetForTimeOfDay(intent.getStringExtra(EXTRA_TO)) ?: return
@@ -78,5 +106,7 @@ class TimeTravelReceiver : BroadcastReceiver() {
         const val EXTRA_TO = "to"
         const val EXTRA_PLUS = "plus"
         const val EXTRA_RESET = "reset"
+        const val EXTRA_SEED_DEMO = "seed_demo"
+        const val EXTRA_CLEAR_DEMO = "clear_demo"
     }
 }
