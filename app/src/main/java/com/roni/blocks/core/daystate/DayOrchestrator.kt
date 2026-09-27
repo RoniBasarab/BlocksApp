@@ -53,6 +53,13 @@ class DayOrchestrator @Inject constructor(
     val state: StateFlow<DayState> = _state.asStateFlow()
     private val _segments = MutableStateFlow<List<Segment>>(emptyList())
     val segments: StateFlow<List<Segment>> = _segments.asStateFlow()
+
+    /**
+     * False until prefs are read and the date rollover is applied. [state] is [DayState.NotStarted]
+     * until then, so callers wanting today's real state must wait for this flag first.
+     */
+    private val _isRestored = MutableStateFlow(false)
+    val isRestored: StateFlow<Boolean> = _isRestored.asStateFlow()
     private var book = DayBook()
 
     init {
@@ -210,6 +217,7 @@ class DayOrchestrator @Inject constructor(
         _segments.value = prefs.read(PrefsFile.DAY, SEGMENTS, ListSerializer(Segment.serializer())) ?: emptyList()
         persist()
         sideEffects()
+        _isRestored.value = true
     }
 
     private suspend fun persist() {

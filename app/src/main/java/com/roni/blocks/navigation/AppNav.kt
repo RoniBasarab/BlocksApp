@@ -6,6 +6,7 @@ import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
+import com.roni.blocks.core.daystate.DayState
 import com.roni.blocks.feature.history.HistoryRoute
 import com.roni.blocks.feature.home.HomeRoute
 import com.roni.blocks.feature.insights.InsightsRoute
@@ -24,9 +25,30 @@ import kotlinx.serialization.Serializable
 @Serializable data object SettingsKey : NavKey
 @Serializable data class HistoryDayKey(val date: String) : NavKey
 
+enum class StartDestination { TEMPLATE_PICKER, HOME }
+
+/** The picker is only ever the start when today has not been started; everything else opens Home. */
+fun resolveStartDestination(state: DayState): StartDestination = when (state) {
+    DayState.NotStarted -> StartDestination.TEMPLATE_PICKER
+    is DayState.Running,
+    is DayState.Paused,
+    is DayState.Interrupted,
+    DayState.KidTime,
+    is DayState.Evening,
+    DayState.Ended,
+    DayState.Off,
+    -> StartDestination.HOME
+}
+
+private val StartDestination.key: NavKey
+    get() = when (this) {
+        StartDestination.TEMPLATE_PICKER -> TemplatePickerKey
+        StartDestination.HOME -> HomeKey
+    }
+
 @Composable
-fun AppNav(startOnPicker: Boolean, modifier: Modifier = Modifier) {
-    val backStack = rememberNavBackStack(if (startOnPicker) TemplatePickerKey else HomeKey)
+fun AppRoot(start: StartDestination, modifier: Modifier = Modifier) {
+    val backStack = rememberNavBackStack(start.key)
     fun openTab(key: NavKey) {
         backStack.clear()
         backStack.add(key)
