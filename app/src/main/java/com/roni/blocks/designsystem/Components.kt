@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.HourglassBottom
 import androidx.compose.material3.Icon
@@ -74,6 +75,7 @@ fun AppCard(
     spotColor: Color? = null,
     onClick: (() -> Unit)? = null,
     interactionSource: MutableInteractionSource? = null,
+    contentPadding: PaddingValues = PaddingValues(Spacing.l),
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val appColors = AppTheme.colors
@@ -89,7 +91,7 @@ fun AppCard(
                 .background(containerColor ?: appColors.surface)
                 .then(border)
                 .then(if (onClick != null) Modifier.clickable(interactionSource = source, indication = null, onClick = onClick) else Modifier)
-                .padding(Spacing.l),
+                .padding(contentPadding),
             content = content,
         )
     }
@@ -99,19 +101,36 @@ fun AppCard(
 fun SectionHeader(text: String, modifier: Modifier = Modifier) {
     Text(
         text,
-        modifier.padding(top = Spacing.xl, bottom = Spacing.s),
+        modifier.padding(top = Spacing.xl, bottom = Spacing.s, start = Spacing.xs),
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.primary,
     )
 }
 
 @Composable
+fun IconCircle(
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+    size: Dp = Metrics.iconCircleRow,
+    iconSize: Dp = Metrics.iconInCircle,
+    tint: Color = AppTheme.colors.primary,
+    shape: Shape = CircleShape,
+) {
+    Box(
+        modifier
+            .size(size)
+            .clip(shape)
+            .background(tint.copy(alpha = 0.12f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(iconSize), tint = tint)
+    }
+}
+
+@Composable
 fun StatTile(icon: ImageVector, iconTint: Color, value: String, label: String, modifier: Modifier = Modifier) {
     AppCard(modifier) {
-        Box(
-            Modifier.size(Metrics.iconCircle).clip(AppShapes.chip).background(iconTint.copy(alpha = 0.16f)),
-            contentAlignment = Alignment.Center,
-        ) { Icon(icon, null, tint = iconTint) }
+        IconCircle(icon, size = Metrics.iconCircle, tint = iconTint, shape = AppShapes.chip)
         Text(value, style = MaterialTheme.typography.titleLarge.merge(AppType.numbers), color = MaterialTheme.colorScheme.onSurface)
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }

@@ -2,6 +2,7 @@ package com.roni.blocks.designsystem
 
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.HourglassBottom
@@ -9,6 +10,7 @@ import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Today
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
 enum class AppTab { HOME, WEEKLY, INSIGHTS }
@@ -45,22 +48,17 @@ fun AppTopBar(
     onSettings: () -> Unit = {},
     showMenu: Boolean = true,
 ) {
-    var open by rememberSaveable { mutableStateOf(false) }
     TopAppBar(
         title = title,
         actions = {
             actions()
             if (showMenu) {
-                IconButton(onClick = { open = true }) { Icon(Icons.Outlined.Menu, "Menu") }
-                DropdownMenu(
-                    expanded = open,
-                    onDismissRequest = { open = false },
-                    shape = AppShapes.card,
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                ) {
-                    MenuRow(Icons.Outlined.History, "History") { open = false; onHistory() }
-                    MenuRow(Icons.Outlined.HourglassBottom, "Time Debt") { open = false; onDebt() }
-                    MenuRow(Icons.Outlined.Settings, "Settings") { open = false; onSettings() }
+                AppMenuButton { destination ->
+                    when (destination) {
+                        MenuDestination.History -> onHistory()
+                        MenuDestination.TimeDebt -> onDebt()
+                        MenuDestination.Settings -> onSettings()
+                    }
                 }
             }
         },
@@ -72,14 +70,70 @@ fun AppTopBar(
     )
 }
 
+enum class MenuDestination(val label: String, val icon: ImageVector) {
+    History("History", Icons.Outlined.History),
+    TimeDebt("Time Debt", Icons.Outlined.HourglassBottom),
+    Settings("Settings", Icons.Outlined.Settings),
+}
+
 @Composable
-private fun MenuRow(icon: ImageVector, label: String, onClick: () -> Unit) {
-    DropdownMenuItem(
-        text = { Text(label, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface) },
-        leadingIcon = { Icon(icon, null) },
-        onClick = onClick,
+fun AppMenuButton(
+    destinations: List<MenuDestination> = MenuDestination.entries,
+    modifier: Modifier = Modifier,
+    onSelect: (MenuDestination) -> Unit,
+) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    IconButton(onClick = { open = true }, modifier = modifier.testTag("menu_button")) {
+        Icon(Icons.Outlined.Menu, "Menu")
+    }
+    DropdownMenu(
+        expanded = open,
+        onDismissRequest = { open = false },
+        shape = AppShapes.card,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        destinations.forEach { destination ->
+            DropdownMenuItem(
+                text = { Text(destination.label, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface) },
+                leadingIcon = { Icon(destination.icon, null) },
+                onClick = { open = false; onSelect(destination) },
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TabTopBar(title: String, onMenu: (MenuDestination) -> Unit, modifier: Modifier = Modifier) {
+    CenterAlignedTopAppBar(
+        title = { Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface) },
+        actions = { AppMenuButton(onSelect = onMenu) },
+        colors = screenTopBarColors(),
+        modifier = modifier.testTag("top_bar"),
     )
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun BackTopBar(title: String, onBack: () -> Unit, modifier: Modifier = Modifier) {
+    CenterAlignedTopAppBar(
+        title = { Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface) },
+        navigationIcon = {
+            IconButton(onClick = onBack, modifier = Modifier.testTag("back_button")) {
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back")
+            }
+        },
+        colors = screenTopBarColors(),
+        modifier = modifier.testTag("top_bar"),
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun screenTopBarColors() = TopAppBarDefaults.centerAlignedTopAppBarColors(
+    containerColor = Color.Transparent,
+    scrolledContainerColor = Color.Transparent,
+)
 
 @Composable
 fun AppBottomBar(selected: AppTab, onSelect: (AppTab) -> Unit) {

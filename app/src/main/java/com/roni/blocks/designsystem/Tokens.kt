@@ -24,6 +24,10 @@ object AppShapes {
 
 object Metrics {
     val iconCircle = 32.dp
+    val iconInCircle = 20.dp
+    val iconCircleRow = 36.dp
+    val emptyIconCircle = 72.dp
+    val emptyIcon = 32.dp
     val iconLarge = 40.dp
     val iconEvening = 28.dp
     val touch = 48.dp
@@ -44,6 +48,7 @@ object Metrics {
     val debtChart = 160.dp
     val tile = 96.dp
     val row = 56.dp
+    val dividerStart = 64.dp
     val dayRow = 72.dp
     val dateBadge = 36.dp
     val nowLine = 1.5.dp
