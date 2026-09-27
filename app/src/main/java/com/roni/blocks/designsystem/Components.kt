@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -23,6 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,6 +35,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
@@ -66,22 +69,26 @@ fun ScreenScaffold(
 fun AppCard(
     modifier: Modifier = Modifier,
     borderColor: Color? = null,
+    shape: Shape = AppShapes.card,
+    containerColor: Color? = null,
+    spotColor: Color? = null,
     onClick: (() -> Unit)? = null,
+    interactionSource: MutableInteractionSource? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val shape = AppShapes.card
     val appColors = AppTheme.colors
+    val source = interactionSource ?: remember { MutableInteractionSource() }
     val border = borderColor?.let {
         Modifier.border(Metrics.borderSuggested, it, shape)
     } ?: Modifier.border(Metrics.hairline, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.08f), Color.White.copy(alpha = 0.02f))), shape)
     CompositionLocalProvider(LocalContentColor provides appColors.textPrimary) {
         Column(
             modifier
-                .shadow(Metrics.shadow, shape, spotColor = Color.Black.copy(alpha = 0.6f))
+                .shadow(Metrics.shadowCard, shape, spotColor = spotColor?.copy(alpha = 0.4f) ?: Color.Black.copy(alpha = 0.6f))
                 .clip(shape)
-                .background(appColors.surface)
+                .background(containerColor ?: appColors.surface)
                 .then(border)
-                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .then(if (onClick != null) Modifier.clickable(interactionSource = source, indication = null, onClick = onClick) else Modifier)
                 .padding(Spacing.l),
             content = content,
         )
