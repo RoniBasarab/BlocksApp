@@ -20,6 +20,7 @@ import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
 import com.roni.blocks.core.time.at
+import com.roni.blocks.core.time.SystemTimeMapper
 import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlinx.coroutines.CoroutineScope
@@ -66,7 +67,7 @@ class DayOrchestratorTest {
             engine = engine,
             templates = TemplateManager(context),
             history = HistoryManager(prefs),
-            alarms = AlarmScheduler(context, logger),
+            alarms = AlarmScheduler(context, SystemTimeMapper.Identity, logger),
             notificationMapper = NotificationModelMapper(engine, zone),
             notificationRenderer = SilentNotificationPort,
             clock = clock,
@@ -129,7 +130,7 @@ class DayOrchestratorTest {
         val before: List<Segment> = orchestrator.segments.value
 
         clock.now = LocalTime(10, 0).at(date, zone)
-        orchestrator.onAlarm()
+        orchestrator.onTimeChanged()
 
         assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 0), orchestrator.state.value)
         val after = orchestrator.segments.value

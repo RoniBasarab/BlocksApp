@@ -108,13 +108,16 @@ class DayOrchestrator @Inject constructor(
                 return
             }
         }
-        val flags = engine.autoEndFlags(_state.value, now, today)
-        if (flags != null) {
-            book = SegmentBook.endDay(book, now, _state.value is DayState.KidTime)
-            _segments.value = book.segments
-            flush(book.flags + flags)
-            return
-        }
+        if (endDayIfDue()) return
+        sideEffects()
+    }
+
+    /**
+     * The clock moved, but the day did not actually progress. Re-evaluate and reschedule without
+     * advancing a block: nothing was run, so there is nothing to record.
+     */
+    suspend fun onTimeChanged() {
+        if (endDayIfDue()) return
         sideEffects()
     }
 
@@ -177,6 +180,15 @@ class DayOrchestrator @Inject constructor(
         }
         persist()
         logger.info("flushed $today $flags")
+    }
+
+    private suspend fun endDayIfDue(): Boolean {
+        val now = clock.now()
+        val flags = engine.autoEndFlags(_state.value, now, today()) ?: return false
+        book = SegmentBook.endDay(book, now, _state.value is DayState.KidTime)
+        _segments.value = book.segments
+        flush(book.flags + flags)
+        return true
     }
 
     private suspend fun sideEffects(transition: Boolean = false) {

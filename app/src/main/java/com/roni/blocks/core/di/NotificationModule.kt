@@ -7,7 +7,6 @@ import com.roni.blocks.core.notifications.NotificationPort
 import com.roni.blocks.core.notifications.NotificationRenderer
 import com.roni.blocks.core.notifications.PrefsDismissalStore
 import com.roni.blocks.core.notifications.ProcessAppVisibility
-import com.roni.blocks.core.time.SystemTimeMapper
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -30,10 +29,4 @@ object NotificationModule {
     @Provides
     @Singleton
     fun dismissalStore(@ApplicationContext context: Context): DismissalStore = PrefsDismissalStore(context)
-
-    // Release maps identity. The debug build overrides this so a simulated clock still produces
-    // real wall-clock `setWhen` values.
-    @Provides
-    @Singleton
-    fun systemTimeMapper(): SystemTimeMapper = SystemTimeMapper.Identity
 }

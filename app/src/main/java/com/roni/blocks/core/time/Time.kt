@@ -25,10 +25,6 @@ import kotlinx.datetime.toLocalDateTime
 object TimeModule {
     @Provides
     @Singleton
-    fun clock(): Clock = Clock.System
-
-    @Provides
-    @Singleton
     fun timeZone(): TimeZone = TimeZone.currentSystemDefault()
 }
 
