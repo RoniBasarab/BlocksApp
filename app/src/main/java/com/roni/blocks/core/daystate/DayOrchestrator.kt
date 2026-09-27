@@ -11,11 +11,15 @@ import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.notifications.AppNotifier
 import com.roni.blocks.core.notifications.NoticeAction
+import com.roni.blocks.core.model.Choice
+import com.roni.blocks.core.schedule.DayBook
 import com.roni.blocks.core.schedule.ScheduleEngine
+import com.roni.blocks.core.schedule.SegmentBook
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
+import com.roni.blocks.core.time.at
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.time.Clock
@@ -46,6 +50,7 @@ class DayOrchestrator @Inject constructor(
     val state: StateFlow<DayState> = _state.asStateFlow()
     private val _segments = MutableStateFlow<List<Segment>>(emptyList())
     val segments: StateFlow<List<Segment>> = _segments.asStateFlow()
+    private var book = DayBook()
 
     init {
         scope.launch {
@@ -57,41 +62,90 @@ class DayOrchestrator @Inject constructor(
     }
 
     fun send(event: DayEvent) {
-        scope.launch { apply(event) }
+        scope.launch { handle(event) }
     }
 
-    fun onAlarm() {
-        scope.launch {
-            val today = today()
-            val stored = prefs.read(PrefsFile.DAY, DATE, LocalDateSerializer) ?: today
-            val rolled = rollover(_state.value, stored, today)
-            if (rolled != _state.value) {
-                _state.value = rolled
-                _segments.value = emptyList()
-                persist()
-            }
-            val flags = engine.autoEndFlags(_state.value, clock.now(), today)
-            if (flags != null) {
-                flush(flags)
-                return@launch
-            }
-            sideEffects()
+    suspend fun handle(event: DayEvent) = apply(event)
+
+    suspend fun onAlarm() {
+        val today = today()
+        val stored = prefs.read(PrefsFile.DAY, DATE, LocalDateSerializer) ?: today
+        val rolled = rollover(_state.value, stored, today)
+        if (rolled != _state.value) {
+            _state.value = rolled
+            book = DayBook()
+            _segments.value = emptyList()
+            persist()
         }
+        val template = currentTemplate()
+        val now = clock.now()
+        if (template != null && _state.value is DayState.Running) {
+            val kidStart = template.blocks.firstOrNull { it.type == com.roni.blocks.core.model.BlockType.KidTime }?.start
+            if (kidStart != null && now >= kidStart.at(today, zone)) {
+                apply(DayEvent.KidTimeStarted)
+                return
+            }
+            val freeEnd = book.segments.lastOrNull { it.kind == com.roni.blocks.core.model.SegmentKind.SYNTHETIC_FREE && it.actualEnd == null }?.plannedEnd
+            if (freeEnd != null && now >= freeEnd) {
+                apply(DayEvent.Next)
+                return
+            }
+        }
+        val flags = engine.autoEndFlags(_state.value, now, today)
+        if (flags != null) {
+            book = SegmentBook.endDay(book, now, _state.value is DayState.KidTime)
+            _segments.value = book.segments
+            flush(book.flags + flags)
+            return
+        }
+        sideEffects()
     }
 
     private suspend fun apply(event: DayEvent) {
-        val next = DayStateMachine.transition(_state.value, event, clock.now())
+        val now = clock.now()
+        val next = DayStateMachine.transition(_state.value, event, now)
         if (next == null) {
             logger.info("illegal $event from ${_state.value}")
             return
         }
         logger.info("transition ${_state.value} + $event -> $next")
+        val fromKid = _state.value is DayState.KidTime
+        record(event, now)
         _state.value = next
-        if (event is DayEvent.StartDay) _segments.value = emptyList()
+        _segments.value = book.segments
         persist()
-        if (next == DayState.Ended || next == DayState.Off) flush(if (next == DayState.Off) setOf(DayFlag.OFF_DAY) else emptySet())
-        else sideEffects()
+        if (next == DayState.Ended || next == DayState.Off) {
+            flush((if (next == DayState.Off) setOf(DayFlag.OFF_DAY) else emptySet()) + if (fromKid && event == DayEvent.EndDay) setOf(DayFlag.EVENING_SKIPPED) else book.flags)
+        } else {
+            sideEffects()
+        }
     }
+
+    private fun record(event: DayEvent, now: kotlin.time.Instant) {
+        val today = today()
+        if (event is DayEvent.StartDay && event.template == com.roni.blocks.core.model.TemplateId.OFF) {
+            book = DayBook()
+            return
+        }
+        val template = if (event is DayEvent.StartDay) templates.get(event.template) else currentTemplate() ?: return
+        book = when (event) {
+            is DayEvent.StartDay -> SegmentBook.startDay(template, today, zone, now)
+            DayEvent.Next, DayEvent.EndBlockEarly -> SegmentBook.next(book, template, today, zone, now)
+            DayEvent.Pause -> SegmentBook.pause(book, now)
+            is DayEvent.Resume -> if (_state.value is DayState.Paused) SegmentBook.resumePause(book, now) else when (event.mode) {
+                com.roni.blocks.core.model.ResumeMode.RESUME_WHERE_I_WAS -> SegmentBook.resumeWhereIWas(book, now)
+                com.roni.blocks.core.model.ResumeMode.JUMP_TO_NOW -> SegmentBook.jumpToNow(book, template, today, zone, now)
+            }
+            DayEvent.Interrupt -> SegmentBook.interrupt(book, now)
+            DayEvent.KidTimeStarted -> SegmentBook.enterKidTime(book, template, today, zone)
+            DayEvent.KidAsleep -> SegmentBook.kidAsleep(book, today, zone, now)
+            is DayEvent.EveningChoice -> SegmentBook.eveningChoice(book, event.choice, today, zone, now)
+            DayEvent.EndDay -> SegmentBook.endDay(book, now, _state.value is DayState.KidTime)
+            DayEvent.TakeOffDay -> DayBook()
+        }
+    }
+
+    private fun currentTemplate() = _state.value.templateId()?.let { runCatching { templates.get(it) }.getOrNull() }
 
     private suspend fun flush(flags: Set<DayFlag>) {
         val today = today()

@@ -10,6 +10,7 @@ import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.Template
 import com.roni.blocks.core.model.TemplateId
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.minutes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import kotlin.time.Instant
@@ -85,9 +86,15 @@ class ScheduleEngineTest {
             pauseEnd = Instant.parse("2026-09-21T10:20:00Z"),
         )
         assertTrue(segments.any { it.kind == SegmentKind.PAUSE })
+        val coding = segments.first { it.type == BlockType.Coding }
+        assertEquals(
+            Instant.parse("2026-09-21T11:50:00Z"),
+            engine.effectiveEnd(coding.plannedEnd!!, 20.minutes),
+        )
         val following = segments.first { it.type == BlockType.Free }
-        assertEquals(Instant.parse("2026-09-21T11:40:00Z"), following.actualEnd)
-        assertEquals(Instant.parse("2026-09-21T11:30:00Z"), following.plannedStart)
+        assertEquals(Instant.parse("2026-09-21T11:50:00Z"), following.actualStart)
+        assertEquals(Instant.parse("2026-09-21T12:00:00Z"), following.plannedEnd)
+        assertEquals(Instant.parse("2026-09-21T12:00:00Z"), following.actualEnd)
     }
 
     @Test

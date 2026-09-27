@@ -87,22 +87,23 @@ class ScheduleEngine @Inject constructor(
         }
     }
 
+    fun effectiveEnd(plannedEnd: Instant, paused: kotlin.time.Duration): Instant = plannedEnd + paused
+
     fun pause(template: Template, date: LocalDate, blockIndex: Int, pauseStart: Instant, pauseEnd: Instant): List<Segment> {
         val blocks = planned(template, date)
         val current = blocks[blockIndex]
-        val pause = pauseEnd - pauseStart
+        val paused = pauseEnd - pauseStart
+        val extended = effectiveEnd(current.plannedEnd, paused)
         val following = blocks.getOrNull(blockIndex + 1)
         val eaten = following?.let { next ->
-            val shrink = pause.inWholeMinutes.minutes
-            val newEnd = next.plannedEnd - shrink
-            if (newEnd <= next.plannedStart) {
+            if (extended >= next.plannedEnd) {
                 segment(next.spec.type, SegmentKind.CONSUMED, next.plannedStart, next.plannedEnd, next.plannedStart, next.plannedEnd)
             } else {
-                segment(next.spec.type, SegmentKind.PLANNED, next.plannedStart, next.plannedEnd, next.plannedStart, newEnd)
+                segment(next.spec.type, SegmentKind.PLANNED, next.plannedStart, next.plannedEnd, maxOf(next.plannedStart, extended), next.plannedEnd)
             }
         }
         return listOfNotNull(
-            segment(current.spec.type, SegmentKind.PLANNED, current.plannedStart, current.plannedEnd, current.plannedStart, current.plannedEnd),
+            segment(current.spec.type, SegmentKind.PLANNED, current.plannedStart, current.plannedEnd, current.plannedStart, null),
             segment(current.spec.type, SegmentKind.PAUSE, null, null, pauseStart, pauseEnd),
             eaten,
         )
