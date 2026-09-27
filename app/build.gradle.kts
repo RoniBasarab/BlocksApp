@@ -52,6 +52,10 @@ android {
                 signingConfigs.getByName("debug")
             }
         }
+        getByName("debug") {
+            applicationIdSuffix = ".debug"   // separate app → tests never touch the real day's data
+            isDebuggable = true
+        }
         create("benchmark") {
             initWith(getByName("release"))
             signingConfig = signingConfigs.getByName("debug")
@@ -109,6 +113,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.navigation3)
+    implementation(libs.androidx.lifecycle.process) // for ProcessLifecycleOwner
     implementation(libs.hilt.android)
     implementation(libs.androidx.hilt.navigation.compose)
     implementation(libs.androidx.navigation3.runtime)
