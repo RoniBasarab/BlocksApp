@@ -65,6 +65,9 @@ import com.roni.blocks.core.daystate.DayState
 import com.roni.blocks.core.daystate.templateId
 import com.roni.blocks.core.debug.RecompositionCounter
 import com.roni.blocks.core.model.BlockType
+import com.roni.blocks.core.model.Choice
+import com.roni.blocks.core.model.ResumeMode
+import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.storage.TemplateManager
 import com.roni.blocks.core.time.Ticker
@@ -110,6 +113,9 @@ class HomeViewModel @Inject constructor(
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state.asStateFlow()
 
+    private var selectedBlockId: String? = null
+    private var resumePrompt = false
+
     val minuteOfDay: StateFlow<Int> =
         ticker.minutes.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
@@ -136,19 +142,26 @@ class HomeViewModel @Inject constructor(
             HomeAction.Pause -> day.send(DayEvent.Pause)
             HomeAction.Interrupt -> day.send(DayEvent.Interrupt)
             HomeAction.EndEarly -> day.send(DayEvent.EndBlockEarly)
-            HomeAction.Resume, HomeAction.ResumeWhereIWas ->
-                day.send(DayEvent.Resume(com.roni.blocks.core.model.ResumeMode.RESUME_WHERE_I_WAS))
-            HomeAction.JumpToNow ->
-                day.send(DayEvent.Resume(com.roni.blocks.core.model.ResumeMode.JUMP_TO_NOW))
+            HomeAction.Resume -> if (day.state.value is DayState.Interrupted) {
+                resumePrompt = true
+            } else {
+                day.send(DayEvent.Resume(ResumeMode.RESUME_WHERE_I_WAS))
+            }
+            HomeAction.ResumeWhereIWas -> day.send(DayEvent.Resume(ResumeMode.RESUME_WHERE_I_WAS))
+            HomeAction.JumpToNow -> day.send(DayEvent.Resume(ResumeMode.JUMP_TO_NOW))
             HomeAction.KidAsleep -> day.send(DayEvent.KidAsleep)
             HomeAction.EndDay -> day.send(DayEvent.EndDay)
+            is HomeAction.PickEvening -> day.send(DayEvent.EveningChoice(action.choice))
+            is HomeAction.BlockClicked -> selectedBlockId = action.id
+            HomeAction.DismissBlockSheet -> selectedBlockId = null
+            HomeAction.DismissResume -> resumePrompt = false
             HomeAction.SwapTemplate,
-            is HomeAction.BlockClicked,
             HomeAction.History,
             HomeAction.TimeDebt,
             HomeAction.Settings,
             -> Unit
         }
+        if (action.affectsOverlays) publish(day.state.value)
     }
 
     private fun publish(dayState: DayState) {
@@ -169,9 +182,14 @@ class HomeViewModel @Inject constructor(
         val leaking = current != null && effectiveEndMin != null && minute > effectiveEndMin
         val nextLabel = blocks.getOrNull(index + 1)
 
+        if (dayState is DayState.Ended || dayState is DayState.Off || dayState is DayState.NotStarted) {
+            selectedBlockId = null
+            resumePrompt = false
+        }
+
         _state.value = HomeState(
             weekdayShort = now.toLocalDateTime(zone).dayOfWeek.name.take(3),
-            dayOfMonth = now.toLocalDateTime(zone).dayOfMonth.toString(),
+            dayOfMonth = now.toLocalDateTime(zone).day.toString(),
             title = id?.let { templateDisplay(it).title }.orEmpty(),
             status = status(blocks, index, leaking, effectiveEndMin, minute),
             hourLabels = CalendarMapper.hourLabels().toPersistentList(),
@@ -179,7 +197,9 @@ class HomeViewModel @Inject constructor(
             currentBlockId = current?.id,
             leakFromMin = if (leaking) effectiveEndMin else null,
             nowCard = nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel),
-            eveningChoicePending = current?.type is BlockType.EveningChoice,
+            eveningChoicePending = dayState is DayState.Evening && dayState.blockIndex == 0,
+            blockSheet = blockSheet(blocks.firstOrNull { it.id == selectedBlockId }, segments, minute),
+            resumePrompt = resumePrompt && dayState is DayState.Interrupted,
         )
     }
 
@@ -197,6 +217,42 @@ class HomeViewModel @Inject constructor(
         is DayState.Interrupted -> dayState.running.blockIndex
         is DayState.Evening -> dayState.blockIndex
         else -> -1
+    }
+
+    private fun blockSheet(
+        block: CalendarBlockUi?,
+        segments: List<Segment>,
+        minute: Int,
+    ): BlockSheetUi? {
+        if (block == null) return null
+        val own = segments.filter { it.plannedStart?.minuteOfDay(zone) == block.startMin }
+        val main = own.firstOrNull()
+        val actualStart = main?.actualStart?.minuteOfDay(zone)
+        val actualEnd = main?.actualEnd?.minuteOfDay(zone)
+        val actual = actualStart?.let { start ->
+            "${hhmm(start)}–${hhmm(actualEnd ?: minute)}"
+        }
+        val drift = if (actualStart != null && actualEnd != null) {
+            (actualEnd - actualStart) - (block.endMin - block.startMin)
+        } else {
+            null
+        }
+        val pauses = segments.filter {
+            it.kind == SegmentKind.PAUSE && it.plannedStart?.minuteOfDay(zone)?.let { m -> m in block.startMin until block.endMin } == true
+        }
+        val pausedMin = pauses.sumOf { ((it.actualEnd ?: it.actualStart) - it.actualStart).inWholeMinutes }.toInt()
+        return BlockSheetUi(
+            title = block.title,
+            timeLabel = block.timeLabel,
+            planned = block.timeLabel,
+            actual = actual,
+            delta = drift?.let { if (it > 0) "+$it min" else if (it < 0) "−${-it} min" else "on time" },
+            pauses = when {
+                pauses.isEmpty() -> null
+                pauses.size == 1 -> "1 pause · $pausedMin min"
+                else -> "${pauses.size} pauses · $pausedMin min"
+            },
+        )
     }
 
     private fun status(
@@ -428,6 +484,20 @@ fun HomeScreen(
                     .padding(horizontal = Spacing.l, vertical = Spacing.s),
             )
         }
+    }
+
+    state.blockSheet?.let { sheet ->
+        BlockDetailSheet(ui = sheet, onDismiss = { onAction(HomeAction.DismissBlockSheet) })
+    }
+    if (state.eveningChoicePending) {
+        EveningChoiceSheet(onPick = { onAction(HomeAction.PickEvening(it)) })
+    }
+    if (state.resumePrompt) {
+        ResumeDialog(
+            onResumeWhereIWas = { onAction(HomeAction.ResumeWhereIWas) },
+            onJumpToNow = { onAction(HomeAction.JumpToNow) },
+            onDismiss = { onAction(HomeAction.DismissResume) },
+        )
     }
 }
 

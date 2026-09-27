@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.roni.blocks.core.model.BlockType
+import com.roni.blocks.core.model.Choice
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
@@ -40,6 +41,16 @@ data class NowCardUi(
 )
 
 @Immutable
+data class BlockSheetUi(
+    val title: String,
+    val timeLabel: String,
+    val planned: String,
+    val actual: String?,
+    val delta: String?,
+    val pauses: String?,
+)
+
+@Immutable
 data class HomeState(
     val weekdayShort: String = "",
     val dayOfMonth: String = "",
@@ -51,6 +62,8 @@ data class HomeState(
     val leakFromMin: Int? = null,
     val nowCard: NowCardUi? = null,
     val eveningChoicePending: Boolean = false,
+    val blockSheet: BlockSheetUi? = null,
+    val resumePrompt: Boolean = false,
 )
 
 sealed interface HomeAction {
@@ -65,9 +78,15 @@ sealed interface HomeAction {
     data object KidAsleep : HomeAction
     data object EndDay : HomeAction
     data class BlockClicked(val id: String) : HomeAction
+    data object DismissBlockSheet : HomeAction
+    data object DismissResume : HomeAction
+    data class PickEvening(val choice: Choice) : HomeAction
     data object History : HomeAction
     data object TimeDebt : HomeAction
     data object Settings : HomeAction
+
+    val affectsOverlays: Boolean
+        get() = this is BlockClicked || this is DismissBlockSheet || this is DismissResume || this is Resume
 }
 
 val NowCardReservedHeight: Dp = 220.dp

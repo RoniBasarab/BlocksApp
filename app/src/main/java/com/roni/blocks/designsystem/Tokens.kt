@@ -19,11 +19,13 @@ object AppShapes {
     val hero = RoundedCornerShape(20.dp)
     val chip = RoundedCornerShape(50)
     val bar = RoundedCornerShape(6.dp)
+    val sheet = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
 }
 
 object Metrics {
     val iconCircle = 32.dp
     val iconLarge = 40.dp
+    val iconEvening = 28.dp
     val touch = 48.dp
     val hairline = 1.dp
     val halfHairline = 0.5.dp
