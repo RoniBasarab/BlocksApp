@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -17,6 +18,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import com.roni.blocks.designsystem.Leak
 import com.roni.blocks.designsystem.Spacing
 import kotlinx.serialization.Serializable
 
@@ -43,18 +46,27 @@ internal data class Confirmation(
     val body: String,
     val confirmLabel: String,
     val askAgain: Boolean,
+    val red: Boolean = false,
 )
 
-internal fun pauseBody(blockTitle: String): String =
-    "For short breaks like the bathroom or a call: $blockTitle keeps its remaining time, " +
-        "and the paused minutes come out of the next block."
+internal fun pauseBody(blockTitle: String, endsAt: String?): String =
+    "For short breaks like the bathroom or a call: the timer stops counting your $blockTitle " +
+        "time, and $blockTitle still ends at ${endsAt ?: "its planned end"}."
 
 internal fun emergencyBody(): String =
-    "For something urgent: the day ends, nothing counts as debt, and the day is written up as " +
-        "an emergency stop."
+    "The day has been disrupted by an emergency. Stop all schedules for today?"
 
-internal fun startNextBody(): String =
-    "Ends the current block and starts the next one; if you're late, the time you ran over counts as debt."
+internal data class InfoRow(val label: String, val body: String)
+
+internal val infoRows = listOf(
+    InfoRow("Pause", "Stops counting your time for a short break; the block still ends on time."),
+    InfoRow(
+        "Next",
+        "Moves on now: finish a work block early and the rest becomes free time, end free time early " +
+            "and the next block starts right away, and any time you ran over counts as debt.",
+    ),
+    InfoRow("Emergency", "Stops all schedules for today. Nothing after it counts as debt."),
+)
 
 internal val NowButtonId.needsConfirmation: Boolean
     get() = when (this) {
@@ -64,18 +76,19 @@ internal val NowButtonId.needsConfirmation: Boolean
         -> false
     }
 
-internal fun NowButtonId.confirmation(blockTitle: String): Confirmation? = when (this) {
+internal fun NowButtonId.confirmation(blockTitle: String, endsAt: String? = null): Confirmation? = when (this) {
     NowButtonId.PAUSE -> Confirmation(
         title = "Pause $blockTitle?",
-        body = pauseBody(blockTitle),
+        body = pauseBody(blockTitle, endsAt),
         confirmLabel = "Pause",
         askAgain = true,
     )
     NowButtonId.EMERGENCY -> Confirmation(
-        title = "End the day?",
+        title = "Emergency?",
         body = emergencyBody(),
-        confirmLabel = "End day",
+        confirmLabel = "Stop today",
         askAgain = false,
+        red = true,
     )
     NowButtonId.NEXT, NowButtonId.RESUME, NowButtonId.KID_ASLEEP,
     NowButtonId.CHOOSE_EVENING, NowButtonId.END_DAY,
@@ -84,21 +97,16 @@ internal fun NowButtonId.confirmation(blockTitle: String): Confirmation? = when 
 
 @Composable
 internal fun NowCardInfoDialog(blockTitle: String, onDismiss: () -> Unit) {
-    val rows = listOf(
-        "Pause" to pauseBody(blockTitle),
-        "Emergency" to emergencyBody(),
-        "Start next" to startNextBody(),
-    )
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("What the buttons do", style = MaterialTheme.typography.titleMedium) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
-                rows.forEach { (label, body) ->
+                infoRows.forEach { row ->
                     Column(verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
-                        Text(label, style = MaterialTheme.typography.titleSmall)
+                        Text(row.label, style = MaterialTheme.typography.titleSmall)
                         Text(
-                            body,
+                            row.body,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -136,7 +144,16 @@ internal fun ConfirmationDialog(spec: Confirmation, onConfirm: (askAgain: Boolea
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onConfirm(ask) }) { Text(spec.confirmLabel) } },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(ask) },
+                colors = if (spec.red) {
+                    ButtonDefaults.textButtonColors(contentColor = Leak)
+                } else {
+                    ButtonDefaults.textButtonColors()
+                },
+            ) { Text(spec.confirmLabel) }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
     )

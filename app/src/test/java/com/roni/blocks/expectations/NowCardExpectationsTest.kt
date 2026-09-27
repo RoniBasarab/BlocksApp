@@ -1,8 +1,5 @@
 package com.roni.blocks.expectations
 
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertHasClickAction
@@ -19,13 +16,14 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpRect
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.roni.blocks.designsystem.BlocksTheme
 import com.roni.blocks.feature.home.HomeAction
-import com.roni.blocks.feature.home.NowButtonId
 import com.roni.blocks.feature.home.NowCard
 import com.roni.blocks.feature.home.NowCardUi
+import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -40,98 +38,105 @@ class NowCardExpectationsTest {
     val compose = createComposeRule()
 
     private val actions = mutableListOf<HomeAction>()
+    private val tol = 1.dp
 
-    private fun show(ui: NowCardUi, suppressed: Set<NowButtonId> = emptySet()) {
+    private fun show(ui: NowCardUi) {
         compose.setContent {
             BlocksTheme {
-                NowCard(
-                    ui = ui,
-                    countdownText = { "42 min left" },
-                    progress = { 0.3f },
-                    onAction = { actions += it },
-                    infoDialogOpen = false,
-                    onDismissInfoDialog = {},
-                    suppressedConfirmations = suppressed,
-                    onSuppressConfirmation = {},
-                    onAskAgain = {},
-                    modifier = Modifier.testTag("now_card"),
-                )
+                NowCard(ui, { "42 min left" }, { 0.3f }, { actions += it })
             }
         }
         compose.waitForIdle()
     }
 
-    private fun inDialog(text: String) = compose.onNode(
-        hasText(text) and hasClickAction() and hasAnyAncestor(isDialog()),
-    )
+    private fun near(a: Dp, b: Dp) = abs((a - b).value) <= tol.value
 
-    private fun SemanticsNodeInteraction.widthDp(): Dp = getBoundsInRoot().run { right - left }
+    private fun DpRect.widthDp(): Dp = right - left
+
+    private fun inDialog(text: String) =
+        compose.onNode(hasText(text) and hasClickAction() and hasAnyAncestor(isDialog()))
 
     @Test
-    fun running_hasTwoLabeledEqualButtons_andNoStart() {
+    fun running_pauseAndNext_sideBySide_plusEmergency() {
         show(FakeStates.nowRunningCoding())
-        val labels = listOf("Pause", "Emergency")
-        labels.forEach { compose.onNodeWithText(it).assertIsDisplayed().assertHasClickAction() }
-        val widths = labels.map { compose.onNodeWithText(it).widthDp() }
-        assertTrue("equal widths: $widths", widths.maxOrNull()!! - widths.minOrNull()!! <= 1.dp)
-        compose.onAllNodesWithText("Start", substring = true).assertCountEquals(0)
+        val pause = compose.onNodeWithTag("now_pause").assertTextEquals("Pause").getBoundsInRoot()
+        val next = compose.onNodeWithTag("now_primary").assertTextEquals("Next: Free").getBoundsInRoot()
+        assertTrue("same row", near(pause.top, next.top))
+        assertTrue("equal widths", near(pause.widthDp(), next.widthDp()))
+        compose.onNodeWithTag("now_emergency").assertTextEquals("Emergency").assertHasClickAction()
+        compose.onAllNodesWithText("Finish early").assertCountEquals(0)
+        compose.onAllNodesWithText("Interrupt", substring = true).assertCountEquals(0)
     }
 
     @Test
-    fun endedBlock_showsFullWidthStartNamingTheNextBlock() {
+    fun leaking_fullWidthNext_namesTheLandingBlock() {
         show(FakeStates.nowLeakingCv())
-        val card = compose.onNodeWithTag("now_card").widthDp()
-        val primary = compose.onNodeWithTag("now_primary")
-            .assertIsDisplayed()
-            .assertTextEquals("Start Coding")
-            .widthDp()
-        assertTrue("primary spans the card", primary >= card - 32.dp - 1.dp)
+        val card = compose.onNodeWithTag("now_card").getBoundsInRoot()
+        val next = compose.onNodeWithTag("now_primary").assertTextEquals("Next: Coding").getBoundsInRoot()
+        assertTrue("spans the card", next.widthDp() >= card.widthDp() - 32.dp - tol)
+        compose.onNodeWithTag("now_pause").assertDoesNotExist()
         compose.onNodeWithText("Ran over").assertIsDisplayed()
         compose.onNodeWithText("CV ended at 09:30").assertIsDisplayed()
     }
 
     @Test
-    fun pause_explainsBeforeActing() {
+    fun runningWorkBlockEarly_nextOffersFreeTime() {
+        show(FakeStates.nowRunningCv())
+        compose.onNodeWithTag("now_primary").assertTextEquals("Next: Free")
+        compose.onNodeWithTag("now_pause").assertExists()
+    }
+
+    @Test
+    fun runningFree_nextStartsTheNextBlock_noPause() {
+        show(FakeStates.nowRunningFree())
+        compose.onNodeWithTag("now_primary").assertTextEquals("Next: Coding")
+        compose.onNodeWithTag("now_pause").assertDoesNotExist()
+    }
+
+    @Test
+    fun next_actsImmediately_withoutDialog() {
         show(FakeStates.nowRunningCoding())
-        compose.onNodeWithText("Pause").performClick()
-        compose.onNodeWithText("the paused minutes come out of the next block", substring = true).assertIsDisplayed()
-        assertTrue("nothing happens before confirming", actions.isEmpty())
+        compose.onNodeWithTag("now_primary").performClick()
+        compose.onAllNodesWithText("Confirm", substring = true).assertCountEquals(0)
+        compose.onNodeWithText("Emergency?").assertDoesNotExist()
+        assertEquals(1, actions.size)
+    }
+
+    @Test
+    fun pause_explainsFirst_thenActs() {
+        show(FakeStates.nowRunningCoding())
+        compose.onNodeWithTag("now_pause").performClick()
+        compose.onNodeWithText("Coding still ends at 11:30", substring = true).assertIsDisplayed()
+        assertTrue(actions.isEmpty())
         inDialog("Pause").performClick()
         assertEquals(1, actions.size)
     }
 
     @Test
-    fun emergency_alwaysExplains_andCancelDoesNothing() {
+    fun emergency_asksToStopTheDay() {
         show(FakeStates.nowRunningCoding())
-        compose.onNodeWithText("Emergency").performClick()
-        compose.onNodeWithText("nothing counts as debt", substring = true).assertIsDisplayed()
+        compose.onNodeWithTag("now_emergency").performClick()
+        compose.onNodeWithText("Stop all schedules for today?", substring = true).assertIsDisplayed()
         inDialog("Cancel").performClick()
         assertTrue(actions.isEmpty())
+        compose.onNodeWithTag("now_emergency").performClick()
+        inDialog("Stop today").performClick()
+        assertEquals(1, actions.size)
     }
 
     @Test
-    fun infoButton_explainsEveryAction() {
+    fun paused_showsResumeOnly() {
+        show(FakeStates.nowPausedCoding())
+        compose.onNodeWithTag("now_primary").assertTextEquals("Resume")
+        compose.onNodeWithTag("now_pause").assertDoesNotExist()
+    }
+
+    @Test
+    fun info_explainsThreeActions() {
         show(FakeStates.nowRunningCoding())
         compose.onNodeWithContentDescription("What the buttons do").performClick()
-        listOf("paused minutes", "nothing counts as debt", "ran over counts as debt").forEach {
+        listOf("the block still ends on time", "ran over counts as debt", "Stops all schedules for today").forEach {
             compose.onNodeWithText(it, substring = true).assertExists()
         }
-    }
-
-    @Test
-    fun suppressedButton_actsImmediately_andAsksNothing() {
-        show(FakeStates.nowRunningCoding(), suppressed = setOf(NowButtonId.PAUSE))
-        compose.onNodeWithText("Pause").performClick()
-        compose.waitForIdle()
-        assertEquals(listOf(HomeAction.Pause), actions)
-        compose.onAllNodesWithText("Don't ask again").assertCountEquals(0)
-    }
-
-    @Test
-    fun suppression_isPerButton() {
-        show(FakeStates.nowRunningCoding(), suppressed = setOf(NowButtonId.PAUSE))
-        compose.onNodeWithText("Emergency").performClick()
-        compose.onNodeWithText("nothing counts as debt", substring = true).assertIsDisplayed()
-        assertTrue("only the suppressed button skips its dialog", actions.isEmpty())
     }
 }

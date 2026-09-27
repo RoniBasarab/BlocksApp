@@ -47,8 +47,10 @@ object FakeStates {
         showProgress = true,
         buttons = persistentListOf(
             NowButton(NowButtonId.PAUSE, "Pause", NowButtonStyle.SECONDARY),
+            NowButton(NowButtonId.NEXT, "Next: Free", NowButtonStyle.PRIMARY),
             NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
         ),
+        endsAt = "11:30",
     )
 
     fun nowLeakingCv(): NowCardUi = NowCardUi(
@@ -60,9 +62,55 @@ object FakeStates {
         isLeaking = true,
         showProgress = false,
         buttons = persistentListOf(
-            NowButton(NowButtonId.NEXT, "Start Coding", NowButtonStyle.PRIMARY),
+            NowButton(NowButtonId.NEXT, "Next: Coding", NowButtonStyle.PRIMARY),
             NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
         ),
+    )
+
+    fun nowRunningCv(): NowCardUi = NowCardUi(
+        title = "CV",
+        type = BlockType.Cv,
+        chip = null,
+        chipTone = ChipTone.NEUTRAL,
+        subtitle = "until 09:30",
+        isLeaking = false,
+        showProgress = false,
+        buttons = persistentListOf(
+            NowButton(NowButtonId.PAUSE, "Pause", NowButtonStyle.SECONDARY),
+            NowButton(NowButtonId.NEXT, "Next: Free", NowButtonStyle.PRIMARY),
+            NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
+        ),
+        endsAt = "09:30",
+    )
+
+    fun nowRunningFree(): NowCardUi = NowCardUi(
+        title = "Free",
+        type = BlockType.Free,
+        chip = null,
+        chipTone = ChipTone.NEUTRAL,
+        subtitle = "until 14:00",
+        isLeaking = false,
+        showProgress = false,
+        buttons = persistentListOf(
+            NowButton(NowButtonId.NEXT, "Next: Coding", NowButtonStyle.PRIMARY),
+            NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
+        ),
+        endsAt = "14:00",
+    )
+
+    fun nowPausedCoding(): NowCardUi = NowCardUi(
+        title = "Paused · Coding",
+        type = BlockType.Coding,
+        chip = null,
+        chipTone = ChipTone.NEUTRAL,
+        subtitle = "until 11:30",
+        isLeaking = false,
+        showProgress = false,
+        buttons = persistentListOf(
+            NowButton(NowButtonId.RESUME, "Resume", NowButtonStyle.PRIMARY),
+            NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
+        ),
+        endsAt = "11:30",
     )
 
     fun nowPaused(): NowCardUi = NowCardUi(

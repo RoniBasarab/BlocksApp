@@ -155,8 +155,8 @@ class NotificationModelMapperTest {
         assertEquals("Coding · Focus 2/2", model?.title)
         assertEquals("until 11:30", model?.text)
         assertEquals(at(11, 30), model?.countdownTo)
-        assertEquals(listOf("Pause"), labels(model))
-        assertEquals(listOf(ActionEvent.PAUSE), events(model))
+        assertEquals(listOf("Pause", "Next: Free"), labels(model))
+        assertEquals(listOf(ActionEvent.PAUSE, ActionEvent.START_NEXT), events(model))
     }
 
     @Test
@@ -168,7 +168,7 @@ class NotificationModelMapperTest {
         assertEquals("Coding · Break", model?.title)
         assertEquals("focus resumes at 10:30", model?.text)
         assertEquals(at(10, 30), model?.countdownTo)
-        assertEquals(listOf("Pause"), labels(model))
+        assertEquals(listOf("Pause", "Next: Free"), labels(model))
     }
 
     @Test
@@ -179,7 +179,7 @@ class NotificationModelMapperTest {
         assertEquals("CV", model?.title)
         assertEquals("until 09:30", model?.text)
         assertEquals(at(9, 30), model?.countdownTo)
-        assertEquals(listOf("Pause"), labels(model))
+        assertEquals(listOf("Pause", "Next: Free"), labels(model))
     }
 
     @Test
@@ -198,9 +198,9 @@ class NotificationModelMapperTest {
         assertEquals("Cv_9_0:leak", model?.key)
         assertEquals(NotificationChannelKind.DAY, model?.channel)
         assertEquals("CV ran over", model?.title)
-        assertEquals("Start Coding when you're ready", model?.text)
+        assertEquals("Next: Coding when you're ready", model?.text)
         assertEquals(at(9, 30), model?.countdownTo)
-        assertEquals(listOf("Start Coding"), labels(model))
+        assertEquals(listOf("Next: Coding"), labels(model))
         assertEquals(listOf(ActionEvent.START_NEXT), events(model))
     }
 
@@ -208,8 +208,8 @@ class NotificationModelMapperTest {
     fun startNext_namesTheBlockTheClockIsIn_whenTheNextOneIsOverToo() {
         // 11:45 is past CV and past Coding: pressing start lands in Free, not Coding.
         val model = mapper.from(running(0, at(11, 45)), timeline(0, at(9, 0)), at(11, 45))
-        assertEquals("Start Free when you're ready", model?.text)
-        assertEquals(listOf("Start Free"), labels(model))
+        assertEquals("Next: Free when you're ready", model?.text)
+        assertEquals(listOf("Next: Free"), labels(model))
     }
 
     // ── Paused / Interrupted ─────────────────────────────────────────────────────────────────

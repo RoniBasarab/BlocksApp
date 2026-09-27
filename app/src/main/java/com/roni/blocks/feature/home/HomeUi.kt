@@ -39,6 +39,7 @@ data class NowCardUi(
     val isLeaking: Boolean,
     val showProgress: Boolean,
     val buttons: ImmutableList<NowButton>,
+    val endsAt: String? = null,
 )
 
 @Immutable

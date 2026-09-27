@@ -3,6 +3,7 @@ package com.roni.blocks.core.notifications
 import com.roni.blocks.core.daystate.DayState
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Choice
+import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.schedule.DayTimeline
 import com.roni.blocks.core.schedule.ResolvedBlock
 import com.roni.blocks.core.schedule.ScheduleEngine
@@ -103,10 +104,10 @@ class NotificationModelMapper @Inject constructor(
                 key = "$id:leak",
                 channel = NotificationChannelKind.DAY,
                 title = "${blockName(block.spec.type)} ran over",
-                text = "Start $landingName when you're ready",
+                text = "Next: $landingName when you're ready",
                 countdownTo = end,
                 actions = listOf(
-                    NotificationActionModel("Start $landingName", ActionEvent.START_NEXT, id),
+                    NotificationActionModel("Next: $landingName", ActionEvent.START_NEXT, id),
                 ),
                 accentArgb = accent(block.spec.type),
             )
@@ -119,11 +120,24 @@ class NotificationModelMapper @Inject constructor(
                 title = "${blockName(block.spec.type)} · Break",
                 text = "focus resumes at ${hhmm(pomodoro.phaseEnd)}",
                 countdownTo = pomodoro.phaseEnd,
-                actions = listOf(NotificationActionModel("Pause", ActionEvent.PAUSE, id)),
+                actions = listOf(
+                    NotificationActionModel("Pause", ActionEvent.PAUSE, id),
+                    NotificationActionModel("Next: Free", ActionEvent.START_NEXT, id),
+                ),
                 accentArgb = accent(block.spec.type),
             )
         }
 
+        val nextName = blocks.getOrNull(state.blockIndex + 1)?.let { blockName(it.spec.type) }.orEmpty()
+        val actions = when {
+            block.spec.type.isWork -> listOf(
+                NotificationActionModel("Pause", ActionEvent.PAUSE, id),
+                NotificationActionModel("Next: Free", ActionEvent.START_NEXT, id),
+            )
+            else -> buildList {
+                if (nextName.isNotEmpty()) add(NotificationActionModel("Next: $nextName", ActionEvent.START_NEXT, id))
+            }
+        }
         val phase = pomodoro?.let { " · Focus ${it.index}/${it.total}" }.orEmpty()
         return NotificationModel(
             key = "$id:running",
@@ -131,7 +145,7 @@ class NotificationModelMapper @Inject constructor(
             title = "${blockName(block.spec.type)}$phase",
             text = "until ${hhmm(end)}",
             countdownTo = end,
-            actions = listOf(NotificationActionModel("Pause", ActionEvent.PAUSE, id)),
+            actions = actions,
             accentArgb = accent(block.spec.type),
         )
     }

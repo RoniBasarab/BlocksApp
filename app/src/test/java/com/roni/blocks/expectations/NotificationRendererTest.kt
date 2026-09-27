@@ -68,13 +68,13 @@ class NotificationRendererTest {
     }
 
     @Test
-    fun running_showsACountdownAndOffersOnlyPause() {
+    fun running_usesSystemCountdown_withPauseAndNext() {
         renderer.render(FakeNotificationModels.running, transition = true)
         val notification = posted()
         assertEquals("day", notification.channelId)
         assertTrue(notification.extras.getBoolean(NotificationCompat.EXTRA_SHOW_CHRONOMETER, false))
         assertTrue(notification.extras.getBoolean("android.chronometerCountDown", false))
-        assertEquals(listOf("Pause"), actionLabels(notification))
+        assertEquals(listOf("Pause", "Next: Free"), actionLabels(notification))
         assertNotEquals(0, notification.flags and Notification.FLAG_ONGOING_EVENT)
     }
 

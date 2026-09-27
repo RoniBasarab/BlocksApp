@@ -36,7 +36,10 @@ internal object FakeNotificationModels {
         title = "Coding",
         text = "until 12:00",
         countdownTo = at,
-        actions = listOf(NotificationActionModel("Pause", ActionEvent.PAUSE, "b1")),
+        actions = listOf(
+            NotificationActionModel("Pause", ActionEvent.PAUSE, "b1"),
+            NotificationActionModel("Next: Free", ActionEvent.START_NEXT, "b1"),
+        ),
     )
 
     val onBreak = model(
@@ -45,7 +48,10 @@ internal object FakeNotificationModels {
         title = "Coding · Break",
         text = "focus resumes at 12:05",
         countdownTo = at,
-        actions = listOf(NotificationActionModel("Pause", ActionEvent.PAUSE, "b1")),
+        actions = listOf(
+            NotificationActionModel("Pause", ActionEvent.PAUSE, "b1"),
+            NotificationActionModel("Next: Free", ActionEvent.START_NEXT, "b1"),
+        ),
     )
 
     val paused = model(
@@ -61,9 +67,9 @@ internal object FakeNotificationModels {
         key = "b0:leak",
         channel = NotificationChannelKind.DAY,
         title = "CV ran over",
-        text = "Start Coding when you're ready",
+        text = "Next: Coding when you're ready",
         countdownTo = at,
-        actions = listOf(NotificationActionModel("Start Coding", ActionEvent.START_NEXT, "b0")),
+        actions = listOf(NotificationActionModel("Next: Coding", ActionEvent.START_NEXT, "b0")),
     )
 
     val kidTimePrompt = model(

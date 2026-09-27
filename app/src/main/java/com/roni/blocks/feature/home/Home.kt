@@ -70,6 +70,7 @@ import com.roni.blocks.core.daystate.isDishesSlot
 import com.roni.blocks.core.daystate.templateId
 import com.roni.blocks.core.debug.RecompositionCounter
 import com.roni.blocks.core.model.BlockType
+import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
@@ -349,7 +350,7 @@ class HomeViewModel @Inject constructor(
                         isLeaking = true,
                         showProgress = false,
                         buttons = buildList {
-                            nextTitle?.let { add(NowButton(NowButtonId.NEXT, "Start $it", NowButtonStyle.PRIMARY)) }
+                            nextTitle?.let { add(NowButton(NowButtonId.NEXT, "Next: $it", NowButtonStyle.PRIMARY)) }
                             add(NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY))
                         }.toPersistentList(),
                     )
@@ -362,10 +363,19 @@ class HomeViewModel @Inject constructor(
                         subtitle = effectiveEndMin?.let { "until ${timeFormatter.label(it)}" },
                         isLeaking = false,
                         showProgress = pomodoro,
-                        buttons = persistentListOf(
-                            NowButton(NowButtonId.PAUSE, "Pause", NowButtonStyle.SECONDARY),
-                            NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
-                        ),
+                        buttons = if (current?.type != null && !current.type.isWork) {
+                            persistentListOf(
+                                NowButton(NowButtonId.NEXT, "Next: ${nextTitle ?: "Free"}", NowButtonStyle.PRIMARY),
+                                NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
+                            )
+                        } else {
+                            persistentListOf(
+                                NowButton(NowButtonId.PAUSE, "Pause", NowButtonStyle.SECONDARY),
+                                NowButton(NowButtonId.NEXT, "Next: Free", NowButtonStyle.PRIMARY),
+                                NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
+                            )
+                        },
+                        endsAt = effectiveEndMin?.let { timeFormatter.label(it) },
                     )
                 }
             }
@@ -381,6 +391,7 @@ class HomeViewModel @Inject constructor(
                     NowButton(NowButtonId.RESUME, "Resume", NowButtonStyle.PRIMARY),
                     NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
                 ),
+                endsAt = effectiveEndMin?.let { timeFormatter.label(it) },
             )
             DayState.KidTime -> NowCardUi(
                 title = "Kid time",
@@ -556,8 +567,7 @@ fun HomeScreen(
                 onAskAgain = onAskAgain,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(horizontal = Spacing.l, vertical = Spacing.s)
-                    .testTag("now_card"),
+                    .padding(horizontal = Spacing.l, vertical = Spacing.s),
             )
         }
     }
@@ -671,7 +681,7 @@ fun NowCard(
     val accent = ui.type?.let { c.block(it).accent } ?: c.primary
     var dialog by remember { mutableStateOf<NowCardDialog?>(if (infoDialogOpen) NowCardDialog.Info else null) }
 
-    AppCard(modifier.fillMaxWidth(), borderColor = if (ui.isLeaking) c.leak else null) {
+    AppCard(modifier.fillMaxWidth().testTag("now_card"), borderColor = if (ui.isLeaking) c.leak else null) {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(Metrics.nowDot * 2).background(accent, CircleShape))
@@ -696,25 +706,46 @@ fun NowCard(
                 }
             }
             if (ui.showProgress) ProgressLine(progress, accent)
-            ui.buttons.filter { it.style == NowButtonStyle.PRIMARY }.forEach { button ->
-                NowPrimaryButton(button) { onAction(button.id.toAction()) }
+            val pause = ui.buttons.firstOrNull { it.id == NowButtonId.PAUSE }
+            val primary = ui.buttons.firstOrNull { it.style == NowButtonStyle.PRIMARY }
+            val emergency = ui.buttons.filter { it.id == NowButtonId.EMERGENCY }
+            val others = ui.buttons.filter { it != pause && it != primary && it.id != NowButtonId.EMERGENCY }
+            val open = { button: NowButton ->
+                if (button.id.needsConfirmation && button.id !in suppressedConfirmations) {
+                    dialog = NowCardDialog.Confirm(button.id)
+                } else {
+                    onAction(button.id.toAction())
+                }
             }
-            val secondary = ui.buttons.filter { it.style == NowButtonStyle.SECONDARY }
-            if (secondary.isNotEmpty()) {
+            if (pause != null && primary != null) {
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-                    secondary.forEach { button ->
+                    NowSecondaryButton(button = pause, modifier = Modifier.weight(1f), onClick = { open(pause) })
+                    NowPrimaryButton(button = primary, modifier = Modifier.weight(1f), onClick = { onAction(primary.id.toAction()) })
+                }
+            } else {
+                primary?.let { button -> NowPrimaryButton(button, Modifier.fillMaxWidth()) { onAction(button.id.toAction()) } }
+            }
+            if (others.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                    others.forEach { button ->
                         NowSecondaryButton(
                             button = button,
                             modifier = Modifier.weight(1f),
-                            onClick = {
-                                if (button.id.needsConfirmation && button.id !in suppressedConfirmations) {
-                                    dialog = NowCardDialog.Confirm(button.id)
-                                } else {
-                                    onAction(button.id.toAction())
-                                }
-                            },
+                            onClick = { open(button) },
                         )
                     }
+                }
+            }
+            emergency.forEach { button ->
+                TextButton(
+                    onClick = { dialog = NowCardDialog.Confirm(button.id) },
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .heightIn(min = 40.dp)
+                        .testTag("now_emergency"),
+                    colors = ButtonDefaults.textButtonColors(contentColor = c.leak),
+                ) {
+                    Text(button.label, style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
@@ -730,7 +761,7 @@ fun NowCard(
             },
         )
         is NowCardDialog.Confirm -> ConfirmationDialog(
-            spec = checkNotNull(open.id.confirmation(ui.title)),
+            spec = checkNotNull(open.id.confirmation(ui.title, ui.endsAt)),
             onConfirm = { askedAgain ->
                 dialog = null
                 if (askedAgain) onSuppressConfirmation(open.id) else onAskAgain(open.id)
@@ -768,11 +799,11 @@ private fun ProgressLine(progress: () -> Float, color: Color) {
 }
 
 @Composable
-private fun NowPrimaryButton(button: NowButton, onClick: () -> Unit) {
+private fun NowPrimaryButton(button: NowButton, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val c = AppTheme.colors
     Button(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().heightIn(min = Metrics.touch).testTag("now_primary"),
+        modifier = modifier.heightIn(min = Metrics.touch).testTag("now_primary"),
         shape = AppShapes.chip,
         colors = ButtonDefaults.buttonColors(containerColor = c.primary, contentColor = c.onPrimary),
     ) {
@@ -785,7 +816,9 @@ private fun NowSecondaryButton(button: NowButton, onClick: () -> Unit, modifier:
     val c = AppTheme.colors
     FilledTonalButton(
         onClick = onClick,
-        modifier = modifier.heightIn(min = Metrics.touch),
+        modifier = modifier
+            .heightIn(min = Metrics.touch)
+            .then(if (button.id == NowButtonId.PAUSE) Modifier.testTag("now_pause") else Modifier),
         shape = AppShapes.chip,
         colors = ButtonDefaults.filledTonalButtonColors(containerColor = c.surfaceRaised, contentColor = c.textPrimary),
     ) {
