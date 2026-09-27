@@ -7,6 +7,7 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.roni.blocks.core.daystate.DayState
+import com.roni.blocks.feature.history.HistoryDetailRoute
 import com.roni.blocks.feature.history.HistoryRoute
 import com.roni.blocks.feature.home.HomeRoute
 import com.roni.blocks.feature.insights.InsightsRoute
@@ -70,7 +71,7 @@ fun AppRoot(start: StartDestination, modifier: Modifier = Modifier) {
             entry<WeeklyKey> { WeeklyRoute(onTab = ::openTab, onMenu = { backStack.add(it) }) }
             entry<InsightsKey> { InsightsRoute(onTab = ::openTab, onMenu = { backStack.add(it) }) }
             entry<HistoryKey> { HistoryRoute(onBack = { backStack.removeAt(backStack.lastIndex) }, onDay = { backStack.add(HistoryDayKey(it)) }) }
-            entry<HistoryDayKey> { key -> HistoryRoute(date = key.date, onBack = { backStack.removeAt(backStack.lastIndex) }, onDay = {}) }
+            entry<HistoryDayKey> { key -> HistoryDetailRoute(date = key.date, onBack = { backStack.removeAt(backStack.lastIndex) }) }
             entry<TimeDebtKey> { TimeDebtRoute(onBack = { backStack.removeAt(backStack.lastIndex) }) }
             entry<SettingsKey> {
                 SettingsRoute(

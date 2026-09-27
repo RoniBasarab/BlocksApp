@@ -12,6 +12,7 @@ import com.roni.blocks.designsystem.Lavender
 import com.roni.blocks.designsystem.Leak
 import com.roni.blocks.designsystem.TextSecondary
 import com.roni.blocks.designsystem.blockColors
+import com.roni.blocks.feature.history.HistoryChip
 import com.roni.blocks.feature.history.HistoryDay
 import com.roni.blocks.feature.history.HistoryUiState
 import com.roni.blocks.feature.history.HistoryWeek
@@ -177,21 +178,49 @@ object FakeStates {
             HistoryWeek(
                 header = "This week",
                 days = listOf(
-                    HistoryDay("Sun 13 Sep", "9 h 20 min focused", "Completed"),
-                    HistoryDay("Sat 12 Sep", "6 h 05 min focused", "Completed"),
+                    HistoryDay(
+                        date = "2026-09-24",
+                        weekdayShort = "THU",
+                        dayNumber = "24",
+                        templateTitle = "Sunday / Tuesday / Wednesday",
+                        strip = listOf(
+                            blockColors(BlockType.Coding).accent to 90f,
+                            blockColors(BlockType.Cv).accent to 25f,
+                        ),
+                        summary = "5/6 blocks · 1 pause",
+                        chip = HistoryChip("+12m", Leak),
+                        outlined = false,
+                    ),
                 ),
             ),
             HistoryWeek(
                 header = "Last week",
                 days = listOf(
-                    HistoryDay("Fri 11 Sep", "7 h 40 min focused", "Completed"),
-                    HistoryDay("Thu 10 Sep", "8 h 10 min focused", "Completed"),
+                    HistoryDay(
+                        date = "2026-09-15",
+                        weekdayShort = "TUE",
+                        dayNumber = "15",
+                        templateTitle = "Sunday / Tuesday / Wednesday",
+                        strip = listOf(blockColors(BlockType.Gym).accent to 120f),
+                        summary = "6/6 blocks",
+                        chip = HistoryChip("On time", Good),
+                        outlined = false,
+                    ),
                 ),
             ),
             HistoryWeek(
-                header = "13 – 19 Sep",
+                header = "6 – 12 Sep",
                 days = listOf(
-                    HistoryDay("Wed 09 Sep", "5 h 55 min focused", "Completed"),
+                    HistoryDay(
+                        date = "2026-09-08",
+                        weekdayShort = "TUE",
+                        dayNumber = "8",
+                        templateTitle = "",
+                        strip = emptyList(),
+                        summary = "",
+                        chip = HistoryChip("Off day", TextSecondary),
+                        outlined = true,
+                    ),
                 ),
             ),
         ),
