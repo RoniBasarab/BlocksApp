@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.roni.blocks.designsystem.BlocksTheme
 import com.roni.blocks.feature.home.HomeAction
+import com.roni.blocks.feature.home.NowButtonId
 import com.roni.blocks.feature.home.NowCard
 import com.roni.blocks.feature.home.NowCardUi
 import org.junit.Assert.assertEquals
@@ -40,7 +41,7 @@ class NowCardExpectationsTest {
 
     private val actions = mutableListOf<HomeAction>()
 
-    private fun show(ui: NowCardUi) {
+    private fun show(ui: NowCardUi, suppressed: Set<NowButtonId> = emptySet()) {
         compose.setContent {
             BlocksTheme {
                 NowCard(
@@ -50,6 +51,9 @@ class NowCardExpectationsTest {
                     onAction = { actions += it },
                     infoDialogOpen = false,
                     onDismissInfoDialog = {},
+                    suppressedConfirmations = suppressed,
+                    onSuppressConfirmation = {},
+                    onAskAgain = {},
                     modifier = Modifier.testTag("now_card"),
                 )
             }
@@ -119,5 +123,22 @@ class NowCardExpectationsTest {
         listOf("next block", "nothing counts as debt", "free time", "ran over counts as debt").forEach {
             compose.onNodeWithText(it, substring = true).assertExists()
         }
+    }
+
+    @Test
+    fun suppressedButton_actsImmediately_andAsksNothing() {
+        show(FakeStates.nowRunningCoding(), suppressed = setOf(NowButtonId.PAUSE))
+        compose.onNodeWithText("Pause").performClick()
+        compose.waitForIdle()
+        assertEquals(listOf(HomeAction.Pause), actions)
+        compose.onAllNodesWithText("Don't ask again").assertCountEquals(0)
+    }
+
+    @Test
+    fun suppression_isPerButton() {
+        show(FakeStates.nowRunningCoding(), suppressed = setOf(NowButtonId.PAUSE))
+        compose.onNodeWithText("Finish early").performClick()
+        compose.onNodeWithText("the minutes left become free time", substring = true).assertIsDisplayed()
+        assertTrue("only the suppressed button skips its dialog", actions.isEmpty())
     }
 }

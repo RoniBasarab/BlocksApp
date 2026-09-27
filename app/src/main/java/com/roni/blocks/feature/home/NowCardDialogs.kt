@@ -18,11 +18,25 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.roni.blocks.designsystem.Spacing
+import kotlinx.serialization.Serializable
 
 internal sealed interface NowCardDialog {
     data object Info : NowCardDialog
     data class Confirm(val id: NowButtonId) : NowCardDialog
 }
+
+@Serializable
+internal data class SuppressedConfirmations(val ids: Set<String> = emptySet())
+
+internal const val SUPPRESSED_CONFIRMATIONS = "suppressed_confirmations"
+
+internal fun NowButtonId.toStorageKey(): String = name
+
+internal fun suppressedFromKeys(keys: Set<String>): Set<NowButtonId> =
+    NowButtonId.entries.filterTo(mutableSetOf()) { it.toStorageKey() in keys }
+
+internal fun keysFromSuppressed(ids: Set<NowButtonId>): Set<String> =
+    ids.mapTo(mutableSetOf()) { it.toStorageKey() }
 
 internal data class Confirmation(
     val title: String,

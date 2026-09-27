@@ -73,6 +73,8 @@ import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.ResumeMode
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
+import com.roni.blocks.core.storage.PrefsFile
+import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
 import com.roni.blocks.core.time.Ticker
 import com.roni.blocks.core.time.minuteOfDay
@@ -113,9 +115,15 @@ class HomeViewModel @Inject constructor(
     private val ticker: Ticker,
     private val clock: Clock,
     private val zone: TimeZone,
+    private val prefs: PrefsStorage,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state.asStateFlow()
+
+    private val _suppressedConfirmations = MutableStateFlow<Set<NowButtonId>>(emptySet())
+
+    /** Buttons the user chose "Don't ask again" for; survives process death. */
+    val suppressedConfirmations: StateFlow<Set<NowButtonId>> = _suppressedConfirmations.asStateFlow()
 
     private var selectedBlockId: String? = null
     private var resumePrompt = false
@@ -139,6 +147,46 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch { day.state.collect { publish(it) } }
         // Leaking is a boundary, not a per-minute value: only re-publish when it flips.
         viewModelScope.launch { minuteOfDay.collect { publishLeakIfChanged() } }
+        viewModelScope.launch {
+            val stored = prefs.read(
+                PrefsFile.SETTINGS,
+                SUPPRESSED_CONFIRMATIONS,
+                SuppressedConfirmations.serializer(),
+            )
+            _suppressedConfirmations.value = suppressedFromKeys(stored?.ids.orEmpty())
+        }
+    }
+
+    fun onSuppressConfirmation(button: NowButtonId) {
+        if (button in _suppressedConfirmations.value) return
+        val updated = _suppressedConfirmations.value + button
+        _suppressedConfirmations.value = updated
+        viewModelScope.launch {
+            prefs.write(
+                PrefsFile.SETTINGS,
+                SUPPRESSED_CONFIRMATIONS,
+                SuppressedConfirmations(keysFromSuppressed(updated)),
+                SuppressedConfirmations.serializer(),
+            )
+        }
+    }
+
+    fun onAskAgain(button: NowButtonId) {
+        if (button !in _suppressedConfirmations.value) return
+        val updated = _suppressedConfirmations.value - button
+        _suppressedConfirmations.value = updated
+        viewModelScope.launch {
+            if (updated.isEmpty()) {
+                prefs.remove(PrefsFile.SETTINGS, SUPPRESSED_CONFIRMATIONS)
+            } else {
+                prefs.write(
+                    PrefsFile.SETTINGS,
+                    SUPPRESSED_CONFIRMATIONS,
+                    SuppressedConfirmations(keysFromSuppressed(updated)),
+                    SuppressedConfirmations.serializer(),
+                )
+            }
+        }
     }
 
     fun onAction(action: HomeAction) {
@@ -448,6 +496,7 @@ fun HomeRoute(
     val minute by viewModel.minuteOfDay.collectAsStateWithLifecycle()
     val countdown by viewModel.countdownText.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
+    val suppressed by viewModel.suppressedConfirmations.collectAsStateWithLifecycle()
     val minuteOfDay = { minute }
     val countdownText = { countdown }
     val progressValue = { progress }
@@ -458,6 +507,9 @@ fun HomeRoute(
             minuteOfDay = minuteOfDay,
             countdownText = countdownText,
             progress = progressValue,
+            suppressedConfirmations = suppressed,
+            onSuppressConfirmation = viewModel::onSuppressConfirmation,
+            onAskAgain = viewModel::onAskAgain,
             onAction = { action ->
                 when (action) {
                     HomeAction.SwapTemplate -> onSwap()
@@ -478,6 +530,9 @@ fun HomeScreen(
     countdownText: () -> String,
     progress: () -> Float,
     onAction: (HomeAction) -> Unit,
+    suppressedConfirmations: Set<NowButtonId> = emptySet(),
+    onSuppressConfirmation: (NowButtonId) -> Unit = {},
+    onAskAgain: (NowButtonId) -> Unit = {},
 ) {
     SideEffect { RecompositionCounter.hit("HomeScreen") }
     val scroll = rememberScrollState()
@@ -520,6 +575,9 @@ fun HomeScreen(
                 countdownText = countdownText,
                 progress = progress,
                 onAction = onAction,
+                suppressedConfirmations = suppressedConfirmations,
+                onSuppressConfirmation = onSuppressConfirmation,
+                onAskAgain = onAskAgain,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(horizontal = Spacing.l, vertical = Spacing.s)
@@ -634,13 +692,15 @@ fun NowCard(
     onAction: (HomeAction) -> Unit,
     infoDialogOpen: Boolean = false,
     onDismissInfoDialog: () -> Unit = {},
+    suppressedConfirmations: Set<NowButtonId> = emptySet(),
+    onSuppressConfirmation: (NowButtonId) -> Unit = {},
+    onAskAgain: (NowButtonId) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     SideEffect { RecompositionCounter.hit("NowCard") }
     val c = AppTheme.colors
     val accent = ui.type?.let { c.block(it).accent } ?: c.primary
     var dialog by remember { mutableStateOf<NowCardDialog?>(if (infoDialogOpen) NowCardDialog.Info else null) }
-    var dontAskAgain by remember { mutableStateOf(setOf<NowButtonId>()) }
 
     AppCard(modifier.fillMaxWidth(), borderColor = if (ui.isLeaking) c.leak else null) {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
@@ -678,7 +738,7 @@ fun NowCard(
                             button = button,
                             modifier = Modifier.weight(1f),
                             onClick = {
-                                if (button.id.needsConfirmation && button.id !in dontAskAgain) {
+                                if (button.id.needsConfirmation && button.id !in suppressedConfirmations) {
                                     dialog = NowCardDialog.Confirm(button.id)
                                 } else {
                                     onAction(button.id.toAction())
@@ -703,8 +763,8 @@ fun NowCard(
         is NowCardDialog.Confirm -> ConfirmationDialog(
             spec = checkNotNull(open.id.confirmation(ui.title)),
             onConfirm = { askedAgain ->
-                if (askedAgain) dontAskAgain = dontAskAgain + open.id
                 dialog = null
+                if (askedAgain) onSuppressConfirmation(open.id) else onAskAgain(open.id)
                 onAction(open.id.toAction())
             },
             onDismiss = { dialog = null },
