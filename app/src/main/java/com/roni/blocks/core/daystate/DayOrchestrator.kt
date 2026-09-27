@@ -9,6 +9,7 @@ import com.roni.blocks.core.model.DebtRecord
 import com.roni.blocks.core.model.LocalDateSerializer
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.TemplateId
+import com.roni.blocks.core.notifications.ActionEvent
 import com.roni.blocks.core.notifications.AppNotifier
 import com.roni.blocks.core.notifications.NoticeAction
 import com.roni.blocks.core.model.Choice
@@ -66,6 +67,15 @@ class DayOrchestrator @Inject constructor(
     }
 
     suspend fun handle(event: DayEvent) = apply(event)
+
+    /**
+     * A tap on a notification button. [expectedBlockId] is the block the button was built for and
+     * travels with the tap so a stale tap can be recognised; the guard itself lands with the
+     * orchestrator's notification wiring.
+     */
+    suspend fun handleNotificationAction(event: ActionEvent, expectedBlockId: String?) {
+        handle(event.toDayEvent())
+    }
 
     suspend fun onAlarm() {
         val today = today()

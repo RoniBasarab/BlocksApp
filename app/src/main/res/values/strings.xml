@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Blocks</string>
+    <string name="channel_day">Day</string>
+    <string name="channel_evening">Evening</string>
 </resources>

@@ -1,0 +1,166 @@
+package com.roni.blocks.core.notifications
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import androidx.core.app.NotificationCompat
+import com.roni.blocks.MainActivity
+import com.roni.blocks.R
+import com.roni.blocks.core.time.SystemTimeMapper
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Everything the app needs from "the thing that shows notifications". Exists so the orchestrator
+ * can be driven by a recording fake in tests without an Android context.
+ */
+interface NotificationPort {
+    fun ensureChannels()
+
+    /** Null [model] removes the notification. [transition] means the day genuinely moved on. */
+    fun render(model: NotificationModel?, transition: Boolean)
+
+    fun onDismissed(key: String)
+}
+
+/**
+ * Shows exactly one notification at a time. The old design used two (a silent status and a
+ * separate alert), which meant two sounds, two dismissals and two ways to be wrong.
+ */
+@Singleton
+class NotificationRenderer @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val visibility: AppVisibility,
+    private val dismissals: DismissalStore,
+    private val systemTime: SystemTimeMapper = SystemTimeMapper.Identity,
+) : NotificationPort {
+
+    private val manager = context.getSystemService(NotificationManager::class.java)
+    private var lastChannel: String? = null
+
+    override fun ensureChannels() {
+        // The two-channel design is gone; drop the old channels so they stop lingering in settings.
+        manager.deleteNotificationChannel(LEGACY_STATUS)
+        manager.deleteNotificationChannel(LEGACY_ALERTS)
+        manager.createNotificationChannel(
+            channel(DAY, R.string.channel_day, NotificationManager.IMPORTANCE_DEFAULT, sound = true),
+        )
+        manager.createNotificationChannel(
+            channel(EVENING, R.string.channel_evening, NotificationManager.IMPORTANCE_LOW, sound = false),
+        )
+    }
+
+    override fun render(model: NotificationModel?, transition: Boolean) {
+        if (model == null) {
+            if (lastChannel != null) manager.cancel(ID)
+            lastChannel = null
+            return
+        }
+        ensureChannels()
+        val channelId = if (model.channel == NotificationChannelKind.EVENING) EVENING else DAY
+        // Changing channel on a live notification is ignored by the platform, so replace it.
+        if (lastChannel != null && lastChannel != channelId) manager.cancel(ID)
+        if (transition) {
+            dismissals.forget(model.key)
+        } else if (dismissals.isDismissed(model.key)) {
+            return
+        }
+        manager.notify(ID, build(model, transition, channelId))
+        lastChannel = channelId
+    }
+
+    override fun onDismissed(key: String) {
+        dismissals.remember(key)
+        if (lastChannel != null) manager.cancel(ID)
+        lastChannel = null
+    }
+
+    private fun build(model: NotificationModel, transition: Boolean, channelId: String): Notification {
+        val builder = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(R.drawable.ic_stat_blocks)
+            .setContentTitle(model.title)
+            .setContentText(model.text)
+            .setContentIntent(openApp())
+            .setColor(model.accentArgb)
+            .setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setDeleteIntent(dismissedIntent(model.key))
+            // A refresh must stay quiet. Only a real transition (or an app that is not on screen)
+            // is allowed to make a sound.
+            .setOnlyAlertOnce(!transition || visibility.isForeground)
+        val countdownTo = model.countdownTo
+        if (countdownTo != null) {
+            builder.setWhen(systemTime.systemMillis(countdownTo))
+                .setShowWhen(true)
+                .setUsesChronometer(true)
+                .setChronometerCountDown(true)
+        }
+        model.actions.forEachIndexed { index, action ->
+            builder.addAction(0, action.label, actionIntent(action, index))
+        }
+        return builder.build()
+    }
+
+    private fun channel(id: String, nameRes: Int, importance: Int, sound: Boolean): NotificationChannel =
+        NotificationChannel(id, context.getString(nameRes), importance).apply {
+            // Roni's rule: no vibration anywhere, sound only during the daytime segment.
+            enableVibration(false)
+            vibrationPattern = null
+            setSound(if (sound) android.provider.Settings.System.DEFAULT_NOTIFICATION_URI else null, null)
+        }
+
+    private fun openApp(): PendingIntent {
+        val intent = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+            setClass(context, MainActivity::class.java)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        return PendingIntent.getActivity(
+            context,
+            REQUEST_OPEN,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    private fun actionIntent(action: NotificationActionModel, index: Int): PendingIntent {
+        val intent = Intent(context, NotificationActionReceiver::class.java)
+            .setAction(NotificationActionReceiver.ACTION_EVENT)
+            .putExtra(NotificationActionReceiver.EXTRA_EVENT, action.event.name)
+            .putExtra(NotificationActionReceiver.EXTRA_FOR_BLOCK_ID, action.forBlockId)
+        return PendingIntent.getBroadcast(
+            context,
+            REQUEST_ACTION + action.event.ordinal * 2 + index,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    private fun dismissedIntent(key: String): PendingIntent {
+        val intent = Intent(context, NotificationActionReceiver::class.java)
+            .setAction(NotificationActionReceiver.ACTION_DISMISSED)
+            .putExtra(NotificationActionReceiver.EXTRA_KEY, key)
+        return PendingIntent.getBroadcast(
+            context,
+            REQUEST_DISMISSED,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    companion object {
+        const val ID = 1
+        const val DAY = "day"
+        const val EVENING = "evening"
+        private const val LEGACY_STATUS = "status"
+        private const val LEGACY_ALERTS = "day_alerts"
+        private const val REQUEST_OPEN = 0
+        private const val REQUEST_ACTION = 20
+        private const val REQUEST_DISMISSED = 60
+    }
+}
