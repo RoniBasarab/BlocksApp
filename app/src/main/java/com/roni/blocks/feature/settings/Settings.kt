@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.core.content.FileProvider
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.roni.blocks.BuildConfig
 import com.roni.blocks.core.logging.AppLogger
 import com.roni.blocks.core.storage.HistoryManager
@@ -50,8 +51,6 @@ import com.roni.blocks.designsystem.SettingsRow
 import com.roni.blocks.designsystem.Spacing
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 enum class PermissionStatus { ALLOWED, BLOCKED, NOT_SET }
@@ -64,6 +63,8 @@ data class SettingsUiState(
 
 sealed interface SettingsAction {
     data class SetHourFormat(val use24Hour: Boolean) : SettingsAction
+    data object OpenNotificationSettings : SettingsAction
+    data object OpenExactAlarmSettings : SettingsAction
     data object SendTestNotification : SettingsAction
     data object ShareLog : SettingsAction
     data object ResetToday : SettingsAction
@@ -75,8 +76,31 @@ class SettingsViewModel @Inject constructor(
     private val logger: AppLogger,
     private val history: HistoryManager,
 ) : ViewModel() {
-    fun clear() { CoroutineScope(Dispatchers.IO).launch { history.clear() } }
+    fun clear() {
+        viewModelScope.launch { history.clear() }
+    }
+
     fun logFile() = logger.shareFile()
+
+    fun openNotificationSettings(context: android.content.Context) {
+        context.startActivity(
+            Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
+
+    fun openExactAlarmSettings(context: android.content.Context) {
+        val alarms = context.getSystemService(android.app.AlarmManager::class.java)
+        if (alarms?.canScheduleExactAlarms() == true) {
+            context.startActivity(
+                Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+                    .setData(android.net.Uri.parse("package:${context.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
+
     fun shareLog(context: android.content.Context) {
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", logFile())
         context.startActivity(
@@ -107,14 +131,14 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
                     icon = Icons.Outlined.Notifications,
                     title = "Notification permission",
                     trailing = { StatusTrailing(state.notificationPermission) },
-                    onClick = { onAction(SettingsAction.SendTestNotification) },
+                    onClick = { onAction(SettingsAction.OpenNotificationSettings) },
                 )
                 CardDivider()
                 SettingsRow(
                     icon = Icons.Outlined.Alarm,
                     title = "Exact alarms",
                     trailing = { StatusTrailing(state.exactAlarms) },
-                    onClick = { onAction(SettingsAction.SendTestNotification) },
+                    onClick = { onAction(SettingsAction.OpenExactAlarmSettings) },
                 )
                 CardDivider()
                 SettingsRow(
@@ -248,6 +272,8 @@ fun SettingsRoute(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMod
                 state = SettingsUiState(),
                 onAction = { action ->
                     when (action) {
+                        SettingsAction.OpenNotificationSettings -> viewModel.openNotificationSettings(context)
+                        SettingsAction.OpenExactAlarmSettings -> viewModel.openExactAlarmSettings(context)
                         SettingsAction.ShareLog -> viewModel.shareLog(context)
                         SettingsAction.ClearHistory -> viewModel.clear()
                         SettingsAction.SendTestNotification,
