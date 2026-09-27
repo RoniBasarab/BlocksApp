@@ -1,48 +1,48 @@
 package com.roni.blocks.feature.weekly
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavKey
+import com.roni.blocks.designsystem.AppBottomBar
+import com.roni.blocks.designsystem.AppCard
+import com.roni.blocks.designsystem.AppTab
+import com.roni.blocks.designsystem.AppTopBar
+import com.roni.blocks.designsystem.ScreenScaffold
+import com.roni.blocks.designsystem.Spacing
+import com.roni.blocks.navigation.HistoryKey
 import com.roni.blocks.navigation.HomeKey
 import com.roni.blocks.navigation.InsightsKey
-import com.roni.blocks.navigation.WeeklyKey
-
-@Immutable
-data class WeeklyState(val label: String = "This week")
+import com.roni.blocks.navigation.SettingsKey
+import com.roni.blocks.navigation.TimeDebtKey
 
 @Composable
-fun WeeklyRoute(onTab: (NavKey) -> Unit) {
-    Scaffold(bottomBar = { Tabs(WeeklyKey, onTab) }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            Text(WeeklyState().label)
-            Canvas(Modifier.fillMaxWidth().height(160.dp)) {
-                drawRect(Color(0xFF7A9CC6).copy(alpha = 0.35f), Offset(24f, 40f), Size(40f, 80f))
-                drawRect(Color(0xFF7A9CC6), Offset(72f, 20f), Size(40f, 100f))
-            }
+fun WeeklyRoute(onTab: (NavKey) -> Unit, onMenu: (NavKey) -> Unit) {
+    ScreenScaffold(
+        topBar = {
+            AppTopBar(
+                title = { Text("Weekly", style = MaterialTheme.typography.titleLarge) },
+                onHistory = { onMenu(HistoryKey) },
+                onDebt = { onMenu(TimeDebtKey) },
+                onSettings = { onMenu(SettingsKey) },
+            )
+        },
+        bottomBar = { AppBottomBar(AppTab.WEEKLY) { onTab(tabKey(it)) } },
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).padding(top = Spacing.l)) {
+            AppCard { Text("No data for this week yet", style = MaterialTheme.typography.bodyLarge) }
         }
     }
 }
 
-@Composable
-internal fun Tabs(selected: NavKey, onTab: (NavKey) -> Unit) {
-    NavigationBar {
-        NavigationBarItem(selected = selected == HomeKey, onClick = { onTab(HomeKey) }, icon = { Text("H") }, label = { Text("Home") })
-        NavigationBarItem(selected = selected == WeeklyKey, onClick = { onTab(WeeklyKey) }, icon = { Text("W") }, label = { Text("Weekly") })
-        NavigationBarItem(selected = selected == InsightsKey, onClick = { onTab(InsightsKey) }, icon = { Text("I") }, label = { Text("Insights") })
-    }
+internal fun tabKey(tab: AppTab): NavKey = when (tab) {
+    AppTab.HOME -> HomeKey
+    AppTab.WEEKLY -> WeeklyKey()
+    AppTab.INSIGHTS -> InsightsKey
 }
+
+private fun WeeklyKey() = com.roni.blocks.navigation.WeeklyKey

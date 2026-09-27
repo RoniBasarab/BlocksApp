@@ -1,30 +1,38 @@
 package com.roni.blocks.feature.timedebt
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
-
-@Immutable
-data class DebtState(val week: String = "0 min", val today: String = "0 min")
+import com.roni.blocks.designsystem.AppCard
+import com.roni.blocks.designsystem.AppTopBar
+import com.roni.blocks.designsystem.ScreenScaffold
+import com.roni.blocks.designsystem.Spacing
 
 @Composable
-fun TimeDebtRoute() {
-    val state = DebtState()
-    Column(Modifier.padding(16.dp)) {
-        Text("This week ${state.week}")
-        Text("Today ${state.today}")
-        Canvas(Modifier.fillMaxWidth().height(80.dp)) {
-            drawRect(Color(0xFFD97070), Offset(8f, 20f), Size(12f, 40f))
+fun TimeDebtRoute(onBack: () -> Unit) {
+    ScreenScaffold(
+        topBar = {
+            AppTopBar(
+                title = { Text("Time Debt", style = MaterialTheme.typography.titleLarge) },
+                showMenu = false,
+                actions = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
+            )
+        },
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).padding(top = Spacing.l)) {
+            AppCard {
+                Text("This week", style = MaterialTheme.typography.labelMedium)
+                Text("0 min", style = MaterialTheme.typography.displaySmall.merge(com.roni.blocks.designsystem.AppType.numbers), color = com.roni.blocks.designsystem.Good)
+                Text("No debt. Clean week.", style = MaterialTheme.typography.bodyMedium, color = com.roni.blocks.designsystem.Good)
+            }
         }
     }
 }

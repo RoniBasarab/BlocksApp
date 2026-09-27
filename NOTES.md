@@ -9,4 +9,9 @@
 - Home calendar draws the hour grid, block layout, and now line, but leak overflow, evening choice sheet, and auto-scroll are not finished.
 - Weekly, Insights, History, and Time Debt navigate and render a first cut. They do not yet match every visual in `visuals.md`.
 - Macrobenchmark module is not added.
+- Task 2: `material-icons-extended` resolved with the Compose BOM, so outlined icons come from that artifact. R8 strips unused icons on release.
+- Task 2: splash screen uses `androidx.core:core-splashscreen` 1.2.0. Window background is `#1C1B19`.
+- Task 2: pause extends the current block (`plannedEnd + paused`) and the next block keeps its planned end. Segment recording lives in `SegmentBook` and is what the orchestrator persists.
+- Task 2 H1 skipped: Roborazzi was not added, so screenshots were not recorded.
+- Task 2 remaining: template picker aurora, Home now-card states, weekly chart, insights scorecard, and history rows are structured but not yet the full layouts in Task 2 phases D–G.
 - Receivers call `goAsync()` and finish the pending result immediately; suspend work is launched on the app scope, so a killed process can drop the tail of `onAlarm`.
