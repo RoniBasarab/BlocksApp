@@ -25,6 +25,9 @@ interface NotificationPort {
     fun render(model: NotificationModel?, transition: Boolean)
 
     fun onDismissed(key: String)
+
+    /** Settings row: the one allowed second notification, ID 99, self-expiring after 10s. */
+    fun sendTestNotification()
 }
 
 /**
@@ -77,6 +80,21 @@ class NotificationRenderer @Inject constructor(
         dismissals.remember(key)
         if (lastChannel != null) manager.cancel(ID)
         lastChannel = null
+    }
+
+    override fun sendTestNotification() {
+        ensureChannels()
+        manager.cancel(TEST_ID)
+        manager.notify(
+            TEST_ID,
+            NotificationCompat.Builder(context, DAY)
+                .setSmallIcon(R.drawable.ic_stat_blocks)
+                .setContentTitle("Test notification")
+                .setContentText("If you heard a sound, alerts work.")
+                .setTimeoutAfter(10_000)
+                .setAutoCancel(true)
+                .build(),
+        )
     }
 
     private fun build(model: NotificationModel, transition: Boolean, channelId: String): Notification {
@@ -155,6 +173,7 @@ class NotificationRenderer @Inject constructor(
 
     companion object {
         const val ID = 1
+        const val TEST_ID = 99
         const val DAY = "day"
         const val EVENING = "evening"
         private const val LEGACY_STATUS = "status"

@@ -16,6 +16,7 @@ import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
 import com.roni.blocks.core.time.SystemTimeMapper
+import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.core.time.at
 import com.roni.blocks.navigation.StartDestination
 import com.roni.blocks.navigation.resolveStartDestination
@@ -144,7 +145,7 @@ class DayOrchestratorRestoreTest {
             templates = TemplateManager(context),
             history = HistoryManager(prefs),
             alarms = AlarmScheduler(context, SystemTimeMapper.Identity, logger),
-            notificationMapper = NotificationModelMapper(engine, zone),
+            notificationMapper = NotificationModelMapper(engine, zone, TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))),
             notificationRenderer = SilentNotificationPort,
             clock = clock,
             zone = zone,
@@ -165,5 +166,7 @@ class DayOrchestratorRestoreTest {
         override fun render(model: NotificationModel?, transition: Boolean) = Unit
 
         override fun onDismissed(key: String) = Unit
+
+        override fun sendTestNotification() = Unit
     }
 }

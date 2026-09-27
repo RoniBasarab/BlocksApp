@@ -58,8 +58,9 @@ class HistoryManager @Inject constructor(
         .mapNotNull { prefs.read(PrefsFile.HISTORY, it, DayRecord.serializer()) }
         .sortedByDescending { it.date }
 
-    suspend fun clear() {
-        prefs.keys(PrefsFile.HISTORY).forEach { prefs.remove(PrefsFile.HISTORY, it) }
+    suspend fun clear(keepToday: LocalDate? = null) {
+        val kept = setOfNotNull(keepToday?.let { dayKey(it) }, keepToday?.let { debtKey(it) }, keepToday?.let { weekKey(it) })
+        prefs.keys(PrefsFile.HISTORY).filter { it !in kept }.forEach { prefs.remove(PrefsFile.HISTORY, it) }
     }
 
     fun weekStart(date: LocalDate): LocalDate {

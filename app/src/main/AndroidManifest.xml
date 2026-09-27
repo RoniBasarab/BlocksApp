@@ -21,7 +21,7 @@
             tools:targetApi="29" />
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.files"
+            android:authorities="${applicationId}.logs"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data

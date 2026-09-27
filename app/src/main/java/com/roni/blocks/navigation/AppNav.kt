@@ -72,7 +72,12 @@ fun AppRoot(start: StartDestination, modifier: Modifier = Modifier) {
             entry<HistoryKey> { HistoryRoute(onBack = { backStack.removeAt(backStack.lastIndex) }, onDay = { backStack.add(HistoryDayKey(it)) }) }
             entry<HistoryDayKey> { key -> HistoryRoute(date = key.date, onBack = { backStack.removeAt(backStack.lastIndex) }, onDay = {}) }
             entry<TimeDebtKey> { TimeDebtRoute(onBack = { backStack.removeAt(backStack.lastIndex) }) }
-            entry<SettingsKey> { SettingsRoute(onBack = { backStack.removeAt(backStack.lastIndex) }) }
+            entry<SettingsKey> {
+                SettingsRoute(
+                    onBack = { backStack.removeAt(backStack.lastIndex) },
+                    onResetToday = { openTab(TemplatePickerKey) },
+                )
+            }
         },
     )
 }

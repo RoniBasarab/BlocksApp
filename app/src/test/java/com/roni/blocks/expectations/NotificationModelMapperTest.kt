@@ -1,5 +1,8 @@
 package com.roni.blocks.expectations
 
+import android.app.Application
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.roni.blocks.core.daystate.DayState
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Choice
@@ -12,26 +15,38 @@ import com.roni.blocks.core.notifications.NotificationChannelKind
 import com.roni.blocks.core.notifications.NotificationModelMapper
 import com.roni.blocks.core.schedule.ScheduleEngine
 import com.roni.blocks.core.schedule.timelineAt
+import com.roni.blocks.core.storage.PrefsStorage
+import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.core.time.at
 import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlin.time.Duration.Companion.minutes
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 
 /**
  * One test per row of the Task-4 §1.2 table. The state, the timeline and `now` are built from the
  * real Sun/Tue/Wed template, and every channel, title, text, countdown and action label is asserted
  * exactly as the table writes it.
  */
+@RunWith(AndroidJUnit4::class)
+@Config(sdk = [34])
 class NotificationModelMapperTest {
     private val zone = TimeZone.of("Asia/Jerusalem")
     private val engine = ScheduleEngine(Clock.System, zone)
-    private val mapper = NotificationModelMapper(engine, zone)
+    private val context = ApplicationProvider.getApplicationContext<Application>()
+    private val prefs = PrefsStorage(context)
+    private val timeFormatter = TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))
+    private val mapper = NotificationModelMapper(engine, zone, timeFormatter)
 
     /** Sunday 2026-09-27. */
     private val date = LocalDate(2026, 9, 27)

@@ -9,6 +9,7 @@ import com.roni.blocks.core.schedule.ScheduleEngine
 import com.roni.blocks.core.schedule.effectiveEnd
 import com.roni.blocks.core.schedule.landingBlockForStartNext
 import com.roni.blocks.core.schedule.pomodoroStatus
+import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.core.time.minuteOfDay
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -55,6 +56,7 @@ data class NotificationModel(
 class NotificationModelMapper @Inject constructor(
     private val engine: ScheduleEngine,
     private val zone: TimeZone,
+    private val timeFormatter: TimeFormatter,
 ) {
     fun from(state: DayState, timeline: DayTimeline?, now: Instant): NotificationModel? {
         val blocks = timeline?.blocks.orEmpty()
@@ -204,10 +206,7 @@ class NotificationModelMapper @Inject constructor(
         }
     }
 
-    private fun hhmm(instant: Instant): String {
-        val time = instant.toLocalDateTime(zone)
-        return "%02d:%02d".format(time.hour, time.minute)
-    }
+    private fun hhmm(instant: Instant): String = timeFormatter.label(instant.minuteOfDay(zone))
 
     private companion object {
         const val DAY_START_MIN = 9 * 60

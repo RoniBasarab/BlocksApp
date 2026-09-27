@@ -23,6 +23,7 @@ import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
 import com.roni.blocks.core.time.at
 import com.roni.blocks.core.time.SystemTimeMapper
+import com.roni.blocks.core.time.TimeFormatter
 import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlinx.coroutines.CoroutineScope
@@ -75,7 +76,7 @@ class DayOrchestratorTest {
             templates = TemplateManager(context),
             history = history,
             alarms = AlarmScheduler(context, SystemTimeMapper.Identity, logger),
-            notificationMapper = NotificationModelMapper(engine, zone),
+            notificationMapper = NotificationModelMapper(engine, zone, TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))),
             notificationRenderer = RecordingNotificationPort(rendered),
             clock = clock,
             zone = zone,
@@ -193,10 +194,12 @@ class DayOrchestratorTest {
         override fun render(model: NotificationModel?, transition: Boolean) = Unit
 
         override fun onDismissed(key: String) = Unit
+
+        override fun sendTestNotification() = Unit
     }
 
     private class RecordingNotificationPort(
-        private val sink: MutableList<NotificationModel?>,
+        private val sink: java.util.concurrent.CopyOnWriteArrayList<NotificationModel?>,
     ) : NotificationPort {
         override fun ensureChannels() = Unit
 
@@ -205,5 +208,7 @@ class DayOrchestratorTest {
         }
 
         override fun onDismissed(key: String) = Unit
+
+        override fun sendTestNotification() = Unit
     }
 }

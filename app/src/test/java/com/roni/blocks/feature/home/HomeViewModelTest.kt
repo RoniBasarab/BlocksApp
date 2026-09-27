@@ -21,6 +21,7 @@ import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
 import com.roni.blocks.core.time.SystemTimeMapper
 import com.roni.blocks.core.time.Ticker
+import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.core.time.at
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -78,7 +79,7 @@ class HomeViewModelTest {
             templates = TemplateManager(context),
             history = history,
             alarms = AlarmScheduler(context, SystemTimeMapper.Identity, logger),
-            notificationMapper = NotificationModelMapper(ScheduleEngine(clock, zone), zone),
+            notificationMapper = NotificationModelMapper(ScheduleEngine(clock, zone), zone, TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))),
             notificationRenderer = SilentNotificationPort,
             clock = clock,
             zone = zone,
@@ -92,6 +93,7 @@ class HomeViewModelTest {
             clock = clock,
             zone = zone,
             prefs = prefs,
+            timeFormatter = TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)),
         )
     }
 
@@ -209,5 +211,7 @@ class HomeViewModelTest {
         override fun render(model: NotificationModel?, transition: Boolean) = Unit
 
         override fun onDismissed(key: String) = Unit
+
+        override fun sendTestNotification() = Unit
     }
 }

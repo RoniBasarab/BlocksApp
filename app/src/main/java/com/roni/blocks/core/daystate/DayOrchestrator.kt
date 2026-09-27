@@ -138,6 +138,16 @@ class DayOrchestrator @Inject constructor(
         sideEffects()
     }
 
+    /** Settings "Reset today": back to NotStarted, nothing recorded, alerts restored for a fresh pick. */
+    suspend fun resetToday() {
+        book = DayBook()
+        _state.value = DayState.NotStarted
+        _segments.value = emptyList()
+        persist()
+        alarms.cancel()
+        sideEffects()
+    }
+
     private suspend fun apply(event: DayEvent) {
         val now = clock.now()
         if (event is DayEvent.Next) {

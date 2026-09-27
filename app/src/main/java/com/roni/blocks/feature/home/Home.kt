@@ -77,6 +77,7 @@ import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
 import com.roni.blocks.core.time.Ticker
+import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.core.time.minuteOfDay
 import com.roni.blocks.designsystem.AppBottomBar
 import com.roni.blocks.designsystem.AppCard
@@ -116,6 +117,7 @@ class HomeViewModel @Inject constructor(
     private val clock: Clock,
     private val zone: TimeZone,
     private val prefs: PrefsStorage,
+    private val timeFormatter: TimeFormatter,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state.asStateFlow()
@@ -146,6 +148,7 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch { day.state.collect { publish(it) } }
         // Leaking is a boundary, not a per-minute value: only re-publish when it flips.
         viewModelScope.launch { minuteOfDay.collect { publishLeakIfChanged() } }
+        viewModelScope.launch { timeFormatter.use24.collect { publish(day.state.value) } }
         viewModelScope.launch {
             val stored = prefs.read(
                 PrefsFile.SETTINGS,
@@ -217,7 +220,7 @@ class HomeViewModel @Inject constructor(
         val minute = now.minuteOfDay(zone)
         val id = dayState.templateId()
         val template = id?.let { runCatching { templates.get(it) }.getOrNull() }
-        val blocks = template?.let { CalendarMapper.toBlocks(it) } ?: persistentListOf()
+        val blocks = template?.let { CalendarMapper.toBlocks(it, timeFormatter.use24.value) } ?: persistentListOf()
         val index = currentIndex(dayState)
         val current = blocks.getOrNull(index)
         val segments = day.segments.value
@@ -236,7 +239,7 @@ class HomeViewModel @Inject constructor(
             dayOfMonth = now.toLocalDateTime(zone).day.toString(),
             title = id?.let { templateDisplay(it).title }.orEmpty(),
             status = status(blocks, index, leaking, effectiveEndMin, minute),
-            hourLabels = CalendarMapper.hourLabels().toPersistentList(),
+            hourLabels = CalendarMapper.hourLabels(DAY_START_MIN, DAY_END_MIN, timeFormatter.use24.value).toPersistentList(),
             blocks = blocks,
             currentBlockId = current?.id,
             leakFromMin = if (leaking) effectiveEndMin else null,
@@ -273,7 +276,7 @@ class HomeViewModel @Inject constructor(
         val actualStart = main?.actualStart?.minuteOfDay(zone)
         val actualEnd = main?.actualEnd?.minuteOfDay(zone)
         val actual = actualStart?.let { start ->
-            "${hhmm(start)}–${hhmm(actualEnd ?: minute)}"
+            "${timeFormatter.label(start)}–${timeFormatter.label(actualEnd ?: minute)}"
         }
         val drift = if (actualStart != null && actualEnd != null) {
             (actualEnd - actualStart) - (block.endMin - block.startMin)
@@ -342,7 +345,7 @@ class HomeViewModel @Inject constructor(
                         type = current?.type,
                         chip = "Ran over",
                         chipTone = ChipTone.LEAK,
-                        subtitle = effectiveEndMin?.let { "$title ended at ${hhmm(it)}" },
+                        subtitle = effectiveEndMin?.let { "$title ended at ${timeFormatter.label(it)}" },
                         isLeaking = true,
                         showProgress = false,
                         buttons = buildList {
@@ -356,7 +359,7 @@ class HomeViewModel @Inject constructor(
                         type = current?.type,
                         chip = if (pomodoro) "Focus" else null,
                         chipTone = ChipTone.NEUTRAL,
-                        subtitle = effectiveEndMin?.let { "until ${hhmm(it)}" },
+                        subtitle = effectiveEndMin?.let { "until ${timeFormatter.label(it)}" },
                         isLeaking = false,
                         showProgress = pomodoro,
                         buttons = persistentListOf(
@@ -371,7 +374,7 @@ class HomeViewModel @Inject constructor(
                 type = current?.type,
                 chip = null,
                 chipTone = ChipTone.NEUTRAL,
-                subtitle = effectiveEndMin?.let { "until ${hhmm(it)}" },
+                subtitle = effectiveEndMin?.let { "until ${timeFormatter.label(it)}" },
                 isLeaking = false,
                 showProgress = false,
                 buttons = persistentListOf(
@@ -412,7 +415,7 @@ class HomeViewModel @Inject constructor(
                     type = current?.type,
                     chip = null,
                     chipTone = ChipTone.NEUTRAL,
-                    subtitle = "until ${hhmm(22 * 60 + 30)}",
+                    subtitle = "until ${timeFormatter.label(22 * 60 + 30)}",
                     isLeaking = false,
                     showProgress = false,
                     buttons = persistentListOf(NowButton(NowButtonId.END_DAY, "End day", NowButtonStyle.SECONDARY)),
