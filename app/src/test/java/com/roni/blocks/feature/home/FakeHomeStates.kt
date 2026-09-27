@@ -46,11 +46,72 @@ object FakeHomeStates {
         ),
     )
 
-    private fun base(currentBlockId: String, leakFromMin: Int?, nowCard: NowCardUi): HomeState = HomeState(
+    fun freeBreak(): HomeState = base(
+        currentBlockId = "b2",
+        leakFromMin = null,
+        status = "3 blocks left",
+        nowCard = NowCardUi(
+            title = "Free",
+            type = BlockType.Free,
+            chip = null,
+            chipTone = ChipTone.NEUTRAL,
+            subtitle = "until 14:00",
+            isLeaking = false,
+            showProgress = false,
+            buttons = persistentListOf(
+                NowButton(NowButtonId.PAUSE, "Pause", NowButtonStyle.ICON),
+                NowButton(NowButtonId.INTERRUPT, "Emergency interrupt", NowButtonStyle.ICON),
+                NowButton(NowButtonId.END_EARLY, "End early", NowButtonStyle.TEXT),
+                NowButton(NowButtonId.NEXT, "Next", NowButtonStyle.PRIMARY),
+            ),
+        ),
+    )
+
+    fun kidTime(): HomeState = base(
+        currentBlockId = null,
+        leakFromMin = null,
+        status = "6 blocks left",
+        nowCard = NowCardUi(
+            title = "Kid time",
+            type = BlockType.KidTime,
+            chip = null,
+            chipTone = ChipTone.NEUTRAL,
+            subtitle = "Evening starts when you tap Kid asleep",
+            isLeaking = false,
+            showProgress = false,
+            buttons = persistentListOf(
+                NowButton(NowButtonId.KID_ASLEEP, "Kid asleep", NowButtonStyle.PRIMARY),
+                NowButton(NowButtonId.END_DAY, "End day", NowButtonStyle.TEXT),
+            ),
+        ),
+    )
+
+    fun ended(): HomeState = base(
+        currentBlockId = null,
+        leakFromMin = null,
+        status = "6 blocks left",
+        nowCard = NowCardUi(
+            title = "Day done",
+            type = null,
+            chip = null,
+            chipTone = ChipTone.NEUTRAL,
+            subtitle = "Leak 0 min · 6 blocks",
+            isLeaking = false,
+            showProgress = false,
+            buttons = persistentListOf(),
+        ),
+    )
+
+    private fun base(
+        currentBlockId: String?,
+        leakFromMin: Int?,
+        nowCard: NowCardUi,
+        status: String = "4 blocks left",
+    ) = HomeState(
         weekdayShort = "SUN",
         dayOfMonth = "27",
         title = "Sunday / Tuesday / Wednesday",
-        status = "4 blocks left",
+        status = status,
         hourLabels = (DAY_START_MIN..DAY_END_MIN step 60).map { hhmm(it) }.toPersistentList(),
         blocks = sunTueWedBlocks(),
         currentBlockId = currentBlockId,

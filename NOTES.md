@@ -6,12 +6,16 @@
 - `EndBlockEarly` returns the same `Running`. Segment changes belong to the engine, not the state machine.
 - `StartDay(OFF)` and `TakeOffDay` both enter `Off`.
 - Release signing falls back to the debug keystore when `keystore.properties` is absent.
-- Home calendar draws the hour grid, block layout, and now line, but leak overflow, evening choice sheet, and auto-scroll are not finished.
+- Home draws the hour grid, block layout, now line, leak overflow, and auto-scroll. Task 3 added the read-only block detail sheet, the non-dismissible evening choice sheet, and the interrupted resume-choice dialog.
 - Weekly, Insights, History, and Time Debt navigate and render a first cut. They do not yet match every visual in `visuals.md`.
-- Macrobenchmark module is not added.
+- Task 3 Phase 1 added the `:macrobenchmark` module (`template_card_SUN_TUE_WED`, `home_calendar`). It uses a separate `benchmark` build type with its own `applicationIdSuffix`, so benchmarks never touch the real day's data.
 - Task 2: `material-icons-extended` resolved with the Compose BOM, so outlined icons come from that artifact. R8 strips unused icons on release.
 - Task 2: splash screen uses `androidx.core:core-splashscreen` 1.2.0. Window background is `#1C1B19`.
 - Task 2: pause extends the current block (`plannedEnd + paused`) and the next block keeps its planned end. Segment recording lives in `SegmentBook` and is what the orchestrator persists.
-- Task 2 H1 skipped: Roborazzi was not added, so screenshots were not recorded.
-- Task 2 remaining: template picker aurora, Home now-card states, weekly chart, insights scorecard, and history rows are structured but not yet the full layouts in Task 2 phases D–G.
+- Task 3 H1: Roborazzi 1.75.0 added (`io.github.takahirom.roborazzi` plugin + `roborazzi` / `roborazzi-compose` test deps; the JUnit rule is not needed). `./gradlew recordRoborazziDebug` writes the six review PNGs to `screenshots/` at the project root, via `roborazzi.outputDir` plus `roborazzi.record.filePathStrategy=relativePathFromRoborazziContextOutputDirectory`. Robolectric must stay at 4.10+ for Native Graphics.
+- Task 3 Phase 4 finished the template picker: 30s aurora orbit, 75s slower dust drift, centred 2x2 grid, suggested state, entrance animation, and press scale. Weekly chart, insights scorecard, and history rows still do not match every visual in `visuals.md`.
+- Material3 here is 1.4.0: there is no `sheetGesturesEnabled` and no `rememberModalBottomSheetProperties`. The evening sheet is made non-dismissible with `ModalBottomSheetProperties` plus a consumed vertical drag.
+- `AppShapes.sheet` exists because `RoundedCornerShape` only accepts `Dp`/`Float`, not `CornerSize`, so the 20dp top corners cannot be derived from `AppShapes.hero.topStart`.
+- Compose stability reports share a single destination (`app/build/compose_compiler`), so the last compile wins. Read them only straight after a main-source compile: a test-source compile overwrites them with a two-class report.
+- Under `feature/`, only the three ViewModels are unstable (`HomeViewModel`, `SettingsViewModel`, `TemplatePickerViewModel`). Nothing in `designsystem/` is unstable. ViewModels come from `hiltViewModel()` and are never passed as Composable parameters, so this is benign.
 - Receivers call `goAsync()` and finish the pending result immediately; suspend work is launched on the app scope, so a killed process can drop the tail of `onAlarm`.
