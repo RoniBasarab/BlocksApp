@@ -24,4 +24,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "Blocks"
 include(":app")
+include(":macrobenchmark")
  

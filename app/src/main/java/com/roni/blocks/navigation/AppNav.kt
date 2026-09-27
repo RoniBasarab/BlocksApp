@@ -1,6 +1,7 @@
 package com.roni.blocks.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
@@ -24,7 +25,7 @@ import kotlinx.serialization.Serializable
 @Serializable data class HistoryDayKey(val date: String) : NavKey
 
 @Composable
-fun AppNav(startOnPicker: Boolean) {
+fun AppNav(startOnPicker: Boolean, modifier: Modifier = Modifier) {
     val backStack = rememberNavBackStack(if (startOnPicker) TemplatePickerKey else HomeKey)
     fun openTab(key: NavKey) {
         backStack.clear()
@@ -32,6 +33,7 @@ fun AppNav(startOnPicker: Boolean) {
     }
     NavDisplay(
         backStack = backStack,
+        modifier = modifier,
         onBack = { if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) },
         entryProvider = entryProvider {
             entry<TemplatePickerKey> {
