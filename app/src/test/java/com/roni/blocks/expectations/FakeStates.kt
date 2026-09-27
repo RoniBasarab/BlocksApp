@@ -1,11 +1,35 @@
 package com.roni.blocks.expectations
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.FitnessCenter
+import androidx.compose.material.icons.outlined.Today
+import androidx.compose.material.icons.outlined.Weekend
 import com.roni.blocks.core.model.BlockType
+import com.roni.blocks.core.model.TemplateId
+import com.roni.blocks.designsystem.Good
+import com.roni.blocks.designsystem.Lavender
+import com.roni.blocks.designsystem.Leak
+import com.roni.blocks.designsystem.TextSecondary
+import com.roni.blocks.feature.history.HistoryDay
+import com.roni.blocks.feature.history.HistoryUiState
+import com.roni.blocks.feature.history.HistoryWeek
 import com.roni.blocks.feature.home.ChipTone
 import com.roni.blocks.feature.home.NowButton
 import com.roni.blocks.feature.home.NowButtonId
 import com.roni.blocks.feature.home.NowButtonStyle
 import com.roni.blocks.feature.home.NowCardUi
+import com.roni.blocks.feature.insights.InsightRow
+import com.roni.blocks.feature.insights.InsightsUiState
+import com.roni.blocks.feature.settings.PermissionStatus
+import com.roni.blocks.feature.settings.SettingsUiState
+import com.roni.blocks.feature.templatepicker.PickerCard
+import com.roni.blocks.feature.templatepicker.PickerUiState
+import com.roni.blocks.feature.timedebt.DebtDay
+import com.roni.blocks.feature.timedebt.TimeDebtUiState
+import com.roni.blocks.feature.weekly.WeeklyBar
+import com.roni.blocks.feature.weekly.WeeklyStat
+import com.roni.blocks.feature.weekly.WeeklyUiState
 import kotlinx.collections.immutable.persistentListOf
 
 /** The NowCard shapes from Task-4 §2.2, one per state row. */
@@ -100,6 +124,146 @@ object FakeStates {
         subtitle = "until 22:30",
         isLeaking = false,
         showProgress = false,
-        buttons = persistentListOf(NowButton(NowButtonId.END_DAY, "End day", NowButtonStyle.SECONDARY)),
+        buttons = persistentListOf(            NowButton(NowButtonId.END_DAY, "End day", NowButtonStyle.SECONDARY)),
+    )
+
+    fun weeklyEmpty(): WeeklyUiState = WeeklyUiState(hasData = false)
+
+    fun weeklyWithData(): WeeklyUiState = WeeklyUiState(
+        hasData = true,
+        weekLabel = "13 – 19 Sep",
+        heroLine = "5 of 7 days logged",
+        stats = listOf(
+            WeeklyStat("Focus", "12 h"),
+            WeeklyStat("Meetings", "6 h"),
+            WeeklyStat("Leaks", "45 min"),
+            WeeklyStat("Kids", "8 h"),
+        ),
+        bars = listOf(
+            WeeklyBar("Mon", 0.9f),
+            WeeklyBar("Tue", 0.7f),
+            WeeklyBar("Wed", 1f),
+            WeeklyBar("Thu", 0.5f),
+            WeeklyBar("Fri", 0.8f),
+            WeeklyBar("Sat", 0.3f),
+            WeeklyBar("Sun", 0.6f),
+        ),
+    )
+
+    fun insightsEmpty(daysLogged: Int): InsightsUiState =
+        InsightsUiState(hasData = false, daysLogged = daysLogged)
+
+    fun insightsWithData(): InsightsUiState = InsightsUiState(
+        hasData = true,
+        daysLogged = 7,
+        headline = "You protected your mornings",
+        rows = listOf(
+            InsightRow("Focus blocks finished", "18"),
+            InsightRow("Focus blocks leaked", "2"),
+            InsightRow("Average leak", "6 min"),
+            InsightRow("Kids time honoured", "5 of 5"),
+            InsightRow("Evenings kept", "4 of 5"),
+            InsightRow("Emergency freezes", "1"),
+            InsightRow("Best day", "Wednesday"),
+            InsightRow("Longest streak", "6 days"),
+        ),
+    )
+
+    fun historyEmpty(): HistoryUiState = HistoryUiState(hasData = false)
+
+    fun historyWithDays(): HistoryUiState = HistoryUiState(
+        hasData = true,
+        weeks = listOf(
+            HistoryWeek(
+                header = "This week",
+                days = listOf(
+                    HistoryDay("Sun 13 Sep", "9 h 20 min focused", "Completed"),
+                    HistoryDay("Sat 12 Sep", "6 h 05 min focused", "Completed"),
+                ),
+            ),
+            HistoryWeek(
+                header = "Last week",
+                days = listOf(
+                    HistoryDay("Fri 11 Sep", "7 h 40 min focused", "Completed"),
+                    HistoryDay("Thu 10 Sep", "8 h 10 min focused", "Completed"),
+                ),
+            ),
+            HistoryWeek(
+                header = "13 – 19 Sep",
+                days = listOf(
+                    HistoryDay("Wed 09 Sep", "5 h 55 min focused", "Completed"),
+                ),
+            ),
+        ),
+    )
+
+    fun timeDebtEmpty(): TimeDebtUiState = TimeDebtUiState(hasDebt = false)
+
+    fun timeDebtWithDebt(): TimeDebtUiState = TimeDebtUiState(
+        hasDebt = true,
+        totalMinutes = 95,
+        days = listOf(
+            DebtDay("Mon", 25),
+            DebtDay("Tue", 0),
+            DebtDay("Wed", 40),
+            DebtDay("Thu", 30),
+        ),
+    )
+
+    fun settingsDefault(): SettingsUiState = SettingsUiState(
+        hourFormat24 = true,
+        notificationPermission = PermissionStatus.ALLOWED,
+        exactAlarms = PermissionStatus.ALLOWED,
+    )
+
+    fun pickerOnSunday(): PickerUiState = PickerUiState(
+        greeting = "Good morning",
+        date = "Sunday 14 September",
+        cards = persistentListOf(
+            PickerCard(
+                id = TemplateId.MON_THU,
+                title = "Mon–Thu",
+                subtitle = "Weekdays",
+                summary = "School run, work, then coding.",
+                icon = Icons.Outlined.Code,
+                accent = Good,
+                suggested = false,
+                outlined = false,
+                strip = persistentListOf(),
+            ),
+            PickerCard(
+                id = TemplateId.SUN_TUE_WED,
+                title = "Sun–Wed",
+                subtitle = "Long weekend start",
+                summary = "Slow morning, then three solid days.",
+                icon = Icons.Outlined.Weekend,
+                accent = Lavender,
+                suggested = true,
+                outlined = true,
+                strip = persistentListOf(),
+            ),
+            PickerCard(
+                id = TemplateId.FRI_SAT,
+                title = "Fri–Sat",
+                subtitle = "Weekend heavy",
+                summary = "Quiet weekdays, long Saturday.",
+                icon = Icons.Outlined.FitnessCenter,
+                accent = TextSecondary,
+                suggested = false,
+                outlined = false,
+                strip = persistentListOf(),
+            ),
+            PickerCard(
+                id = TemplateId.OFF,
+                title = "Day off",
+                subtitle = "Nothing scheduled",
+                summary = "No blocks at all today.",
+                icon = Icons.Outlined.Today,
+                accent = Leak,
+                suggested = false,
+                outlined = false,
+                strip = persistentListOf(),
+            ),
+        ),
     )
 }
