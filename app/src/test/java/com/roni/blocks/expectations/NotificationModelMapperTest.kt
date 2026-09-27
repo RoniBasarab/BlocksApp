@@ -135,7 +135,7 @@ class NotificationModelMapperTest {
     fun running_focus_countsDownToTheBlockEnd_withPause() {
         // Coding 09:30–11:30, Pomodoro 50/10 → at 10:35 we are in focus 2 of 2.
         val model = mapper.from(running(1, at(10, 35)), timeline(1, at(9, 30)), at(10, 35))
-        assertEquals("b1:running", model?.key)
+        assertEquals("Coding_9_30:running", model?.key)
         assertEquals(NotificationChannelKind.DAY, model?.channel)
         assertEquals("Coding · Focus 2/2", model?.title)
         assertEquals("until 11:30", model?.text)
@@ -148,7 +148,7 @@ class NotificationModelMapperTest {
     fun running_pomodoroBreak_countsDownToWhenFocusResumes() {
         // Focus 09:30–10:20, break 10:20–10:30 → at 10:25 we are on the break.
         val model = mapper.from(running(1, at(10, 25)), timeline(1, at(9, 30)), at(10, 25))
-        assertEquals("b1:break", model?.key)
+        assertEquals("Coding_9_30:break", model?.key)
         assertEquals(NotificationChannelKind.DAY, model?.channel)
         assertEquals("Coding · Break", model?.title)
         assertEquals("focus resumes at 10:30", model?.text)
@@ -159,7 +159,7 @@ class NotificationModelMapperTest {
     @Test
     fun running_blockWithoutPhases_showsJustTheBlockName() {
         val model = mapper.from(running(0, at(9, 0)), timeline(0, at(9, 0)), at(9, 0))
-        assertEquals("b0:running", model?.key)
+        assertEquals("Cv_9_0:running", model?.key)
         assertEquals(NotificationChannelKind.DAY, model?.channel)
         assertEquals("CV", model?.title)
         assertEquals("until 09:30", model?.text)
@@ -180,7 +180,7 @@ class NotificationModelMapperTest {
     @Test
     fun blockEnded_leaksWithANegativeCountdown_andOffersTheNextBlock() {
         val model = mapper.from(running(0, at(9, 35)), timeline(0, at(9, 0)), at(9, 35))
-        assertEquals("b0:leak", model?.key)
+        assertEquals("Cv_9_0:leak", model?.key)
         assertEquals(NotificationChannelKind.DAY, model?.channel)
         assertEquals("CV ran over", model?.title)
         assertEquals("Start Coding when you're ready", model?.text)
@@ -203,29 +203,13 @@ class NotificationModelMapperTest {
     fun paused_offersResumeAndNoCountdown() {
         val state = DayState.Paused(running(1, at(10, 0)), at(10, 0))
         val model = mapper.from(state, timeline(1, at(9, 30)), at(10, 0))
-        assertEquals("b1:paused", model?.key)
+        assertEquals("Coding_9_30:paused", model?.key)
         assertEquals(NotificationChannelKind.DAY, model?.channel)
         assertEquals("Paused · Coding", model?.title)
         assertEquals("Resume when you're back", model?.text)
         assertNull(model?.countdownTo)
         assertEquals(listOf("Resume"), labels(model))
         assertEquals(listOf(ActionEvent.RESUME), events(model))
-    }
-
-    @Test
-    fun interrupted_offersBothWaysBack_withNoCountdown() {
-        val state = DayState.Interrupted(running(1, at(10, 5)), at(10, 5))
-        val model = mapper.from(state, timeline(1, at(9, 30)), at(10, 5))
-        assertEquals("interrupted", model?.key)
-        assertEquals(NotificationChannelKind.DAY, model?.channel)
-        assertEquals("Schedule frozen", model?.title)
-        assertEquals("Emergency since 10:05", model?.text)
-        assertNull(model?.countdownTo)
-        assertEquals(listOf("Continue where I was", "Jump to now"), labels(model))
-        assertEquals(
-            listOf(ActionEvent.CONTINUE_WHERE_I_WAS, ActionEvent.JUMP_TO_NOW),
-            events(model),
-        )
     }
 
     // ── Kid time and the evening ─────────────────────────────────────────────────────────────

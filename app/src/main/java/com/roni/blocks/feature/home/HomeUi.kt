@@ -21,7 +21,7 @@ data class CalendarBlockUi(
 
 enum class ChipTone { NEUTRAL, BREAK, LEAK }
 
-enum class NowButtonId { PAUSE, INTERRUPT, END_EARLY, NEXT, RESUME, KID_ASLEEP, CHOOSE_EVENING, END_DAY }
+enum class NowButtonId { PAUSE, EMERGENCY, NEXT, RESUME, KID_ASLEEP, CHOOSE_EVENING, END_DAY }
 
 /** [PRIMARY] is the full-width action; [SECONDARY] buttons share one weighted row. */
 enum class NowButtonStyle { SECONDARY, PRIMARY }
@@ -65,32 +65,27 @@ data class HomeState(
     val eveningChoicePending: Boolean = false,
     val eveningSheetOpen: Boolean = false,
     val blockSheet: BlockSheetUi? = null,
-    val resumePrompt: Boolean = false,
 )
 
 sealed interface HomeAction {
     data object SwapTemplate : HomeAction
     data object Pause : HomeAction
-    data object Interrupt : HomeAction
-    data object EndEarly : HomeAction
+    data object Emergency : HomeAction
     data object Next : HomeAction
     data object Resume : HomeAction
-    data object ResumeWhereIWas : HomeAction
-    data object JumpToNow : HomeAction
     data object KidAsleep : HomeAction
     data object ChooseEvening : HomeAction
     data object EndDay : HomeAction
     data class BlockClicked(val id: String) : HomeAction
     data object DismissBlockSheet : HomeAction
-    data object DismissResume : HomeAction
     data class PickEvening(val choice: Choice) : HomeAction
     data object History : HomeAction
     data object TimeDebt : HomeAction
     data object Settings : HomeAction
 
     val affectsOverlays: Boolean
-        get() = this is BlockClicked || this is DismissBlockSheet || this is DismissResume ||
-            this is Resume || this is ChooseEvening || this is PickEvening
+        get() = this is BlockClicked || this is DismissBlockSheet ||
+            this is ChooseEvening || this is PickEvening
 }
 
 val NowCardReservedHeight: Dp = 220.dp

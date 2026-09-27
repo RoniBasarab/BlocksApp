@@ -99,6 +99,20 @@ class DayOrchestratorRestoreTest {
         assertEquals(StartDestination.HOME, resolveStartDestination(restored.state.value))
     }
 
+    @Test
+    fun legacyInterrupted_restoresAsRunning() = runBlocking {
+        // Deliberately not written through a serializer: this is the exact payload a pre-1.4.0
+        // build left behind, and the decoder has to survive the discriminator it can no longer name.
+        seedRaw(
+            state = """{"type":"Interrupted","running":{"type":"Running","template":"SUN_TUE_WED","blockIndex":2},"since":"2026-09-27T06:00:00Z"}""",
+            storedDate = today,
+        )
+        val orchestrator = orchestrator(Dispatchers.Unconfined)
+        orchestrator.awaitRestored()
+
+        assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 2), orchestrator.state.value)
+    }
+
     /** Restore finishes on the IO dispatcher, so the flag has to be awaited, not assumed. */
     private suspend fun DayOrchestrator.awaitRestored() {
         withTimeout(5_000) { isRestored.first { it } }
@@ -106,6 +120,15 @@ class DayOrchestratorRestoreTest {
 
     private suspend fun seed(state: DayState, storedDate: LocalDate) {
         prefs.write(PrefsFile.DAY, "day_state", state, DayState.serializer())
+        prefs.write(PrefsFile.DAY, "today_date", storedDate, LocalDateSerializer)
+    }
+
+    private suspend fun seedRaw(state: String, storedDate: LocalDate) {
+        check(
+            context.getSharedPreferences(PrefsFile.DAY.name.lowercase(), 0).edit()
+                .putString("day_state", state)
+                .commit(),
+        )
         prefs.write(PrefsFile.DAY, "today_date", storedDate, LocalDateSerializer)
     }
 

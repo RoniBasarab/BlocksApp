@@ -171,32 +171,3 @@ private fun eveningIcon(choice: Choice): ImageVector = when (choice) {
     Choice.CHILL -> Icons.Outlined.Weekend
 }
 
-@Composable
-fun ResumeDialog(
-    onResumeWhereIWas: () -> Unit,
-    onJumpToNow: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val colors = AppTheme.colors
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = colors.surface,
-        title = {
-            Text("Welcome back", style = MaterialTheme.typography.titleLarge, color = colors.textPrimary)
-        },
-        text = {
-            Text(
-                "Continue where you left off (the rest of the day moves later) or jump to where the clock is " +
-                    "now (missed blocks are marked as skipped).",
-                style = MaterialTheme.typography.bodyMedium,
-                color = colors.textSecondary,
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = onResumeWhereIWas) { Text("Continue where I was") }
-        },
-        dismissButton = {
-            TextButton(onClick = onJumpToNow) { Text("Jump to now") }
-        },
-    )
-}

@@ -1,7 +1,6 @@
 package com.roni.blocks.core.daystate
 
 import com.roni.blocks.core.model.Choice
-import com.roni.blocks.core.model.ResumeMode
 import com.roni.blocks.core.model.TemplateId
 import kotlin.time.Instant
 import kotlinx.datetime.LocalDate
@@ -25,21 +24,29 @@ class DayStateMachineTest {
     @Test
     fun runningTransitions() {
         val running = DayState.Running(TemplateId.SUN_TUE_WED, 1)
-        assertEquals(running.copy(blockIndex = 2), DayStateMachine.transition(running, DayEvent.Next, now))
-        assertEquals(running, DayStateMachine.transition(running, DayEvent.EndBlockEarly, now))
+        assertEquals(running.copy(blockIndex = 2), DayStateMachine.transition(running, DayEvent.Next("any"), now))
         assertEquals(DayState.Paused(running, now), DayStateMachine.transition(running, DayEvent.Pause, now))
-        assertEquals(DayState.Interrupted(running, now), DayStateMachine.transition(running, DayEvent.Interrupt, now))
         assertEquals(DayState.KidTime, DayStateMachine.transition(running, DayEvent.KidTimeStarted, now))
-        assertEquals(DayState.Ended, DayStateMachine.transition(running, DayEvent.EndDay, now))
+        assertEquals(
+            DayState.Ended,
+            DayStateMachine.transition(running, DayEvent.EndDay(EndReason.NORMAL), now),
+        )
     }
 
     @Test
-    fun resumePauseAndInterrupt() {
+    fun endReasonDoesNotChangeWhereTheDayEnds() {
+        val running = DayState.Running(TemplateId.MON_THU, 0)
+        assertEquals(
+            DayState.Ended,
+            DayStateMachine.transition(running, DayEvent.EndDay(EndReason.EMERGENCY), now),
+        )
+    }
+
+    @Test
+    fun resumePauseAndEvening() {
         val running = DayState.Running(TemplateId.MON_THU, 0)
         val paused = DayState.Paused(running, now)
-        val interrupted = DayState.Interrupted(running, now)
-        assertEquals(running, DayStateMachine.transition(paused, DayEvent.Resume(ResumeMode.RESUME_WHERE_I_WAS), now))
-        assertEquals(running, DayStateMachine.transition(interrupted, DayEvent.Resume(ResumeMode.JUMP_TO_NOW), now))
+        assertEquals(running, DayStateMachine.transition(paused, DayEvent.Resume, now))
         assertEquals(DayState.Evening(0), DayStateMachine.transition(DayState.KidTime, DayEvent.KidAsleep, now))
         assertEquals(
             DayState.Evening(1),
@@ -53,28 +60,31 @@ class DayStateMachineTest {
         val active = listOf(
             running,
             DayState.Paused(running, now),
-            DayState.Interrupted(running, now),
             DayState.KidTime,
             DayState.Evening(0),
         )
         active.forEach { state ->
-            assertEquals(DayState.Ended, DayStateMachine.transition(state, DayEvent.EndDay, now))
+            assertEquals(
+                "$state",
+                DayState.Ended,
+                DayStateMachine.transition(state, DayEvent.EndDay(EndReason.NORMAL), now),
+            )
         }
     }
 
     @Test
     fun illegalTransitionsReturnNull() {
         val running = DayState.Running(TemplateId.MON_THU, 0)
-        assertNull(DayStateMachine.transition(DayState.NotStarted, DayEvent.Next, now))
-        assertNull(DayStateMachine.transition(DayState.NotStarted, DayEvent.EndDay, now))
-        assertNull(DayStateMachine.transition(DayState.Off, DayEvent.EndDay, now))
-        assertNull(DayStateMachine.transition(DayState.Off, DayEvent.Next, now))
-        assertNull(DayStateMachine.transition(DayState.Ended, DayEvent.EndDay, now))
+        assertNull(DayStateMachine.transition(DayState.NotStarted, DayEvent.Next("any"), now))
+        assertNull(DayStateMachine.transition(DayState.NotStarted, DayEvent.EndDay(EndReason.NORMAL), now))
+        assertNull(DayStateMachine.transition(DayState.Off, DayEvent.EndDay(EndReason.NORMAL), now))
+        assertNull(DayStateMachine.transition(DayState.Off, DayEvent.Next("any"), now))
+        assertNull(DayStateMachine.transition(DayState.Ended, DayEvent.EndDay(EndReason.NORMAL), now))
         assertNull(DayStateMachine.transition(DayState.Ended, DayEvent.StartDay(TemplateId.MON_THU), now))
         assertNull(DayStateMachine.transition(running, DayEvent.KidAsleep, now))
         assertNull(DayStateMachine.transition(DayState.KidTime, DayEvent.Pause, now))
         assertNull(DayStateMachine.transition(DayState.Evening(1), DayEvent.EveningChoice(Choice.CHILL), now))
-        assertNull(DayStateMachine.transition(DayState.Paused(running, now), DayEvent.Next, now))
+        assertNull(DayStateMachine.transition(DayState.Paused(running, now), DayEvent.Next("any"), now))
     }
 
     @Test

@@ -7,7 +7,6 @@ import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.EVENING_CHOICE_ID
 import com.roni.blocks.core.model.EVENING_DISHES_ID
 import com.roni.blocks.core.model.Pomodoro
-import com.roni.blocks.core.model.ResumeMode
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.Template
@@ -111,34 +110,6 @@ class ScheduleEngine @Inject constructor(
         )
     }
 
-    fun interrupt(
-        template: Template,
-        date: LocalDate,
-        blockIndex: Int,
-        from: Instant,
-        until: Instant,
-        mode: ResumeMode,
-    ): List<Segment> {
-        val blocks = planned(template, date)
-        val shift = until - from
-        return when (mode) {
-            ResumeMode.RESUME_WHERE_I_WAS -> blocks.drop(blockIndex).map { block ->
-                val start = maxOf(block.plannedStart, from) + shift
-                val end = block.plannedEnd + shift
-                segment(block.spec.type, SegmentKind.PLANNED, block.plannedStart, block.plannedEnd, start, end)
-            }
-            ResumeMode.JUMP_TO_NOW -> blocks.drop(blockIndex).mapNotNull { block ->
-                if (block.plannedEnd <= until && block.plannedStart >= from) {
-                    segment(block.spec.type, SegmentKind.INTERRUPTION, block.plannedStart, block.plannedEnd, block.plannedStart, block.plannedEnd)
-                } else if (block.plannedStart < until && block.plannedEnd > from) {
-                    segment(block.spec.type, SegmentKind.INTERRUPTION, block.plannedStart, block.plannedEnd, maxOf(block.plannedStart, from), minOf(block.plannedEnd, until))
-                } else {
-                    null
-                }
-            }
-        }
-    }
-
     fun pomodoroPhase(start: LocalTime, at: LocalTime, pomodoro: Pomodoro, blockMinutes: Int): PomodoroPhase {
         val elapsed = (at.toSecondOfDay() - start.toSecondOfDay()) / 60
         val cycle = pomodoro.focusMinutes + pomodoro.breakMinutes
@@ -184,7 +155,7 @@ class ScheduleEngine @Inject constructor(
             DayState.KidTime -> listOf(twenty, end, midnight)
             is DayState.Evening -> listOf(end, midnight)
             is DayState.Running -> listOfNotNull(runningWake, twenty, end, midnight)
-            is DayState.Paused, is DayState.Interrupted -> listOf(twenty, end, midnight)
+            is DayState.Paused -> listOf(twenty, end, midnight)
         }
         return candidates.filter { it > now }.minOrNull()
     }

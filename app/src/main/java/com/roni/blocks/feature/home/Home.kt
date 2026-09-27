@@ -65,12 +65,12 @@ import androidx.navigation3.runtime.NavKey
 import com.roni.blocks.core.daystate.DayEvent
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.daystate.DayState
+import com.roni.blocks.core.daystate.EndReason
 import com.roni.blocks.core.daystate.isDishesSlot
 import com.roni.blocks.core.daystate.templateId
 import com.roni.blocks.core.debug.RecompositionCounter
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Choice
-import com.roni.blocks.core.model.ResumeMode
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.storage.PrefsFile
@@ -126,7 +126,6 @@ class HomeViewModel @Inject constructor(
     val suppressedConfirmations: StateFlow<Set<NowButtonId>> = _suppressedConfirmations.asStateFlow()
 
     private var selectedBlockId: String? = null
-    private var resumePrompt = false
     private var eveningSheetOpen = false
 
     val minuteOfDay: StateFlow<Int> =
@@ -191,27 +190,19 @@ class HomeViewModel @Inject constructor(
 
     fun onAction(action: HomeAction) {
         when (action) {
-            HomeAction.Next -> day.send(DayEvent.Next)
+            HomeAction.Next -> day.send(DayEvent.Next(_state.value.currentBlockId.orEmpty()))
             HomeAction.Pause -> day.send(DayEvent.Pause)
-            HomeAction.Interrupt -> day.send(DayEvent.Interrupt)
-            HomeAction.EndEarly -> day.send(DayEvent.EndBlockEarly)
-            HomeAction.Resume -> if (day.state.value is DayState.Interrupted) {
-                resumePrompt = true
-            } else {
-                day.send(DayEvent.Resume(ResumeMode.RESUME_WHERE_I_WAS))
-            }
-            HomeAction.ResumeWhereIWas -> day.send(DayEvent.Resume(ResumeMode.RESUME_WHERE_I_WAS))
-            HomeAction.JumpToNow -> day.send(DayEvent.Resume(ResumeMode.JUMP_TO_NOW))
+            HomeAction.Emergency -> day.send(DayEvent.EndDay(EndReason.EMERGENCY))
+            HomeAction.Resume -> day.send(DayEvent.Resume)
             HomeAction.KidAsleep -> day.send(DayEvent.KidAsleep)
             HomeAction.ChooseEvening -> eveningSheetOpen = true
-            HomeAction.EndDay -> day.send(DayEvent.EndDay)
+            HomeAction.EndDay -> day.send(DayEvent.EndDay(EndReason.NORMAL))
             is HomeAction.PickEvening -> {
                 eveningSheetOpen = false
                 day.send(DayEvent.EveningChoice(action.choice))
             }
             is HomeAction.BlockClicked -> selectedBlockId = action.id
             HomeAction.DismissBlockSheet -> selectedBlockId = null
-            HomeAction.DismissResume -> resumePrompt = false
             HomeAction.SwapTemplate,
             HomeAction.History,
             HomeAction.TimeDebt,
@@ -241,7 +232,6 @@ class HomeViewModel @Inject constructor(
 
         if (dayState is DayState.Ended || dayState is DayState.Off || dayState is DayState.NotStarted) {
             selectedBlockId = null
-            resumePrompt = false
         }
         if (!dayState.isDishesSlot) eveningSheetOpen = false
 
@@ -258,7 +248,6 @@ class HomeViewModel @Inject constructor(
             eveningChoicePending = dayState.isDishesSlot,
             eveningSheetOpen = eveningSheetOpen,
             blockSheet = blockSheet(blocks.firstOrNull { it.id == selectedBlockId }, segments, minute),
-            resumePrompt = resumePrompt && dayState is DayState.Interrupted,
         )
     }
 
@@ -273,7 +262,6 @@ class HomeViewModel @Inject constructor(
     private fun currentIndex(dayState: DayState): Int = when (dayState) {
         is DayState.Running -> dayState.blockIndex
         is DayState.Paused -> dayState.running.blockIndex
-        is DayState.Interrupted -> dayState.running.blockIndex
         is DayState.Evening -> dayState.blockIndex
         else -> -1
     }
@@ -363,7 +351,7 @@ class HomeViewModel @Inject constructor(
                         showProgress = false,
                         buttons = buildList {
                             nextTitle?.let { add(NowButton(NowButtonId.NEXT, "Start $it", NowButtonStyle.PRIMARY)) }
-                            add(NowButton(NowButtonId.INTERRUPT, "Emergency", NowButtonStyle.SECONDARY))
+                            add(NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY))
                         }.toPersistentList(),
                     )
                 } else {
@@ -377,8 +365,7 @@ class HomeViewModel @Inject constructor(
                         showProgress = pomodoro,
                         buttons = persistentListOf(
                             NowButton(NowButtonId.PAUSE, "Pause", NowButtonStyle.SECONDARY),
-                            NowButton(NowButtonId.INTERRUPT, "Emergency", NowButtonStyle.SECONDARY),
-                            NowButton(NowButtonId.END_EARLY, "Finish early", NowButtonStyle.SECONDARY),
+                            NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
                         ),
                     )
                 }
@@ -393,18 +380,8 @@ class HomeViewModel @Inject constructor(
                 showProgress = false,
                 buttons = persistentListOf(
                     NowButton(NowButtonId.RESUME, "Resume", NowButtonStyle.PRIMARY),
-                    NowButton(NowButtonId.INTERRUPT, "Emergency", NowButtonStyle.SECONDARY),
+                    NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
                 ),
-            )
-            is DayState.Interrupted -> NowCardUi(
-                title = "Frozen",
-                type = current?.type,
-                chip = null,
-                chipTone = ChipTone.NEUTRAL,
-                subtitle = null,
-                isLeaking = false,
-                showProgress = false,
-                buttons = persistentListOf(NowButton(NowButtonId.RESUME, "I'm back", NowButtonStyle.PRIMARY)),
             )
             DayState.KidTime -> NowCardUi(
                 title = "Kid time",
@@ -591,13 +568,6 @@ fun HomeScreen(
     }
     if (state.eveningChoicePending || state.eveningSheetOpen) {
         EveningChoiceSheet(onPick = { onAction(HomeAction.PickEvening(it)) })
-    }
-    if (state.resumePrompt) {
-        ResumeDialog(
-            onResumeWhereIWas = { onAction(HomeAction.ResumeWhereIWas) },
-            onJumpToNow = { onAction(HomeAction.JumpToNow) },
-            onDismiss = { onAction(HomeAction.DismissResume) },
-        )
     }
 }
 
@@ -828,8 +798,7 @@ private fun NowSecondaryButton(button: NowButton, onClick: () -> Unit, modifier:
 
 private fun nowButtonIcon(id: NowButtonId): ImageVector = when (id) {
     NowButtonId.PAUSE -> Icons.Outlined.Pause
-    NowButtonId.INTERRUPT -> Icons.Outlined.WarningAmber
-    NowButtonId.END_EARLY -> Icons.Outlined.Stop
+    NowButtonId.EMERGENCY -> Icons.Outlined.WarningAmber
     NowButtonId.END_DAY -> Icons.Outlined.Stop
     NowButtonId.NEXT -> Icons.Outlined.PlayArrow
     NowButtonId.RESUME -> Icons.Outlined.PlayArrow
@@ -839,8 +808,7 @@ private fun nowButtonIcon(id: NowButtonId): ImageVector = when (id) {
 
 private fun NowButtonId.toAction(): HomeAction = when (this) {
     NowButtonId.PAUSE -> HomeAction.Pause
-    NowButtonId.INTERRUPT -> HomeAction.Interrupt
-    NowButtonId.END_EARLY -> HomeAction.EndEarly
+    NowButtonId.EMERGENCY -> HomeAction.Emergency
     NowButtonId.NEXT -> HomeAction.Next
     NowButtonId.RESUME -> HomeAction.Resume
     NowButtonId.KID_ASLEEP -> HomeAction.KidAsleep

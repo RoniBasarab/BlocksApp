@@ -88,7 +88,7 @@ class DayOrchestrator @Inject constructor(
             logger.info("stale $event for $expectedBlockId, now ${current ?: "-"}")
             return
         }
-        handle(event.toDayEvent())
+        handle(event.toDayEvent(expectedBlockId))
     }
 
     suspend fun onAlarm() {
@@ -111,7 +111,7 @@ class DayOrchestrator @Inject constructor(
             }
             val freeEnd = book.segments.lastOrNull { it.kind == com.roni.blocks.core.model.SegmentKind.SYNTHETIC_FREE && it.actualEnd == null }?.plannedEnd
             if (freeEnd != null && now >= freeEnd) {
-                apply(DayEvent.Next)
+                apply(DayEvent.Next(_state.value.currentBlockId().orEmpty()))
                 return
             }
         }
@@ -130,6 +130,13 @@ class DayOrchestrator @Inject constructor(
 
     private suspend fun apply(event: DayEvent) {
         val now = clock.now()
+        if (event is DayEvent.Next) {
+            val current = _state.value.currentBlockId()
+            if (event.expectedBlockId != current) {
+                logger.info("dropping Next for ${event.expectedBlockId}, current is ${current ?: "-"}")
+                return
+            }
+        }
         val next = DayStateMachine.transition(_state.value, event, now)
         if (next == null) {
             logger.info("illegal $event from ${_state.value}")
@@ -142,7 +149,14 @@ class DayOrchestrator @Inject constructor(
         _segments.value = book.segments
         persist()
         if (next == DayState.Ended || next == DayState.Off) {
-            flush((if (next == DayState.Off) setOf(DayFlag.OFF_DAY) else emptySet()) + if (fromKid && event == DayEvent.EndDay) setOf(DayFlag.EVENING_SKIPPED) else book.flags)
+            val fromEvent = buildSet {
+                if (next == DayState.Off) add(DayFlag.OFF_DAY)
+                if (event is DayEvent.EndDay) {
+                    if (fromKid) add(DayFlag.EVENING_SKIPPED)
+                    if (event.reason == EndReason.EMERGENCY) add(DayFlag.EMERGENCY_STOP)
+                }
+            }
+            flush(fromEvent + book.flags)
         } else {
             sideEffects(transition = true)
         }
@@ -157,17 +171,13 @@ class DayOrchestrator @Inject constructor(
         val template = if (event is DayEvent.StartDay) templates.get(event.template) else currentTemplate() ?: return
         book = when (event) {
             is DayEvent.StartDay -> SegmentBook.startDay(template, today, zone, now)
-            DayEvent.Next, DayEvent.EndBlockEarly -> SegmentBook.next(book, template, today, zone, now)
+            is DayEvent.Next -> SegmentBook.next(book, template, today, zone, now)
             DayEvent.Pause -> SegmentBook.pause(book, now)
-            is DayEvent.Resume -> if (_state.value is DayState.Paused) SegmentBook.resumePause(book, now) else when (event.mode) {
-                com.roni.blocks.core.model.ResumeMode.RESUME_WHERE_I_WAS -> SegmentBook.resumeWhereIWas(book, now)
-                com.roni.blocks.core.model.ResumeMode.JUMP_TO_NOW -> SegmentBook.jumpToNow(book, template, today, zone, now)
-            }
-            DayEvent.Interrupt -> SegmentBook.interrupt(book, now)
+            DayEvent.Resume -> SegmentBook.resumePause(book, now)
             DayEvent.KidTimeStarted -> SegmentBook.enterKidTime(book, template, today, zone)
             DayEvent.KidAsleep -> SegmentBook.kidAsleep(book, today, zone, now)
             is DayEvent.EveningChoice -> SegmentBook.eveningChoice(book, event.choice, today, zone, now)
-            DayEvent.EndDay -> SegmentBook.endDay(book, now, _state.value is DayState.KidTime)
+            is DayEvent.EndDay -> SegmentBook.endDay(book, now, _state.value is DayState.KidTime)
             DayEvent.TakeOffDay -> DayBook()
         }
     }
@@ -212,7 +222,7 @@ class DayOrchestrator @Inject constructor(
     private suspend fun restore() {
         val today = today()
         val storedDate = prefs.read(PrefsFile.DAY, DATE, LocalDateSerializer)
-        val stored = prefs.read(PrefsFile.DAY, STATE, DayState.serializer()) ?: DayState.NotStarted
+        val stored = prefs.read(PrefsFile.DAY, STATE, DayStateSerializer) ?: DayState.NotStarted
         _state.value = if (storedDate != null && storedDate != today) DayState.NotStarted else stored
         _segments.value = prefs.read(PrefsFile.DAY, SEGMENTS, ListSerializer(Segment.serializer())) ?: emptyList()
         persist()
@@ -221,7 +231,7 @@ class DayOrchestrator @Inject constructor(
     }
 
     private suspend fun persist() {
-        prefs.write(PrefsFile.DAY, STATE, _state.value, DayState.serializer())
+        prefs.write(PrefsFile.DAY, STATE, _state.value, DayStateSerializer)
         prefs.write(PrefsFile.DAY, SEGMENTS, _segments.value, ListSerializer(Segment.serializer()))
         prefs.write(PrefsFile.DAY, DATE, today(), LocalDateSerializer)
         _state.value.templateId()?.let { prefs.write(PrefsFile.DAY, TEMPLATE, it, TemplateId.serializer()) }
@@ -229,12 +239,18 @@ class DayOrchestrator @Inject constructor(
 
     private fun today() = clock.now().toLocalDateTime(zone).date
 
+    /**
+     * Must stay in step with the ids [NotificationModelMapper] posts, or every notification tap is
+     * discarded as stale and the buttons silently stop working.
+     */
     private fun DayState.currentBlockId(): String? = when (this) {
-        is DayState.Running -> "b$blockIndex"
-        is DayState.Paused -> "b${running.blockIndex}"
-        is DayState.Interrupted -> "b${running.blockIndex}"
+        is DayState.Running -> blockIdAt(template, blockIndex)
+        is DayState.Paused -> blockIdAt(running.template, running.blockIndex)
         DayState.NotStarted, DayState.KidTime, is DayState.Evening, DayState.Ended, DayState.Off -> null
     }
+
+    private fun blockIdAt(template: TemplateId, index: Int): String? =
+        runCatching { templates.get(template).blocks.getOrNull(index)?.id }.getOrNull()
 
     private companion object {
         const val STATE = "day_state"

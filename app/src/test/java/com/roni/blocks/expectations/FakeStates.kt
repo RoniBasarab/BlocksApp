@@ -44,8 +44,7 @@ object FakeStates {
         showProgress = true,
         buttons = persistentListOf(
             NowButton(NowButtonId.PAUSE, "Pause", NowButtonStyle.SECONDARY),
-            NowButton(NowButtonId.INTERRUPT, "Emergency", NowButtonStyle.SECONDARY),
-            NowButton(NowButtonId.END_EARLY, "Finish early", NowButtonStyle.SECONDARY),
+            NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
         ),
     )
 
@@ -59,7 +58,7 @@ object FakeStates {
         showProgress = false,
         buttons = persistentListOf(
             NowButton(NowButtonId.NEXT, "Start Coding", NowButtonStyle.PRIMARY),
-            NowButton(NowButtonId.INTERRUPT, "Emergency", NowButtonStyle.SECONDARY),
+            NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
         ),
     )
 
@@ -73,7 +72,7 @@ object FakeStates {
         showProgress = false,
         buttons = persistentListOf(
             NowButton(NowButtonId.RESUME, "Resume", NowButtonStyle.PRIMARY),
-            NowButton(NowButtonId.INTERRUPT, "Emergency", NowButtonStyle.SECONDARY),
+            NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
         ),
     )
 

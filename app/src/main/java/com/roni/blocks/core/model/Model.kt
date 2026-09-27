@@ -28,12 +28,6 @@ enum class Choice {
 }
 
 @Serializable
-enum class ResumeMode {
-    RESUME_WHERE_I_WAS,
-    JUMP_TO_NOW,
-}
-
-@Serializable
 enum class SegmentKind {
     PLANNED,
     SYNTHETIC_FREE,
@@ -48,6 +42,7 @@ enum class DayFlag {
     EVENING_SKIPPED,
     GYM_MISSED,
     AUTO_ENDED,
+    EMERGENCY_STOP,
 }
 
 @Serializable

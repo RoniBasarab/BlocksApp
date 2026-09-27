@@ -5,7 +5,6 @@ import com.roni.blocks.core.model.BlockSpec
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.Pomodoro
-import com.roni.blocks.core.model.ResumeMode
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.Template
 import com.roni.blocks.core.model.TemplateId
@@ -95,24 +94,6 @@ class ScheduleEngineTest {
         assertEquals(Instant.parse("2026-09-21T11:50:00Z"), following.actualStart)
         assertEquals(Instant.parse("2026-09-21T12:00:00Z"), following.plannedEnd)
         assertEquals(Instant.parse("2026-09-21T12:00:00Z"), following.actualEnd)
-    }
-
-    @Test
-    fun interruptResumeWhereIWasShiftsTheDay() {
-        val from = Instant.parse("2026-09-21T10:00:00Z")
-        val until = Instant.parse("2026-09-21T10:30:00Z")
-        val segments = engine.interrupt(template, date, 1, from, until, ResumeMode.RESUME_WHERE_I_WAS)
-        val coding = segments.first { it.type == BlockType.Coding }
-        assertEquals(Instant.parse("2026-09-21T10:30:00Z"), coding.actualStart)
-        assertEquals(Instant.parse("2026-09-21T12:00:00Z"), coding.actualEnd)
-    }
-
-    @Test
-    fun interruptJumpToNowMarksInterruption() {
-        val from = Instant.parse("2026-09-21T11:00:00Z")
-        val until = Instant.parse("2026-09-21T12:30:00Z")
-        val segments = engine.interrupt(template, date, 1, from, until, ResumeMode.JUMP_TO_NOW)
-        assertTrue(segments.any { it.kind == SegmentKind.INTERRUPTION && it.type == BlockType.Free })
     }
 
     @Test

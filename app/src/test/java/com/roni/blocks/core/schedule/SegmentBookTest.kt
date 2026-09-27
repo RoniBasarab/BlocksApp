@@ -75,24 +75,6 @@ class SegmentBookTest {
     }
 
     @Test
-    fun interruptResumeWhereIWasShifts() {
-        val started = SegmentBook.startDay(template, date, zone, Instant.parse("2026-09-21T09:30:00Z"))
-        val interrupted = SegmentBook.interrupt(started, Instant.parse("2026-09-21T10:00:00Z"))
-        val resumed = SegmentBook.resumeWhereIWas(interrupted, Instant.parse("2026-09-21T10:30:00Z"))
-        assertEquals(Instant.parse("2026-09-21T10:30:00Z"), resumed.segments.last { it.kind == SegmentKind.INTERRUPTION }.actualEnd)
-        assertEquals(30.minutes, resumed.shift)
-    }
-
-    @Test
-    fun jumpToNowMarksSkippedInterruptions() {
-        val started = SegmentBook.startDay(template, date, zone, Instant.parse("2026-09-21T09:30:00Z"))
-        val interrupted = SegmentBook.interrupt(started, Instant.parse("2026-09-21T11:00:00Z"))
-        val jumped = SegmentBook.jumpToNow(interrupted, template, date, zone, Instant.parse("2026-09-21T12:30:00Z"))
-        assertTrue(jumped.segments.any { it.kind == SegmentKind.INTERRUPTION && it.type == BlockType.Free })
-        assertEquals(BlockType.Gym, jumped.segments.last().type)
-    }
-
-    @Test
     fun kidTimeStartsAutomaticallyWithoutLeak() {
         val started = SegmentBook.startDay(template, date, zone, Instant.parse("2026-09-21T18:00:00Z"))
         val kid = SegmentBook.enterKidTime(started, template, date, zone)

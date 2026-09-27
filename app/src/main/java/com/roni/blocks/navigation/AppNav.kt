@@ -32,7 +32,6 @@ fun resolveStartDestination(state: DayState): StartDestination = when (state) {
     DayState.NotStarted -> StartDestination.TEMPLATE_PICKER
     is DayState.Running,
     is DayState.Paused,
-    is DayState.Interrupted,
     DayState.KidTime,
     is DayState.Evening,
     DayState.Ended,

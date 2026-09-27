@@ -68,9 +68,9 @@ class NowCardExpectationsTest {
     private fun SemanticsNodeInteraction.widthDp(): Dp = getBoundsInRoot().run { right - left }
 
     @Test
-    fun running_hasThreeLabeledEqualButtons_andNoStart() {
+    fun running_hasTwoLabeledEqualButtons_andNoStart() {
         show(FakeStates.nowRunningCoding())
-        val labels = listOf("Pause", "Emergency", "Finish early")
+        val labels = listOf("Pause", "Emergency")
         labels.forEach { compose.onNodeWithText(it).assertIsDisplayed().assertHasClickAction() }
         val widths = labels.map { compose.onNodeWithText(it).widthDp() }
         assertTrue("equal widths: $widths", widths.maxOrNull()!! - widths.minOrNull()!! <= 1.dp)
@@ -110,17 +110,10 @@ class NowCardExpectationsTest {
     }
 
     @Test
-    fun finishEarly_mentionsFreeTime() {
-        show(FakeStates.nowRunningCoding())
-        compose.onNodeWithText("Finish early").performClick()
-        compose.onNodeWithText("the minutes left become free time", substring = true).assertIsDisplayed()
-    }
-
-    @Test
     fun infoButton_explainsEveryAction() {
         show(FakeStates.nowRunningCoding())
         compose.onNodeWithContentDescription("What the buttons do").performClick()
-        listOf("next block", "nothing counts as debt", "free time", "ran over counts as debt").forEach {
+        listOf("paused minutes", "nothing counts as debt", "ran over counts as debt").forEach {
             compose.onNodeWithText(it, substring = true).assertExists()
         }
     }
@@ -137,8 +130,8 @@ class NowCardExpectationsTest {
     @Test
     fun suppression_isPerButton() {
         show(FakeStates.nowRunningCoding(), suppressed = setOf(NowButtonId.PAUSE))
-        compose.onNodeWithText("Finish early").performClick()
-        compose.onNodeWithText("the minutes left become free time", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Emergency").performClick()
+        compose.onNodeWithText("nothing counts as debt", substring = true).assertIsDisplayed()
         assertTrue("only the suppressed button skips its dialog", actions.isEmpty())
     }
 }

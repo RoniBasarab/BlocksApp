@@ -23,8 +23,6 @@ enum class ActionEvent {
     PAUSE,
     RESUME,
     START_NEXT,
-    CONTINUE_WHERE_I_WAS,
-    JUMP_TO_NOW,
     KID_ASLEEP,
     END_DAY,
 }
@@ -64,7 +62,6 @@ class NotificationModelMapper @Inject constructor(
             DayState.NotStarted -> notStarted(now)
             is DayState.Running -> running(state, blocks, timeline, now)
             is DayState.Paused -> paused(state, blocks, timeline)
-            is DayState.Interrupted -> interrupted(state, blocks)
             DayState.KidTime -> kidTime(now)
             is DayState.Evening -> evening(state, timeline, now)
             DayState.Ended -> null
@@ -93,7 +90,7 @@ class NotificationModelMapper @Inject constructor(
         now: Instant,
     ): NotificationModel? {
         val block = blocks.getOrNull(state.blockIndex) ?: return null
-        val id = blockId(state.blockIndex)
+        val id = block.spec.id
         val end = timeline?.let { effectiveEnd(it, now) } ?: block.plannedEnd
         val pomodoro = engine.pomodoroStatus(block, now, zone)
 
@@ -144,7 +141,7 @@ class NotificationModelMapper @Inject constructor(
     ): NotificationModel? {
         val index = state.running.blockIndex
         val block = blocks.getOrNull(index) ?: return null
-        val id = blockId(index)
+        val id = block.spec.id
         return NotificationModel(
             key = "$id:paused",
             channel = NotificationChannelKind.DAY,
@@ -153,22 +150,6 @@ class NotificationModelMapper @Inject constructor(
             countdownTo = null,
             actions = listOf(NotificationActionModel("Resume", ActionEvent.RESUME, id)),
             accentArgb = accent(block.spec.type),
-        )
-    }
-
-    private fun interrupted(state: DayState.Interrupted, blocks: List<ResolvedBlock>): NotificationModel {
-        val id = blocks.getOrNull(state.running.blockIndex)?.let { blockId(state.running.blockIndex) }
-        return NotificationModel(
-            key = "interrupted",
-            channel = NotificationChannelKind.DAY,
-            title = "Schedule frozen",
-            text = "Emergency since ${hhmm(state.since)}",
-            countdownTo = null,
-            actions = listOf(
-                NotificationActionModel("Continue where I was", ActionEvent.CONTINUE_WHERE_I_WAS, id),
-                NotificationActionModel("Jump to now", ActionEvent.JUMP_TO_NOW, id),
-            ),
-            accentArgb = accent(null, leak = true),
         )
     }
 
@@ -223,8 +204,6 @@ class NotificationModelMapper @Inject constructor(
         }
     }
 
-    private fun blockId(index: Int): String = "b$index"
-
     private fun hhmm(instant: Instant): String {
         val time = instant.toLocalDateTime(zone)
         return "%02d:%02d".format(time.hour, time.minute)
@@ -241,8 +220,7 @@ class NotificationModelMapper @Inject constructor(
  * The notification accent, as packed ARGB. Deliberately plain ints rather than the Compose
  * palette: `core` must not depend on `designsystem`, and the model stays free of Android types.
  */
-private fun accent(type: BlockType?, leak: Boolean = false): Int = when {
-    leak -> LEAK
+private fun accent(type: BlockType?): Int = when {
     type == null -> PRIMARY
     else -> when (type) {
         BlockType.Cv -> CV
@@ -261,7 +239,6 @@ private fun accent(type: BlockType?, leak: Boolean = false): Int = when {
 }
 
 private const val PRIMARY = 0xFF7A9CC6.toInt()
-private const val LEAK = 0xFFD97070.toInt()
 private const val CV = 0xFFA99BC9.toInt()
 private const val CODING = 0xFF7A9CC6.toInt()
 private const val GYM = 0xFF8FB58A.toInt()

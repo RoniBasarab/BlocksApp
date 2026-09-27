@@ -45,39 +45,6 @@ object SegmentBook {
 
     fun resumePause(book: DayBook, now: Instant): DayBook = book.copy(segments = closeKind(book.segments, SegmentKind.PAUSE, now))
 
-    fun interrupt(book: DayBook, now: Instant): DayBook =
-        book.copy(segments = book.segments + segment(currentType(book), SegmentKind.INTERRUPTION, null, null, now, null))
-
-    fun resumeWhereIWas(book: DayBook, now: Instant): DayBook {
-        val open = book.segments.last { it.kind == SegmentKind.INTERRUPTION && it.actualEnd == null }
-        val added = now - open.actualStart
-        val shifted = book.segments.map { segment ->
-            if (segment.actualEnd == null && segment.plannedEnd != null) {
-                segment.copy(plannedEnd = segment.plannedEnd + added)
-            } else {
-                segment
-            }
-        }
-        return book.copy(
-            segments = closeKind(shifted, SegmentKind.INTERRUPTION, now),
-            shift = book.shift + added,
-        )
-    }
-
-    fun jumpToNow(book: DayBook, template: Template, date: LocalDate, zone: TimeZone, now: Instant): DayBook {
-        val closed = closeOpen(book.segments, now)
-        val blocks = resolve(template, date, zone, book.shift)
-        val skipped = blocks.drop(book.index + 1).takeWhile { it.plannedEnd <= now }.map {
-            segment(it.spec.type, SegmentKind.INTERRUPTION, it.plannedStart, it.plannedEnd, it.plannedStart, it.plannedEnd)
-        }
-        val index = blocks.indexOfFirst { now >= it.plannedStart && now < it.plannedEnd }.coerceAtLeast(book.index)
-        val current = blocks.getOrNull(index)
-        return book.copy(
-            segments = closed + skipped + listOfNotNull(current?.let { open(it, now) }),
-            index = index,
-        )
-    }
-
     fun enterKidTime(book: DayBook, template: Template, date: LocalDate, zone: TimeZone): DayBook {
         val kid = resolve(template, date, zone, book.shift).first { it.spec.type == BlockType.KidTime }
         val closed = book.segments.map { segment ->

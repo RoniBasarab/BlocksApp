@@ -7,7 +7,9 @@ import com.roni.blocks.core.alarms.AlarmScheduler
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.daystate.DayState
 import com.roni.blocks.core.daystate.DayEvent
+import com.roni.blocks.core.daystate.EndReason
 import com.roni.blocks.core.logging.AppLogger
+import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.TemplateId
@@ -55,6 +57,8 @@ class DayOrchestratorTest {
 
     private lateinit var clock: MovableClock
     private lateinit var orchestrator: DayOrchestrator
+    private lateinit var history: HistoryManager
+    private val rendered = mutableListOf<NotificationModel?>()
 
     @Before
     fun setUp() {
@@ -62,14 +66,16 @@ class DayOrchestratorTest {
         val prefs = PrefsStorage(context)
         val logger = AppLogger(context)
         val engine = ScheduleEngine(clock, zone)
+        history = HistoryManager(prefs)
+        rendered.clear()
         orchestrator = DayOrchestrator(
             prefs = prefs,
             engine = engine,
             templates = TemplateManager(context),
-            history = HistoryManager(prefs),
+            history = history,
             alarms = AlarmScheduler(context, SystemTimeMapper.Identity, logger),
             notificationMapper = NotificationModelMapper(engine, zone),
-            notificationRenderer = SilentNotificationPort,
+            notificationRenderer = RecordingNotificationPort(rendered),
             clock = clock,
             zone = zone,
             logger = logger,
@@ -77,24 +83,26 @@ class DayOrchestratorTest {
         )
     }
 
+    private val firstBlockId = "sun_tue_wed.cv"
+
     @Test
     fun staleAction_isIgnored() = runBlocking {
         orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
         assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 0), orchestrator.state.value)
 
-        orchestrator.handleNotificationAction(ActionEvent.START_NEXT, "b0")
+        orchestrator.handleNotificationAction(ActionEvent.START_NEXT, firstBlockId)
         assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 1), orchestrator.state.value)
 
-        // The same button is tapped again after the day already moved past b0.
-        orchestrator.handleNotificationAction(ActionEvent.START_NEXT, "b0")
+        // The same button is tapped again after the day already moved past that block.
+        orchestrator.handleNotificationAction(ActionEvent.START_NEXT, firstBlockId)
         assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 1), orchestrator.state.value)
     }
 
     @Test
     fun doubleTap_advancesOnce() = runBlocking {
         orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
-        orchestrator.handleNotificationAction(ActionEvent.START_NEXT, "b0")
-        orchestrator.handleNotificationAction(ActionEvent.START_NEXT, "b0")
+        orchestrator.handleNotificationAction(ActionEvent.START_NEXT, firstBlockId)
+        orchestrator.handleNotificationAction(ActionEvent.START_NEXT, firstBlockId)
         assertEquals(1, (orchestrator.state.value as DayState.Running).blockIndex)
     }
 
@@ -112,7 +120,7 @@ class DayOrchestratorTest {
         // 12:00 sits inside the third block (free, 11:30-14:00), so the second block is already
         // in the past when the button is pressed.
         clock.now = LocalTime(12, 0).at(date, zone)
-        orchestrator.handleNotificationAction(ActionEvent.START_NEXT, "b0")
+        orchestrator.handleNotificationAction(ActionEvent.START_NEXT, firstBlockId)
 
         val open = orchestrator.segments.value.last { it.actualEnd == null }
         assertEquals(SegmentKind.PLANNED, open.kind)
@@ -121,6 +129,31 @@ class DayOrchestratorTest {
         assertTrue(
             "the skipped block should be recorded as consumed",
             orchestrator.segments.value.any { it.kind == SegmentKind.CONSUMED && it.type == com.roni.blocks.core.model.BlockType.Coding },
+        )
+    }
+
+    @Test
+    fun emergency_endsDayFlagsItAndClearsTheNotification() = runBlocking {
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        rendered.clear()
+
+        orchestrator.handle(DayEvent.EndDay(EndReason.EMERGENCY))
+
+        assertEquals(DayState.Ended, orchestrator.state.value)
+        assertEquals(setOf(DayFlag.EMERGENCY_STOP), requireNotNull(history.readDay(date)).flags)
+        assertEquals(null, rendered.last())
+    }
+
+    @Test
+    fun normalEndDay_isNotFlaggedAsEmergency() = runBlocking {
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+
+        orchestrator.handle(DayEvent.EndDay(EndReason.NORMAL))
+
+        assertEquals(DayState.Ended, orchestrator.state.value)
+        assertTrue(
+            "a normal end must not claim an emergency stop",
+            DayFlag.EMERGENCY_STOP !in requireNotNull(history.readDay(date)).flags,
         )
     }
 
@@ -152,6 +185,18 @@ class DayOrchestratorTest {
         override fun ensureChannels() = Unit
 
         override fun render(model: NotificationModel?, transition: Boolean) = Unit
+
+        override fun onDismissed(key: String) = Unit
+    }
+
+    private class RecordingNotificationPort(
+        private val sink: MutableList<NotificationModel?>,
+    ) : NotificationPort {
+        override fun ensureChannels() = Unit
+
+        override fun render(model: NotificationModel?, transition: Boolean) {
+            sink += model
+        }
 
         override fun onDismissed(key: String) = Unit
     }

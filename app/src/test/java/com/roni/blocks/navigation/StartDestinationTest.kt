@@ -19,7 +19,6 @@ class StartDestinationTest {
         listOf(
             running,
             DayState.Paused(running, now),
-            DayState.Interrupted(running, now),
             DayState.KidTime,
             DayState.Evening(0),
             DayState.Evening(1),

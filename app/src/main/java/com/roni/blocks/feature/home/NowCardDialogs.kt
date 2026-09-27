@@ -50,18 +50,15 @@ internal fun pauseBody(blockTitle: String): String =
         "and the paused minutes come out of the next block."
 
 internal fun emergencyBody(): String =
-    "For something urgent: everything stops, nothing counts as debt, and when you're back you " +
-        "choose to continue where you left off or jump to the current time."
-
-internal fun finishEarlyBody(blockTitle: String): String =
-    "$blockTitle ends now and the minutes left become free time."
+    "For something urgent: the day ends, nothing counts as debt, and the day is written up as " +
+        "an emergency stop."
 
 internal fun startNextBody(): String =
     "Ends the current block and starts the next one; if you're late, the time you ran over counts as debt."
 
 internal val NowButtonId.needsConfirmation: Boolean
     get() = when (this) {
-        NowButtonId.PAUSE, NowButtonId.INTERRUPT, NowButtonId.END_EARLY -> true
+        NowButtonId.PAUSE, NowButtonId.EMERGENCY -> true
         NowButtonId.NEXT, NowButtonId.RESUME, NowButtonId.KID_ASLEEP,
         NowButtonId.CHOOSE_EVENING, NowButtonId.END_DAY,
         -> false
@@ -74,17 +71,11 @@ internal fun NowButtonId.confirmation(blockTitle: String): Confirmation? = when 
         confirmLabel = "Pause",
         askAgain = true,
     )
-    NowButtonId.INTERRUPT -> Confirmation(
-        title = "Freeze the schedule?",
+    NowButtonId.EMERGENCY -> Confirmation(
+        title = "End the day?",
         body = emergencyBody(),
-        confirmLabel = "Freeze",
+        confirmLabel = "End day",
         askAgain = false,
-    )
-    NowButtonId.END_EARLY -> Confirmation(
-        title = "Finish $blockTitle early?",
-        body = finishEarlyBody(blockTitle),
-        confirmLabel = "Finish early",
-        askAgain = true,
     )
     NowButtonId.NEXT, NowButtonId.RESUME, NowButtonId.KID_ASLEEP,
     NowButtonId.CHOOSE_EVENING, NowButtonId.END_DAY,
@@ -96,7 +87,6 @@ internal fun NowCardInfoDialog(blockTitle: String, onDismiss: () -> Unit) {
     val rows = listOf(
         "Pause" to pauseBody(blockTitle),
         "Emergency" to emergencyBody(),
-        "Finish early" to finishEarlyBody(blockTitle),
         "Start next" to startNextBody(),
     )
     AlertDialog(
