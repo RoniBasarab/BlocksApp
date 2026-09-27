@@ -1,0 +1,213 @@
+package com.roni.blocks.feature.home
+
+import android.app.Application
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.roni.blocks.core.alarms.AlarmScheduler
+import com.roni.blocks.core.daystate.DayEvent
+import com.roni.blocks.core.daystate.DayOrchestrator
+import com.roni.blocks.core.daystate.DayState
+import com.roni.blocks.core.daystate.EndReason
+import com.roni.blocks.core.logging.AppLogger
+import com.roni.blocks.core.model.DayFlag
+import com.roni.blocks.core.model.SegmentKind
+import com.roni.blocks.core.model.TemplateId
+import com.roni.blocks.core.notifications.NotificationModel
+import com.roni.blocks.core.notifications.NotificationModelMapper
+import com.roni.blocks.core.notifications.NotificationPort
+import com.roni.blocks.core.schedule.ScheduleEngine
+import com.roni.blocks.core.storage.HistoryManager
+import com.roni.blocks.core.storage.PrefsStorage
+import com.roni.blocks.core.storage.TemplateManager
+import com.roni.blocks.core.time.SystemTimeMapper
+import com.roni.blocks.core.time.Ticker
+import com.roni.blocks.core.time.at
+import kotlin.time.Clock
+import kotlin.time.Instant
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.LocalTime
+import kotlinx.datetime.TimeZone
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
+
+/**
+ * Drives real [HomeViewModel.onAction] against a real [DayOrchestrator] (fake clock, in-memory
+ * storage) and asserts on the orchestrator's state, so no "Finish early" dead button can hide
+ * behind a UI-free ViewModel.
+ */
+@RunWith(AndroidJUnit4::class)
+@Config(sdk = [34])
+class HomeViewModelTest {
+    private val context = ApplicationProvider.getApplicationContext<Application>()
+    private val zone = TimeZone.of("Asia/Jerusalem")
+
+    /** Sunday 2026-09-27. */
+    private val date = LocalDate(2026, 9, 27)
+
+    private lateinit var clock: MovableClock
+    private lateinit var prefs: PrefsStorage
+    private lateinit var history: HistoryManager
+    private lateinit var orchestrator: DayOrchestrator
+    private lateinit var viewModel: HomeViewModel
+
+    private val firstBlockId = "sun_tue_wed.cv"
+
+    @Before
+    fun setUp() {
+        Dispatchers.setMain(Dispatchers.Unconfined)
+        clock = MovableClock(LocalTime(10, 0).at(date, zone))
+        val logger = AppLogger(context)
+        prefs = PrefsStorage(context)
+        history = HistoryManager(prefs)
+        orchestrator = DayOrchestrator(
+            prefs = prefs,
+            engine = ScheduleEngine(clock, zone),
+            templates = TemplateManager(context),
+            history = history,
+            alarms = AlarmScheduler(context, SystemTimeMapper.Identity, logger),
+            notificationMapper = NotificationModelMapper(ScheduleEngine(clock, zone), zone),
+            notificationRenderer = SilentNotificationPort,
+            clock = clock,
+            zone = zone,
+            logger = logger,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+        )
+        viewModel = HomeViewModel(
+            day = orchestrator,
+            templates = TemplateManager(context),
+            ticker = Ticker(clock, zone),
+            clock = clock,
+            zone = zone,
+            prefs = prefs,
+        )
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+
+    @Test
+    fun pauseConfirmed_movesStateToPaused() = runBlocking {
+        startDayInsideCoding()
+
+        viewModel.onAction(HomeAction.Pause)
+
+        awaitRunningOrPaused { it is DayState.Paused }
+        val paused = orchestrator.state.value as DayState.Paused
+        assertEquals(TemplateId.SUN_TUE_WED, paused.running.template)
+    }
+
+    @Test
+    fun nextDuringCodingBeforeItsEnd_runsSyntheticFreeUntilThePlannedEnd() = runBlocking {
+        startDayInsideCoding()
+
+        viewModel.onAction(HomeAction.Next)
+
+        awaitRunningOrPaused { it.blockIndex() == 1 }
+        val free = orchestrator.segments.value.last { it.actualEnd == null }
+        assertEquals(SegmentKind.SYNTHETIC_FREE, free.kind)
+        assertEquals(LocalTime(10, 0).at(date, zone), free.actualStart)
+        assertEquals("the rest of the coding block becomes free", LocalTime(11, 30).at(date, zone), free.plannedEnd)
+        assertEquals(
+            "Home tracks the slot the auto-advance will land in",
+            "sun_tue_wed.coding_am",
+            viewModel.state.value.currentBlockId,
+        )
+    }
+
+    @Test
+    fun nextDuringThatFree_runsTheNextBlockNow() = runBlocking {
+        startDayInsideCoding()
+        viewModel.onAction(HomeAction.Next)
+        awaitRunningOrPaused { it.blockIndex() == 1 }
+
+        clock.now = LocalTime(10, 5).at(date, zone)
+        viewModel.onAction(HomeAction.Next)
+
+        awaitRunningOrPaused { it.blockIndex() == 2 }
+        val next = orchestrator.segments.value.last { it.actualEnd == null }
+        assertEquals(SegmentKind.PLANNED, next.kind)
+        assertEquals(LocalTime(10, 5).at(date, zone), next.actualStart)
+        assertEquals(LocalTime(14, 0).at(date, zone), requireNotNull(next.plannedEnd))
+    }
+
+    @Test
+    fun emergencyConfirmed_endsDayWithEmergencyStop() = runBlocking {
+        startDayInsideCoding()
+
+        viewModel.onAction(HomeAction.Emergency)
+
+        awaitRunningOrPaused { it == DayState.Ended }
+        withTimeout(5_000) {
+            // State flips to Ended before the flush persists the record, so wait for it.
+            while (DayFlag.EMERGENCY_STOP !in (history.readDay(date)?.flags ?: emptySet())) {
+                kotlinx.coroutines.delay(10)
+            }
+        }
+    }
+
+    @Test
+    fun emergencyCancelled_leavesTheDayUnchanged() = runBlocking {
+        startDayInsideCoding()
+
+        clock.now = LocalTime(10, 5).at(date, zone)
+        awaitRunningOrPaused { it.blockIndex() == 0 }
+
+        assertEquals(
+            orchestrator.state.value,
+            DayState.Running(TemplateId.SUN_TUE_WED, 0),
+        )
+        assertTrue(history.readDay(date) == null)
+    }
+
+    @Test
+    fun startedDayHomeTracksFirstBlock() = runBlocking {
+        startDayInsideCoding()
+        assertEquals(firstBlockId, viewModel.state.value.currentBlockId)
+    }
+
+    private suspend fun startDayInsideCoding() {
+        orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        awaitRunningOrPaused { it.blockIndex() == 0 }
+        withTimeout(5_000) { viewModel.state.first { it.currentBlockId == firstBlockId } }
+    }
+
+    private suspend fun awaitRunningOrPaused(
+        predicate: (DayState) -> Boolean,
+    ): DayState = withTimeout(5_000) {
+        orchestrator.state.first { (it is DayState.Running || it is DayState.Paused || it == DayState.Ended) && predicate(it) }
+    }
+
+    private fun DayState.blockIndex(): Int = when (this) {
+        is DayState.Running -> blockIndex
+        is DayState.Paused -> running.blockIndex
+        is DayState.Evening -> blockIndex
+        else -> -1
+    }
+
+    private class MovableClock(var now: Instant) : Clock {
+        override fun now(): Instant = now
+    }
+
+    private object SilentNotificationPort : NotificationPort {
+        override fun ensureChannels() = Unit
+
+        override fun render(model: NotificationModel?, transition: Boolean) = Unit
+
+        override fun onDismissed(key: String) = Unit
+    }
+}

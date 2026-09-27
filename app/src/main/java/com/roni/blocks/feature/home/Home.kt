@@ -222,11 +222,7 @@ class HomeViewModel @Inject constructor(
         val current = blocks.getOrNull(index)
         val segments = day.segments.value
         val open = segments.lastOrNull { it.kind == SegmentKind.PLANNED && it.actualEnd == null }
-        val paused = segments
-            .filter { it.kind == SegmentKind.PAUSE }
-            .sumOf { ((it.actualEnd ?: now) - it.actualStart).inWholeMinutes }
-            .toInt()
-        val effectiveEndMin = open?.plannedEnd?.let { it.minuteOfDay(zone) + paused }
+        val effectiveEndMin = open?.plannedEnd?.let { it.minuteOfDay(zone) }
         val leaking = current != null && effectiveEndMin != null && minute > effectiveEndMin
         val nextLabel = blocks.getOrNull(index + 1)
 

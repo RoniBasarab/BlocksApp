@@ -29,7 +29,7 @@ class CalendarMapperTest {
     @Test
     fun currentCvEnd_isTheLeakBoundary() {
         val cv = CalendarMapper.toBlocks(sunTueWed())[0]
-        assertEquals("b0", cv.id)
+        assertEquals("Cv_09:00", cv.id)
         assertEquals(540, cv.startMin)
         assertEquals(570, cv.endMin)
     }
@@ -37,7 +37,10 @@ class CalendarMapperTest {
     @Test
     fun blockIds_areStableAndSequential() {
         val blocks = CalendarMapper.toBlocks(monThu())
-        assertEquals(listOf("b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7"), blocks.map { it.id })
+        assertEquals(
+            listOf("Cv_09:00", "Coding_09:30", "Free_11:30", "Gym_12:00", "Free_14:00", "Coding_16:20", "Free_17:20", "KidTime_19:00"),
+            blocks.map { it.id },
+        )
     }
 
     @Test

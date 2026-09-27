@@ -14,16 +14,16 @@ object CalendarMapper {
     fun toBlocks(template: Template): ImmutableList<CalendarBlockUi> = toBlocks(template.blocks)
 
     fun toBlocks(specs: List<BlockSpec>): ImmutableList<CalendarBlockUi> =
-        specs.mapIndexed { index, spec -> toBlock(index, spec) }.toPersistentList()
+        specs.map { spec -> toBlock(spec) }.toPersistentList()
 
     fun hourLabels(startMin: Int = DAY_START_MIN, endMin: Int = DAY_END_MIN): List<String> =
         (startMin..endMin step 60).map { hhmm(it) }
 
-    private fun toBlock(index: Int, spec: BlockSpec): CalendarBlockUi {
+    private fun toBlock(spec: BlockSpec): CalendarBlockUi {
         val startMin = spec.start.hour * 60 + spec.start.minute
         val endMin = spec.end.hour * 60 + spec.end.minute
         return CalendarBlockUi(
-            id = "b$index",
+            id = spec.id,
             type = spec.type,
             title = blockTitle(spec.type),
             startMin = startMin,
