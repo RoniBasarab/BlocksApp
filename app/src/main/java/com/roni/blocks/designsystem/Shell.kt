@@ -65,8 +65,8 @@ fun AppTopBar(
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.background,
-            scrolledContainerColor = MaterialTheme.colorScheme.surface,
+            containerColor = Color.Transparent,
+            scrolledContainerColor = Color.Transparent,
         ),
         modifier = Modifier.topDivider(scrolled, MaterialTheme.colorScheme.outline),
     )

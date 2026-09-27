@@ -1,5 +1,6 @@
 package com.roni.blocks.designsystem
 
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -12,9 +13,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 private val Scheme = darkColorScheme(
-    background = Background,
+    background = BackgroundBottom,
     surface = Surface,
-    surfaceContainerLowest = Background,
+    surfaceContainerLowest = BackgroundBottom,
     surfaceContainerLow = Surface,
     surfaceContainer = Surface,
     surfaceContainerHigh = SurfaceRaised,
@@ -22,7 +23,7 @@ private val Scheme = darkColorScheme(
     surfaceVariant = SurfaceRaised,
     surfaceTint = Color.Transparent,
     inverseSurface = TextPrimary,
-    inverseOnSurface = Background,
+    inverseOnSurface = BackgroundBottom,
     scrim = Color.Black.copy(alpha = 0.6f),
     primary = Primary,
     onPrimary = OnPrimary,
@@ -54,9 +55,16 @@ val AppTypography = Typography(
     labelSmall = TextStyle(fontFamily = FontFamily.Default, fontWeight = FontWeight.Medium, fontSize = 11.sp).merge(AppType.numbers),
 )
 
+/**
+ * Root theme. [LocalContentColor] is provided here on purpose: text without an
+ * explicit color falls back to it, and its Material default is black.
+ */
 @Composable
 fun BlocksTheme(content: @Composable () -> Unit) {
-    CompositionLocalProvider(LocalAppColors provides AppColors()) {
+    CompositionLocalProvider(
+        LocalAppColors provides AppPalette,
+        LocalContentColor provides AppPalette.textPrimary,
+    ) {
         MaterialTheme(colorScheme = Scheme, typography = AppTypography, content = content)
     }
 }

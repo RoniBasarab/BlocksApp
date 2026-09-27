@@ -17,10 +17,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.HourglassBottom
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,15 +48,16 @@ fun ScreenScaffold(
     bottomBar: @Composable (() -> Unit)? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) {
-    val colors = MaterialTheme.colorScheme
-    Scaffold(
-        containerColor = colors.background,
-        contentWindowInsets = WindowInsets.safeDrawing,
-        topBar = topBar,
-        bottomBar = { bottomBar?.invoke() },
-    ) { inner ->
-        Box(Modifier.padding(horizontal = Spacing.l)) {
-            content(inner)
+    AppBackground {
+        Scaffold(
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets.safeDrawing,
+            topBar = topBar,
+            bottomBar = { bottomBar?.invoke() },
+        ) { inner ->
+            Box(Modifier.padding(inner)) {
+                content(inner)
+            }
         }
     }
 }
@@ -62,21 +65,27 @@ fun ScreenScaffold(
 @Composable
 fun AppCard(
     modifier: Modifier = Modifier,
+    borderColor: Color? = null,
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val shape = AppShapes.card
-    val edge = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.08f), Color.White.copy(alpha = 0.02f)))
-    Column(
-        modifier
-            .shadow(Metrics.shadow, shape, spotColor = Color.Black.copy(alpha = 0.6f))
-            .clip(shape)
-            .background(MaterialTheme.colorScheme.surface)
-            .border(Metrics.hairline, edge, shape)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(Spacing.l),
-        content = content,
-    )
+    val appColors = AppTheme.colors
+    val border = borderColor?.let {
+        Modifier.border(Metrics.borderSuggested, it, shape)
+    } ?: Modifier.border(Metrics.hairline, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.08f), Color.White.copy(alpha = 0.02f))), shape)
+    CompositionLocalProvider(LocalContentColor provides appColors.textPrimary) {
+        Column(
+            modifier
+                .shadow(Metrics.shadow, shape, spotColor = Color.Black.copy(alpha = 0.6f))
+                .clip(shape)
+                .background(appColors.surface)
+                .then(border)
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .padding(Spacing.l),
+            content = content,
+        )
+    }
 }
 
 @Composable

@@ -1,16 +1,19 @@
 package com.roni.blocks.designsystem
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Choice
 
+val BackgroundTop = Color(0xFF27282C)
+val BackgroundBottom = Color(0xFF1C1B19)
 val Background = Color(0xFF1C1B19)
-val Surface = Color(0xFF262421)
-val SurfaceRaised = Color(0xFF302E2A)
-val Outline = Color(0xFF3A3833)
-val OutlineStrong = Color(0xFF4A4740)
+val Surface = Color(0xFF312F2C)
+val SurfaceRaised = Color(0xFF3A3834)
+val Outline = Color(0xFF46433D)
+val OutlineStrong = Color(0xFF56524B)
 val Primary = Color(0xFF7A9CC6)
 val OnPrimary = Color(0xFF1C1B19)
 val Secondary = Color(0xFFD9C38A)
@@ -29,6 +32,8 @@ data class BlockColors(val container: Color, val accent: Color)
 @Immutable
 data class AppColors(
     val background: Color = Background,
+    val backgroundTop: Color = BackgroundTop,
+    val backgroundBottom: Color = BackgroundBottom,
     val surface: Color = Surface,
     val surfaceRaised: Color = SurfaceRaised,
     val outline: Color = Outline,
@@ -46,7 +51,14 @@ data class AppColors(
     val blocks: Map<String, BlockColors> = emptyMap(),
 )
 
-val LocalAppColors = staticCompositionLocalOf { AppColors() }
+val LocalAppColors = staticCompositionLocalOf { AppPalette }
+
+val AppPalette = AppColors()
+
+object AppTheme {
+    val colors: AppColors
+        @Composable get() = LocalAppColors.current
+}
 
 fun blockColors(type: BlockType): BlockColors = when (type) {
     BlockType.Cv -> BlockColors(Color(0xFF3B3548), Color(0xFFA99BC9))
