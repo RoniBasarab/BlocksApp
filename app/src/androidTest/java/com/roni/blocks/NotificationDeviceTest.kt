@@ -40,7 +40,7 @@ import org.junit.runner.RunWith
  * Times come from `assets/templates.json` for SUN_TUE_WED (cv 09:00-09:30, coding 09:30-11:30) and
  * the titles come from `NotificationModelMapper`. Because CV is a 30-minute block with no pomodoro,
  * any time after 09:30 is the *leak* state, whose title is "CV ran over" and whose only action is
- * "Start Coding". Selectors therefore match the exact title, never `contains("Coding")`, which would
+ * "Next: Coding". Selectors therefore match the exact title, never `contains("Coding")`, which would
  * also match the action button.
  *
  * Note: this source set compiles against the platform SDK, where `Notification.getTitle()` was
@@ -178,7 +178,7 @@ class NotificationDeviceTest {
         const val CV_RAN_OVER = "CV ran over"
         const val CODING = "Coding"
         const val CODING_FOCUS = "Focus 1/2"
-        const val START_CODING = "Start Coding"
+        const val START_CODING = "Next: Coding"
         const val KID_TIME = "Kid time"
         const val KID_ASLEEP = "Kid asleep"
     }
@@ -324,5 +324,39 @@ class NotificationDeviceTest {
             "the choice sheet appears once Home is open",
             device.wait(Until.hasObject(By.text(KID_ASLEEP)), 10_000),
         )
+    }
+
+    // ---- D13: cold start from a notification tap must restore Home ----------------------
+
+    @Test
+    fun d13_tapNotificationAfterProcessKill_restoresHome() {
+        startDayAt("09:10")
+        device.pressHome()
+        device.executeShellCommand("am kill $PKG")
+
+        awaitInShade(By.text(CV), CV).click()
+
+        assertTrue(
+            "cold start via the notification lands on Home",
+            device.wait(Until.hasObject(By.text(HOME_TAB)), 10_000),
+        )
+        assertTrue("never the template picker", device.findObject(By.text(FOCUS_TEMPLATE)) == null)
+    }
+
+    // ---- D14: relaunch from the launcher after a process kill ---------------------------
+
+    @Test
+    fun d14_relaunchFromLauncher_restoresHome() {
+        startDayAt("09:10")
+        device.pressHome()
+        device.executeShellCommand("am kill $PKG")
+
+        launchApp()
+
+        assertTrue(
+            "launcher relaunch lands on Home",
+            device.wait(Until.hasObject(By.text(HOME_TAB)), 10_000),
+        )
+        assertTrue("never the template picker", device.findObject(By.text(FOCUS_TEMPLATE)) == null)
     }
 }

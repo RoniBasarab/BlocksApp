@@ -1,27 +1,15 @@
-- Kotlin stays at 2.2.10 because AGP 9.4 built-in Kotlin rejects the kotlin-android plugin; KSP 2.3.12 is the AGP 9-compatible processor. Latest Kotlin overall is newer, but that pair is what this AGP build accepts.
-- `kotlin.time.Clock` / `Instant` (kotlinx-datetime 0.8) need `-opt-in=kotlin.time.ExperimentalTime`.
-- Template id is stored as its own `day` prefs key. `KidTime` / `Evening` / `Ended` do not carry it, and history flush needs it.
-- Kid-time planned end is 22:30 so the calendar can draw an open-ended block.
-- Empty CV slot: a CV window with no recorded work after it has passed becomes synthetic Free.
-- `EndBlockEarly` returns the same `Running`. Segment changes belong to the engine, not the state machine.
-- `StartDay(OFF)` and `TakeOffDay` both enter `Off`.
-- Release signing falls back to the debug keystore when `keystore.properties` is absent.
-- Home draws the hour grid, block layout, now line, leak overflow, and auto-scroll. Task 3 added the read-only block detail sheet, the non-dismissible evening choice sheet, and the interrupted resume-choice dialog.
-- Weekly, Insights, History, and Time Debt navigate and render a first cut. They do not yet match every visual in `visuals.md`.
-- Task 3 Phase 1 added the `:macrobenchmark` module (`template_card_SUN_TUE_WED`, `home_calendar`). It uses a separate `benchmark` build type with its own `applicationIdSuffix`, so benchmarks never touch the real day's data.
-- Task 2: `material-icons-extended` resolved with the Compose BOM, so outlined icons come from that artifact. R8 strips unused icons on release.
-- Task 2: splash screen uses `androidx.core:core-splashscreen` 1.2.0. Window background is `#1C1B19`.
-- Task 2: pause extends the current block (`plannedEnd + paused`) and the next block keeps its planned end. Segment recording lives in `SegmentBook` and is what the orchestrator persists.
-- Task 3 H1: Roborazzi 1.75.0 added (`io.github.takahirom.roborazzi` plugin + `roborazzi` / `roborazzi-compose` test deps; the JUnit rule is not needed). `./gradlew recordRoborazziDebug` writes the six review PNGs to `screenshots/` at the project root, via `roborazzi.outputDir` plus `roborazzi.record.filePathStrategy=relativePathFromRoborazziContextOutputDirectory`. Robolectric must stay at 4.10+ for Native Graphics.
-- Task 3 Phase 4 finished the template picker: 30s aurora orbit, 75s slower dust drift, centred 2x2 grid, suggested state, entrance animation, and press scale. Weekly chart, insights scorecard, and history rows still do not match every visual in `visuals.md`.
-- Material3 here is 1.4.0: there is no `sheetGesturesEnabled` and no `rememberModalBottomSheetProperties`. The evening sheet is made non-dismissible with `ModalBottomSheetProperties` plus a consumed vertical drag.
-- `AppShapes.sheet` exists because `RoundedCornerShape` only accepts `Dp`/`Float`, not `CornerSize`, so the 20dp top corners cannot be derived from `AppShapes.hero.topStart`.
-- Compose stability reports share a single destination (`app/build/compose_compiler`), so the last compile wins. Read them only straight after a main-source compile: a test-source compile overwrites them with a two-class report.
-- Under `feature/`, only the three ViewModels are unstable (`HomeViewModel`, `SettingsViewModel`, `TemplatePickerViewModel`). Nothing in `designsystem/` is unstable. ViewModels come from `hiltViewModel()` and are never passed as Composable parameters, so this is benign.
-- Receivers call `goAsync()` and finish the pending result immediately; suspend work is launched on the app scope, so a killed process can drop the tail of `onAlarm`.
-- CONTRADICTION (needs a product decision): the renderer sets `FLAG_ONGOING_EVENT` so the block notification cannot be cleared, but Task-4 §4.6 D6 expects a swipe to dismiss it. Stock Android does not allow both. The tests at `Task-4.md:88` and `:574` pin the flag, so D6 currently fails by construction. Either the flag goes (swipe works, notification clears) or D6 is dropped.
-- API 37 removed `Notification.getTitle()`. `androidTest` compiles against the platform SDK, so it must read `notification.extras.getCharSequence(Notification.EXTRA_TITLE)`; `extras` is now a public field and `getExtras()` is gone. JVM tests still see the old API because Robolectric's `android-all` jar is on the unit-test classpath, which is why the same call compiles in one source set and not the other.
-- UiAutomator 2.4.0 API names: `device.openNotification()` (not `openNotificationShade()`), `UiObject2.swipe(Direction, float)` (no `swipeRight()`), and `By.text*` returns `BySelector`, not `By`.
-- Sun/Tue/Wed has CV 09:00-09:30 with no pomodoro, so any time after 09:30 is the leak state (`CV ran over`, action `Start Coding`). Device-test selectors must match that exact title, not `contains("Coding")`, which also matches the action button.
-- `SettingsRoute` still hardcodes `SettingsUiState()`, and `SendTestNotification`, `ResetToday` and `SetHourFormat` are still no-ops. Spec only requires the screens to navigate and render, so this is deliberately out of scope for Task 4.
-- Device tests D1-D8 are written and compile (`app-debug-androidTest.apk` builds), but have never been run: no device was attached. Only D9-D12 in `MANUAL_TESTS.md` are confirmed hand-check steps.
+# Notes - decisions Task-5 left unspecified, and what the code does instead
+
+- `ActionEvent`: the frozen-notification events (`CONTINUE_WHERE_I_WAS`, `JUMP_TO_NOW`) are gone with the frozen state; `START_NEXT` survives as the one "move on" action, so old notification buttons that carry it keep working after an update (Task-5.md:97).
+- `NotificationModelMapper` names every block by its real stable `BlockSpec.id`; buttons posted before the update count as stale and are ignored (Task-5.md:97 - fine by design).
+- Debt is `PLANNED` overruns only; pause time is logged as `PAUSE` segments and shown as Pause time, never debt. `debtMinutes` moved to a top-level function in `HistoryManager.kt` because it is pure and needed by JVM tests.
+- `TimelineQueries.effectiveEnd` returns the open block's planned end unchanged: a pause shortens a block, it never moves an end (Task-5.md:84).
+- `DayRecord.plannedBlocks` snapshots the template at StartDay; old records without one fall back to the current template (Task-5.md:98).
+- `BlockSpec` persists nowhere except templates.json (bundled asset, no migration needed, per Task-5.md:97).
+- The compose-side next-button label rule: a work block offers "Next: Free" (finishing early -> the rest becomes free); a free block offers "Next: {next block name}" for planned and synthetic free alike. Pomodoro breaks are still Pause territory (Task-5.md table, Slice 9).
+- `NowButtonId.EMERGENCY` renders as its own centered TextButton (`now_emergency`) instead of living in the side-by-side row, so Pause · Next stay equal-width 48dp buttons (Task-5 layout).
+- Emergency confirmation is always shown ("Stop today", red); only Pause supports "Don't ask again".
+- `TimeFormatter.label/hourGutter` companion statics are the single 24h/12h source of truth; screens pass the flag from the `use24` prefs-backed flow.
+- `BlockType.isWork` (CV/Coding/Gym) lives in `Model.kt` next to the sealed interface, shared by the ledger, notifications and Home.
+- The renderer-test recording sink uses `CopyOnWriteArrayList` because notification renders resume on IO workers (prefs writes) and would race an `ArrayList`.
+- History groups weeks by the `weekStart` walk-back-to-Sunday rule from Task-5; older weeks label themselves "20 – 26 Sep" style.

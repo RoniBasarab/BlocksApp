@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpRect
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.roni.blocks.BuildConfig
 import com.roni.blocks.designsystem.BlocksTheme
 import com.roni.blocks.feature.history.HistoryScreen
 import com.roni.blocks.feature.insights.InsightsScreen
@@ -146,7 +147,7 @@ class UiExpectationsTest {
             "hour_format_24 ≥ 56dp",
             compose.onNodeWithTag("hour_format_24").getBoundsInRoot().heightDp() >= 56.dp - tol,
         )
-        val version = compose.onNodeWithText("V 1.0.0").performScrollTo().getBoundsInRoot()
+        val version = compose.onNodeWithText("V ${BuildConfig.VERSION_NAME}").performScrollTo().getBoundsInRoot()
         assertNear(root().right - gutter, version.right, "version right edge")
     }
 

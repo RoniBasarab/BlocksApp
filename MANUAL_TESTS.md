@@ -81,3 +81,13 @@ stale — the title should become `Coding ran over` with the `Start Free` action
 `Task-4.md:88` mandates that flag while `Task-4.md:647` asks for a swipe-to-dismiss. If
 `d6_swipeAway_staysGoneUntilTheNextTransition` fails on a real phone, that contradiction is the
 cause, not the dismissal logic.
+
+## Manual check - Emergency ends the day, the notification disappears
+- [ ] Start the day and travel to 09:40.
+- [ ] Tap Emergency, then the red Stop today.
+- [ ] The day ends (Day done card), the notification is gone, no new alerts fire.
+
+## Manual check - Demo data fills the past
+- [ ] Settings -> Developer -> Load demo data (4 weeks).
+- [ ] Open History, Weekly, Insights and Time Debt: non-empty, rendered from the seeded days.
+- [ ] Clear demo data: the past days disappear again.
