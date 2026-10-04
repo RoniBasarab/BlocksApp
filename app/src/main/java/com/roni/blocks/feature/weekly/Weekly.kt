@@ -26,6 +26,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
@@ -58,6 +61,7 @@ import com.roni.blocks.designsystem.EmptyState
 import com.roni.blocks.designsystem.ScreenColumn
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.Spacing
+import com.roni.blocks.designsystem.WhatTheseMeanDialog
 import com.roni.blocks.designsystem.blockColors
 import com.roni.blocks.navigation.HistoryKey
 import com.roni.blocks.navigation.HomeKey
@@ -82,7 +86,7 @@ import kotlinx.datetime.toLocalDateTime
 
 data class PairedBar(val label: String, val plannedMin: Int, val actualMin: Int, val accent: Color)
 
-data class WeeklyStat(val label: String, val value: String)
+data class WeeklyStat(val label: String, val value: String, val hint: String)
 
 data class WeeklyUiState(
     val hasData: Boolean,
@@ -176,7 +180,7 @@ class WeeklyViewModel @Inject constructor(
             worked += workedWorkMinutes(day.segments)
             if (DayFlag.EMERGENCY_STOP !in day.flags) planned += plannedWorkMinutes(day.segments)
         }
-        return "${formatHm(worked)} of ${formatHm(planned)}"
+        return "${formatHm(worked)} of the ${formatHm(planned)} planned for CV, Coding and Gym"
     }
 
     /** Work-block minutes actually worked: planned segments minus the pause that ran inside them. */
@@ -241,10 +245,14 @@ class WeeklyViewModel @Inject constructor(
             if (gymWorked - pause >= 30) 1 else 0
         }
         return listOf(
-            WeeklyStat("Leak total", formatHm(leak)),
-            WeeklyStat("Gym sessions", "${gymDone.coerceAtLeast(0)} / $gymPlanned"),
-            WeeklyStat("Off days", days.count { DayFlag.OFF_DAY in it.flags }.toString()),
-            WeeklyStat("Evenings skipped", days.count { DayFlag.EVENING_SKIPPED in it.flags }.toString()),
+            WeeklyStat("Ran over", formatHm(leak), "Time past block ends"),
+            WeeklyStat("Gym sessions", "${gymDone.coerceAtLeast(0)} / $gymPlanned", "Done of planned"),
+            WeeklyStat("Off days", days.count { DayFlag.OFF_DAY in it.flags }.toString(), "Days with no schedule"),
+            WeeklyStat(
+                "Evenings skipped",
+                days.count { DayFlag.EVENING_SKIPPED in it.flags }.toString(),
+                "Kid asleep never tapped",
+            ),
         )
     }
 }
@@ -276,7 +284,7 @@ fun WeeklyScreen(state: WeeklyUiState, onAction: (WeeklyAction) -> Unit) {
         WeekSelector(state, onAction)
         AppCard(Modifier.testTag("weekly_hero").fillMaxWidth()) {
             Text(
-                text = "Planned work done",
+                text = "Plan followed",
                 style = MaterialTheme.typography.labelLarge,
                 color = AppTheme.colors.textSecondary,
             )
@@ -310,7 +318,7 @@ fun WeeklyScreen(state: WeeklyUiState, onAction: (WeeklyAction) -> Unit) {
         }
         AppCard(Modifier.testTag("weekly_chart").fillMaxWidth()) {
             Text(
-                text = "Planned vs actual",
+                text = "Planned vs actual time",
                 style = MaterialTheme.typography.titleMedium,
                 color = AppTheme.colors.textPrimary,
             )
@@ -444,12 +452,19 @@ private fun StatTile(stat: WeeklyStat, modifier: Modifier = Modifier) {
             style = MaterialTheme.typography.titleLarge,
             color = AppTheme.colors.textPrimary,
         )
+        Spacer(Modifier.height(Spacing.xs))
+        Text(
+            text = stat.hint,
+            style = MaterialTheme.typography.labelSmall,
+            color = AppTheme.colors.textMuted,
+        )
     }
 }
 
 @Composable
 fun WeeklyRoute(onTab: (NavKey) -> Unit, onMenu: (NavKey) -> Unit, viewModel: WeeklyViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var explain by remember { mutableStateOf(false) }
     ScreenScaffold(
         topBar = {
             AppTopBar(
@@ -457,6 +472,7 @@ fun WeeklyRoute(onTab: (NavKey) -> Unit, onMenu: (NavKey) -> Unit, viewModel: We
                 onHistory = { onMenu(HistoryKey) },
                 onDebt = { onMenu(TimeDebtKey) },
                 onSettings = { onMenu(SettingsKey) },
+                onExplain = { explain = true },
             )
         },
         bottomBar = { AppBottomBar(AppTab.WEEKLY) { onTab(tabKey(it)) } },
@@ -473,6 +489,7 @@ fun WeeklyRoute(onTab: (NavKey) -> Unit, onMenu: (NavKey) -> Unit, viewModel: We
             )
         }
     }
+    if (explain) WhatTheseMeanDialog(onDismiss = { explain = false })
 }
 
 internal fun tabKey(tab: AppTab): NavKey = when (tab) {

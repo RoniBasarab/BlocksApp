@@ -22,6 +22,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,6 +56,7 @@ import com.roni.blocks.designsystem.ScreenColumn
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.SectionCard
 import com.roni.blocks.designsystem.Spacing
+import com.roni.blocks.designsystem.WhatTheseMeanDialog
 import com.roni.blocks.designsystem.blockColors
 import com.roni.blocks.feature.weekly.formatHm
 import com.roni.blocks.feature.weekly.tabKey
@@ -77,11 +81,11 @@ enum class TrendArrow { DOWN, UP, FLAT }
 enum class TrendTone { GOOD, LEAK, NEUTRAL }
 
 data class InsightTrend(val arrow: TrendArrow, val delta: String, val tone: TrendTone)
-data class InsightRow(val label: String, val value: String, val trend: InsightTrend? = null)
+data class InsightRow(val label: String, val value: String, val hint: String, val trend: InsightTrend? = null)
 data class OverrunStat(
     val label: String,
-    val overDays: Int,
-    val plannedDays: Int,
+    val overBlocks: Int,
+    val plannedBlocks: Int,
     val avgMinutes: Int,
     val accent: Color,
     val fraction: Float = 1f,
@@ -92,7 +96,8 @@ enum class HeadlineKind { OVER_RUN, METRIC_MOVED, STEADY }
 data class InsightsUiState(
     val hasData: Boolean,
     val daysLogged: Int = 0,
-    val headline: String = "",
+    val headlineTitle: String = "",
+    val headlineBody: String = "",
     val headlineKind: HeadlineKind = HeadlineKind.STEADY,
     val headlineAccent: Color = Color.Unspecified,
     val rows: List<InsightRow> = emptyList(),
@@ -137,7 +142,8 @@ class InsightsViewModel @Inject constructor(
         _state.value = InsightsUiState(
             hasData = true,
             daysLogged = previousDays.size,
-            headline = headline.text,
+            headlineTitle = headline.title,
+            headlineBody = headline.body,
             headlineKind = headline.kind,
             headlineAccent = worst.firstOrNull()?.accent ?: blockColors(BlockType.Coding).accent,
             rows = scorecardRows(nowMetrics, prevMetrics),
@@ -175,7 +181,7 @@ internal fun metricsOf(days: List<com.roni.blocks.core.model.DayRecord>): WeekMe
     var chillCount = 0
     var pauseMinutes = 0
     var offDays = 0
-    val over = mutableMapOf<String, Triple<Int, Int, Int>>() // label -> (overDays, totalOver, plannedDays)
+    val over = mutableMapOf<String, Triple<Int, Int, Int>>() // label -> (overBlocks, totalOver, plannedBlocks)
 
     days.forEach { day ->
         leakMinutes += debtMinutes(day.segments)
@@ -236,12 +242,12 @@ internal fun metricsOf(days: List<com.roni.blocks.core.model.DayRecord>): WeekMe
     val overruns = over.map { (label, t) ->
         OverrunStat(
             label = label,
-            overDays = t.first,
-            plannedDays = t.third,
+            overBlocks = t.first,
+            plannedBlocks = t.third,
             avgMinutes = if (t.first == 0) 0 else (t.second.toDouble() / t.first).roundToInt(),
             accent = accentFor(label),
         )
-    }.filter { it.plannedDays > 0 }
+    }.filter { it.plannedBlocks > 0 }
     return WeekMetrics(
         leakMinutes = leakMinutes,
         codingWorked = codingWorked,
@@ -275,7 +281,7 @@ private fun accentFor(label: String): Color = when (label) {
 }
 
 private fun worstOverruns(metrics: WeekMetrics): List<OverrunStat> =
-    metrics.overruns.filter { it.overDays > 0 && it.avgMinutes > 0 }.sortedByDescending { it.avgMinutes }
+    metrics.overruns.filter { it.overBlocks > 0 && it.avgMinutes > 0 }.sortedByDescending { it.avgMinutes }
 
 private fun fractionOf(stat: OverrunStat, worst: List<OverrunStat>): Float {
     val top = worst.maxOfOrNull { it.avgMinutes } ?: return 0f
@@ -296,54 +302,61 @@ private data class Rival(val metric: String, val new: Int, val old: Int, val goo
         }
 
     fun text(value: Int): String = when (metric) {
-        "Total leak", "Pause time" -> formatHm(value)
-        "Chill share of evenings" -> "$value%"
+        "Ran over", "Pause time" -> formatHm(value)
+        "Chill evenings" -> "$value%"
         else -> "$value"
     }
 }
 
-internal data class Headline(val text: String, val kind: HeadlineKind)
+internal data class Headline(val title: String, val body: String, val kind: HeadlineKind)
 
 internal fun headline(now: WeekMetrics, prev: WeekMetrics, worst: List<OverrunStat>): Headline {
-    val chronic = worst.filter { it.overDays >= 3 }.maxByOrNull { it.avgMinutes }
+    val chronic = worst.filter { it.overBlocks >= 3 }.maxByOrNull { it.avgMinutes }
     if (chronic != null) {
         return Headline(
-            text = "${chronic.label} ran over on ${chronic.overDays} of ${chronic.plannedDays} days, +${chronic.avgMinutes} min on average.",
+            title = "${chronic.label} tends to run long",
+            body = "${chronic.overBlocks} of ${chronic.plannedBlocks} ${chronic.label} blocks this week went past their planned end, by ${chronic.avgMinutes} min on average.",
             kind = HeadlineKind.OVER_RUN,
         )
     }
     val rivals = listOf(
-        Rival("Total leak", now.leakMinutes, prev.leakMinutes, Direction.LOWER),
-        Rival("Coding hours", now.codingWorked, prev.codingWorked, Direction.HIGHER),
+        Rival("Ran over", now.leakMinutes, prev.leakMinutes, Direction.LOWER),
+        Rival("Coding time", now.codingWorked, prev.codingWorked, Direction.HIGHER),
         Rival("Gym sessions", now.gymDone, prev.gymDone, Direction.HIGHER),
-        Rival("CV days", now.cvWorkedDays, prev.cvWorkedDays, Direction.HIGHER),
+        Rival("Job-search days", now.cvWorkedDays, prev.cvWorkedDays, Direction.HIGHER),
         Rival("Evenings skipped", now.eveningsSkipped, prev.eveningsSkipped, Direction.LOWER),
-        Rival("Chill share of evenings", now.chillPercent, prev.chillPercent, Direction.LOWER),
+        Rival("Chill evenings", now.chillPercent, prev.chillPercent, Direction.LOWER),
         Rival("Pause time", now.pauseMinutes, prev.pauseMinutes, Direction.LOWER),
     )
     val moved = rivals.filter { it.old > 0 }.maxByOrNull { it.relative }
     if (moved != null && moved.new != moved.old) {
         return Headline(
-            text = "${moved.metric} ${moved.improved()} vs last week: ${moved.text(moved.old)} → ${moved.text(moved.new)}.",
+            title = "${moved.metric} ${moved.improved()}",
+            body = "Last week: ${moved.text(moved.old)}. This week: ${moved.text(moved.new)}.",
             kind = HeadlineKind.METRIC_MOVED,
         )
     }
-    return Headline(text = "A steady week. Nothing stood out.", kind = HeadlineKind.STEADY)
+    return Headline(
+        title = "A steady week",
+        body = "Nothing changed much compared with last week.",
+        kind = HeadlineKind.STEADY,
+    )
 }
 
 internal fun scorecardRows(now: WeekMetrics, prev: WeekMetrics): List<InsightRow> {
     val offDelta = now.offDays - prev.offDays
     return listOf(
-        row("Total leak", formatHm(now.leakMinutes), now.leakMinutes, prev.leakMinutes, Direction.LOWER),
-        row("Coding hours", "${formatHm(now.codingWorked)} / ${formatHm(now.codingPlanned)}", now.codingWorked, prev.codingWorked, Direction.HIGHER),
-        row("Gym sessions", "${now.gymDone} / ${now.gymPlanned}", now.gymDone, prev.gymDone, Direction.HIGHER),
-        row("CV days", "${now.cvWorkedDays} / ${now.cvPlannedDays}", now.cvWorkedDays, prev.cvWorkedDays, Direction.HIGHER),
-        row("Evenings skipped", "${now.eveningsSkipped}", now.eveningsSkipped, prev.eveningsSkipped, Direction.LOWER),
-        row("Chill share of evenings", "${now.chillPercent}%", now.chillPercent, prev.chillPercent, Direction.LOWER),
-        row("Pause time", formatHm(now.pauseMinutes), now.pauseMinutes, prev.pauseMinutes, Direction.LOWER),
+        row("Ran over", formatHm(now.leakMinutes), "Time past block ends", now.leakMinutes, prev.leakMinutes, Direction.LOWER),
+        row("Coding time", "${formatHm(now.codingWorked)} / ${formatHm(now.codingPlanned)}", "Done of planned", now.codingWorked, prev.codingWorked, Direction.HIGHER),
+        row("Gym sessions", "${now.gymDone} / ${now.gymPlanned}", "Done of planned", now.gymDone, prev.gymDone, Direction.HIGHER),
+        row("Job-search days", "${now.cvWorkedDays} / ${now.cvPlannedDays}", "Days the CV block happened", now.cvWorkedDays, prev.cvWorkedDays, Direction.HIGHER),
+        row("Evenings skipped", "${now.eveningsSkipped}", "Kid asleep never tapped", now.eveningsSkipped, prev.eveningsSkipped, Direction.LOWER),
+        row("Chill evenings", "${now.chillPercent}%", "Share of evenings spent on Chill", now.chillPercent, prev.chillPercent, Direction.LOWER),
+        row("Pause time", formatHm(now.pauseMinutes), "Breaks taken during blocks", now.pauseMinutes, prev.pauseMinutes, Direction.LOWER),
         InsightRow(
             label = "Off days",
             value = "${now.offDays}",
+            hint = "Days with no schedule",
             trend = InsightTrend(
                 arrow = when {
                     offDelta < 0 -> TrendArrow.DOWN
@@ -357,7 +370,14 @@ internal fun scorecardRows(now: WeekMetrics, prev: WeekMetrics): List<InsightRow
     )
 }
 
-private fun row(label: String, value: String, new: Int, old: Int, goodWhen: Direction): InsightRow {
+private fun row(
+    label: String,
+    value: String,
+    hint: String,
+    new: Int,
+    old: Int,
+    goodWhen: Direction,
+): InsightRow {
     val delta = new - old
     val arrow = when {
         delta < 0 -> TrendArrow.DOWN
@@ -370,11 +390,11 @@ private fun row(label: String, value: String, new: Int, old: Int, goodWhen: Dire
         else -> TrendTone.LEAK
     }
     val text = when (label) {
-        "Total leak", "Pause time" -> "${Math.abs(delta)}m"
-        "Chill share of evenings" -> "${Math.abs(delta)}%"
+        "Ran over", "Pause time" -> "${Math.abs(delta)}m"
+        "Chill evenings" -> "${Math.abs(delta)}%"
         else -> "${Math.abs(delta)}"
     }
-    return InsightRow(label, value, InsightTrend(arrow, text, tone))
+    return InsightRow(label, value, hint, InsightTrend(arrow, text, tone))
 }
 
 /** Content only; the top and bottom bars live in [InsightsRoute]. */
@@ -394,7 +414,7 @@ fun InsightsScreen(state: InsightsUiState, onAction: (InsightsAction) -> Unit) {
         Headline(state)
         SectionCard(Modifier.testTag("insights_scorecard").fillMaxWidth()) {
             Text(
-                text = "vs last week",
+                text = "Compared with last week",
                 style = MaterialTheme.typography.labelLarge,
                 color = AppTheme.colors.textSecondary,
                 modifier = Modifier.padding(horizontal = Spacing.l, vertical = Spacing.m),
@@ -407,7 +427,7 @@ fun InsightsScreen(state: InsightsUiState, onAction: (InsightsAction) -> Unit) {
         if (state.worst.isNotEmpty()) {
             SectionCard(Modifier.fillMaxWidth()) {
                 Text(
-                    text = "Worst overruns",
+                    text = "Blocks that run long",
                     style = MaterialTheme.typography.titleMedium,
                     color = AppTheme.colors.textPrimary,
                     modifier = Modifier.padding(horizontal = Spacing.l, vertical = Spacing.m),
@@ -435,7 +455,7 @@ fun InsightsScreen(state: InsightsUiState, onAction: (InsightsAction) -> Unit) {
                         )
                         Spacer(Modifier.width(Spacing.m))
                         Text(
-                            text = "+${stat.avgMinutes} min avg",
+                            text = "${stat.avgMinutes} min over on average",
                             style = MaterialTheme.typography.labelLarge,
                             color = AppTheme.colors.textSecondary,
                         )
@@ -477,11 +497,19 @@ private fun Headline(state: InsightsUiState) {
                 modifier = Modifier,
                 tint = state.headlineAccent,
             )
-            Text(
-                text = state.headline,
-                style = MaterialTheme.typography.titleMedium,
-                color = c.textPrimary,
-            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = state.headlineTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = c.textPrimary,
+                )
+                Spacer(Modifier.height(Spacing.xs))
+                Text(
+                    text = state.headlineBody,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = c.textSecondary,
+                )
+            }
         }
     }
 }
@@ -496,12 +524,18 @@ private fun ScorecardRow(row: InsightRow) {
             .padding(horizontal = Spacing.l, vertical = Spacing.m),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = row.label,
-            style = MaterialTheme.typography.bodyLarge,
-            color = AppTheme.colors.textPrimary,
-            modifier = Modifier.weight(1f),
-        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = row.label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = AppTheme.colors.textPrimary,
+            )
+            Text(
+                text = row.hint,
+                style = MaterialTheme.typography.bodySmall,
+                color = AppTheme.colors.textSecondary,
+            )
+        }
         Spacer(Modifier.width(Spacing.m))
         Text(
             text = row.value,
@@ -568,6 +602,7 @@ private fun LoggedProgress(daysLogged: Int) {
 @Composable
 fun InsightsRoute(onTab: (NavKey) -> Unit, onMenu: (NavKey) -> Unit, viewModel: InsightsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var explain by remember { mutableStateOf(false) }
     ScreenScaffold(
         topBar = {
             AppTopBar(
@@ -575,6 +610,7 @@ fun InsightsRoute(onTab: (NavKey) -> Unit, onMenu: (NavKey) -> Unit, viewModel: 
                 onHistory = { onMenu(HistoryKey) },
                 onDebt = { onMenu(TimeDebtKey) },
                 onSettings = { onMenu(SettingsKey) },
+                onExplain = { explain = true },
             )
         },
         bottomBar = { AppBottomBar(AppTab.INSIGHTS) { onTab(tabKey(it)) } },
@@ -583,4 +619,5 @@ fun InsightsRoute(onTab: (NavKey) -> Unit, onMenu: (NavKey) -> Unit, viewModel: 
             InsightsScreen(state = state, onAction = {})
         }
     }
+    if (explain) WhatTheseMeanDialog(onDismiss = { explain = false })
 }

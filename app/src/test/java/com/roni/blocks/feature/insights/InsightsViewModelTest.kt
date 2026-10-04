@@ -143,8 +143,51 @@ class InsightsViewModelTest {
 
         val state = viewModel.state.value
         assertTrue(state.hasData)
-        assertEquals("Coding ran over on 4 of 5 days, +25 min on average.", state.headline)
+        assertEquals("Coding tends to run long", state.headlineTitle)
+        assertEquals("4 of 5 Coding blocks this week went past their planned end, by 25 min on average.", state.headlineBody)
         assertEquals(HeadlineKind.OVER_RUN, state.headlineKind)
+    }
+
+    @Test
+    fun insightsHeadline_countsBlocks_notDays() = runBlocking {
+        seedStubWeek(previousStart)
+        seedStubWeek(subjectStart)
+        for (index in 0 until 5) {
+            val date = subjectStart.plus(index, DateTimeUnit.DAY)
+            val first = LocalTime(9, 30).at(date, zone)
+            history.writeDay(
+                DayRecord(
+                    date = date,
+                    template = null,
+                    segments = listOf(
+                        Segment(
+                            type = BlockType.Coding,
+                            kind = SegmentKind.PLANNED,
+                            plannedStart = first,
+                            plannedEnd = first + 60.minutes,
+                            actualStart = first,
+                            actualEnd = first + (if (index < 4) 70 else 60).minutes,
+                        ),
+                        Segment(
+                            type = BlockType.Coding,
+                            kind = SegmentKind.PLANNED,
+                            plannedStart = first + 120.minutes,
+                            plannedEnd = first + 180.minutes,
+                            actualStart = first + 120.minutes,
+                            actualEnd = first + (if (index < 4) 190 else 180).minutes,
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        val state = build().state.value
+
+        assertEquals("Coding tends to run long", state.headlineTitle)
+        assertTrue(
+            "body should count blocks, got: ${state.headlineBody}",
+            state.headlineBody.startsWith("8 of 10 Coding blocks this week"),
+        )
     }
 
     @Test
@@ -157,7 +200,8 @@ class InsightsViewModelTest {
         val viewModel = build()
 
         val state = viewModel.state.value
-        assertEquals("Total leak improved vs last week: 1h 40m → 40m.", state.headline)
+        assertEquals("Ran over improved", state.headlineTitle)
+        assertEquals("Last week: 1h 40m. This week: 40m.", state.headlineBody)
         assertEquals(HeadlineKind.METRIC_MOVED, state.headlineKind)
     }
 
@@ -169,7 +213,8 @@ class InsightsViewModelTest {
         val viewModel = build()
 
         val state = viewModel.state.value
-        assertEquals("A steady week. Nothing stood out.", state.headline)
+        assertEquals("A steady week", state.headlineTitle)
+        assertEquals("Nothing changed much compared with last week.", state.headlineBody)
         assertEquals(HeadlineKind.STEADY, state.headlineKind)
     }
 
@@ -184,7 +229,8 @@ class InsightsViewModelTest {
 
         val rows = viewModel.state.value.rows
         assertEquals(8, rows.size)
-        val leak = rows.first { it.label == "Total leak" }
+        val leak = rows.first { it.label == "Ran over" }
+        assertEquals("Time past block ends", leak.hint)
         assertEquals("40m", leak.value)
         assertEquals(TrendArrow.DOWN, leak.trend?.arrow)
         assertEquals("60m", leak.trend?.delta)

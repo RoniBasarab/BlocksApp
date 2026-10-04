@@ -89,7 +89,7 @@ object FakeHomeStates {
             type = null,
             chip = null,
             chipTone = ChipTone.NEUTRAL,
-            subtitle = "Leak 0 min · 6 blocks",
+            subtitle = "ran over 0 min · 6 blocks",
             isLeaking = false,
             showProgress = false,
             buttons = persistentListOf(),

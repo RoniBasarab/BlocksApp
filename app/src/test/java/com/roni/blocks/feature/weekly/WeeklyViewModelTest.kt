@@ -91,7 +91,7 @@ class WeeklyViewModelTest {
         assertEquals("27 Sep – 3 Oct", state.weekLabel)
         assertFalse(state.canGoNext)
         assertEquals(0.8f, state.plannedFraction, 0.005f)
-        assertEquals("1h 20m of 1h 40m", state.plannedSummary)
+        assertEquals("1h 20m of the 1h 40m planned for CV, Coding and Gym", state.plannedSummary)
     }
 
     @Test
@@ -119,7 +119,7 @@ class WeeklyViewModelTest {
         val viewModel = build()
 
         val state = viewModel.state.value
-        assertEquals("4h 50m of 1h 40m", state.plannedSummary)
+        assertEquals("4h 50m of the 1h 40m planned for CV, Coding and Gym", state.plannedSummary)
         assertEquals(1f, state.plannedFraction, 0.005f)
     }
 
@@ -163,9 +163,9 @@ class WeeklyViewModelTest {
         val viewModel = build()
 
         val stats = viewModel.state.value.stats
-        assertTrue(stats.contains(WeeklyStat("Gym sessions", "1 / 1")))
-        assertTrue(stats.contains(WeeklyStat("Off days", "1")))
-        assertTrue(stats.contains(WeeklyStat("Evenings skipped", "1")))
+        assertTrue(stats.contains(WeeklyStat("Gym sessions", "1 / 1", "Done of planned")))
+        assertTrue(stats.contains(WeeklyStat("Off days", "1", "Days with no schedule")))
+        assertTrue(stats.contains(WeeklyStat("Evenings skipped", "1", "Kid asleep never tapped")))
     }
 
     @Test

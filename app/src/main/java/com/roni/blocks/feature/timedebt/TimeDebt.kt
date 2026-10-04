@@ -18,6 +18,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -45,6 +48,7 @@ import com.roni.blocks.designsystem.ScreenColumn
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.SectionCard
 import com.roni.blocks.designsystem.Spacing
+import com.roni.blocks.designsystem.WhatTheseMeanDialog
 import com.roni.blocks.designsystem.blockColors
 import com.roni.blocks.feature.home.blockTitle
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -161,7 +165,7 @@ fun TimeDebtScreen(state: TimeDebtUiState, onAction: (DebtDay) -> Unit) {
     ScreenColumn(menuScreen = true) {
         AppCard(Modifier.testTag("debt_hero").fillMaxWidth()) {
             Text(
-                text = "This week",
+                text = "Time debt this week",
                 style = MaterialTheme.typography.labelLarge,
                 color = AppTheme.colors.textSecondary,
             )
@@ -175,6 +179,12 @@ fun TimeDebtScreen(state: TimeDebtUiState, onAction: (DebtDay) -> Unit) {
             Text(
                 text = "Today ${formatDebt(state.todayMinutes)} · avg ${state.avgPerDay} min/day",
                 style = MaterialTheme.typography.bodyMedium,
+                color = AppTheme.colors.textSecondary,
+            )
+            Spacer(Modifier.height(Spacing.xs))
+            Text(
+                text = "Time debt is the time blocks ran past their planned end. Pauses don't count.",
+                style = MaterialTheme.typography.bodySmall,
                 color = AppTheme.colors.textSecondary,
             )
         }
@@ -291,13 +301,15 @@ private fun DebtDayRow(day: DebtDay) {
 @Composable
 fun TimeDebtRoute(onBack: () -> Unit, viewModel: TimeDebtViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var explain by remember { mutableStateOf(false) }
     ScreenScaffold(
         topBar = {
-            BackTopBar(title = "Time Debt", onBack = onBack)
+            BackTopBar(title = "Time Debt", onBack = onBack, onExplain = { explain = true })
         },
     ) { padding ->
         Column(Modifier.fillMaxWidth().padding(padding)) {
             TimeDebtScreen(state = state, onAction = {})
         }
     }
+    if (explain) WhatTheseMeanDialog(onDismiss = { explain = false })
 }

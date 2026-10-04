@@ -1,15 +1,22 @@
 package com.roni.blocks.designsystem
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.HourglassBottom
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Today
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -21,6 +28,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -47,10 +55,12 @@ fun AppTopBar(
     onDebt: () -> Unit = {},
     onSettings: () -> Unit = {},
     showMenu: Boolean = true,
+    onExplain: (() -> Unit)? = null,
 ) {
     TopAppBar(
         title = title,
         actions = {
+            onExplain?.let { WhatTheseMeanButton(onClick = it) }
             actions()
             if (showMenu) {
                 AppMenuButton { destination ->
@@ -104,18 +114,61 @@ fun AppMenuButton(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TabTopBar(title: String, onMenu: (MenuDestination) -> Unit, modifier: Modifier = Modifier) {
+fun TabTopBar(
+    title: String,
+    onMenu: (MenuDestination) -> Unit,
+    modifier: Modifier = Modifier,
+    explainer: (@Composable () -> Unit)? = null,
+) {
     CenterAlignedTopAppBar(
         title = { Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface) },
-        actions = { AppMenuButton(onSelect = onMenu) },
+        actions = {
+            explainer?.invoke()
+            AppMenuButton(onSelect = onMenu)
+        },
         colors = screenTopBarColors(),
         modifier = modifier.testTag("top_bar"),
     )
 }
 
+private val ExplainerTerms = listOf(
+    "Ran over (time debt)" to "Time a block kept going after its planned end, until you tapped Next.",
+    "Plan followed" to "Time you actually spent in CV, Coding and Gym, out of the time planned for them. Paused time doesn't count.",
+    "Pause time" to "Short breaks you took inside a block with Pause.",
+    "Evenings skipped" to "Days the evening never started because Kid asleep wasn't tapped before 22:30.",
+    "Off days" to "Days you picked the Off template.",
+    "Skipped blocks" to "Blocks that never happened because an earlier block ran past their end.",
+)
+
+@Composable
+fun WhatTheseMeanDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("What these mean") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                ExplainerTerms.forEach { (term, meaning) ->
+                    Text(term, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                    Text(meaning, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(Spacing.m))
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Got it") } },
+        modifier = Modifier.testTag("what_these_mean_dialog"),
+    )
+}
+
+@Composable
+fun WhatTheseMeanButton(onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.testTag("what_these_mean")) {
+        Icon(Icons.Outlined.Info, contentDescription = "What these mean")
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BackTopBar(title: String, onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun BackTopBar(title: String, onBack: () -> Unit, modifier: Modifier = Modifier, onExplain: (() -> Unit)? = null) {
     CenterAlignedTopAppBar(
         title = { Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface) },
         navigationIcon = {
@@ -123,6 +176,7 @@ fun BackTopBar(title: String, onBack: () -> Unit, modifier: Modifier = Modifier)
                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back")
             }
         },
+        actions = { onExplain?.let { WhatTheseMeanButton(onClick = it) } },
         colors = screenTopBarColors(),
         modifier = modifier.testTag("top_bar"),
     )
