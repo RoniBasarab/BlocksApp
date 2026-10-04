@@ -43,6 +43,7 @@ enum class DayFlag {
     GYM_MISSED,
     AUTO_ENDED,
     EMERGENCY_STOP,
+    TEMPLATE_SWAPPED,
 }
 
 @Serializable

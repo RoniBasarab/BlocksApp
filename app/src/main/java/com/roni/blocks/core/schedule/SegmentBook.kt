@@ -22,6 +22,7 @@ data class DayBook(
     val index: Int = 0,
     val flags: Set<DayFlag> = emptySet(),
     val plannedBlocks: List<BlockSpec> = emptyList(),
+    val planStartsAt: Instant? = null,
 )
 
 object SegmentBook {
@@ -53,6 +54,28 @@ object SegmentBook {
         val consumed = blocks.take(index).map { consumed(it) }
         val current = blocks.getOrNull(index) ?: return DayBook(consumed, plannedBlocks = template.blocks)
         return DayBook(consumed + open(current, now), index = index, plannedBlocks = template.blocks)
+    }
+
+    /**
+     * Re-plans the rest of today around [template] from [now]. Segments already recorded stay
+     * exactly as they are, and blocks of the new template that had ended by [now] are left out
+     * rather than marked consumed: this day never intended to include them, so counting them as
+     * missed work would invent history that did not happen.
+     */
+    fun swapTemplate(book: DayBook, template: Template, date: LocalDate, zone: TimeZone, now: Instant): DayBook {
+        val blocks = resolve(template, date, zone, Duration.ZERO)
+        val index = blocks.indexOfFirst { now >= it.plannedStart && now < it.plannedEnd }
+            .let { if (it >= 0) it else blocks.indexOfFirst { block -> now < block.plannedEnd }.coerceAtLeast(0) }
+        val kept = book.plannedBlocks.filter { it.start.at(date, zone) < now }
+        val current = blocks.getOrNull(index)
+        return DayBook(
+            segments = closeOpen(book.segments, now) + listOfNotNull(current?.let { open(it, now) }),
+            shift = Duration.ZERO,
+            index = index,
+            flags = (book.flags - DayFlag.OFF_DAY) + DayFlag.TEMPLATE_SWAPPED,
+            plannedBlocks = kept + blocks.drop(index).map { it.spec },
+            planStartsAt = now,
+        )
     }
 
     fun next(book: DayBook, template: Template, date: LocalDate, zone: TimeZone, now: Instant): DayBook {

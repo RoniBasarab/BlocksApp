@@ -61,6 +61,13 @@ sealed interface DayEvent {
     data object TakeOffDay : DayEvent
 
     /**
+     * Re-plans the rest of today around [template] from now. What the day already recorded stays as
+     * history; only the part of today that had not happened yet is replaced.
+     */
+    @Serializable
+    data class SwapTemplate(val template: TemplateId) : DayEvent
+
+    /**
      * Advances to the next block. [expectedBlockId] is the block the tap was aimed at, so a double
      * tap, or a notification that outlived its block, cannot skip a block nobody ever saw.
      */

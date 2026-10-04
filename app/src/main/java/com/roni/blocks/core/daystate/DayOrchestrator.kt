@@ -8,6 +8,7 @@ import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
 import com.roni.blocks.core.model.DebtRecord
+import com.roni.blocks.core.model.InstantSerializer
 import com.roni.blocks.core.model.LocalDateSerializer
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
@@ -41,6 +42,7 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.nullable
 
 @Singleton
 class DayOrchestrator @Inject constructor(
@@ -165,6 +167,7 @@ class DayOrchestrator @Inject constructor(
 
     private suspend fun apply(event: DayEvent) {
         val now = clock.now()
+        if (event is DayEvent.SwapTemplate) return applySwap(event, now)
         if (event is DayEvent.Next) {
             val current = _state.value.currentBlockId()
             if (event.expectedBlockId != current) {
@@ -197,19 +200,41 @@ class DayOrchestrator @Inject constructor(
         }
     }
 
+    /**
+     * The one event whose result is not a function of the old state: where the day lands depends on
+     * which new-template block contains now, so it is resolved here instead of by [DayStateMachine].
+     */
+    private suspend fun applySwap(event: DayEvent.SwapTemplate, now: kotlin.time.Instant) {
+        if (now >= kotlinx.datetime.LocalTime(22, 30).at(today(), zone)) {
+            logger.info("refusing ${event.template} at $now: past 22:30")
+            return
+        }
+        record(event, now)
+        val next = when {
+            event.template == TemplateId.OFF -> DayState.Off
+            templates.get(event.template).blocks.getOrNull(book.index)?.type == BlockType.KidTime -> DayState.KidTime
+            else -> DayState.Running(event.template, book.index)
+        }
+        logger.info("swapped to ${event.template} at $now -> $next")
+        _state.value = next
+        _segments.value = book.segments
+        persist()
+        if (next == DayState.Off) flush(book.flags + DayFlag.OFF_DAY) else sideEffects(transition = true)
+    }
+
     private fun record(event: DayEvent, now: kotlin.time.Instant) {
         val today = today()
         if (event is DayEvent.StartDay && event.template == com.roni.blocks.core.model.TemplateId.OFF) {
             book = DayBook()
             return
         }
-        val template = if (event is DayEvent.StartDay) templates.get(event.template) else currentTemplate() ?: return
         book = when (event) {
-            is DayEvent.StartDay -> SegmentBook.startDay(template, today, zone, now)
-            is DayEvent.Next -> SegmentBook.next(book, template, today, zone, now)
+            is DayEvent.StartDay -> SegmentBook.startDay(templates.get(event.template), today, zone, now)
+            is DayEvent.SwapTemplate -> SegmentBook.swapTemplate(book, templates.get(event.template), today, zone, now)
+            is DayEvent.Next -> SegmentBook.next(book, currentTemplate() ?: return, today, zone, now)
             DayEvent.Pause -> SegmentBook.pause(book, now)
             DayEvent.Resume -> SegmentBook.resumePause(book, now)
-            DayEvent.KidTimeStarted -> SegmentBook.enterKidTime(book, template, today, zone)
+            DayEvent.KidTimeStarted -> SegmentBook.enterKidTime(book, currentTemplate() ?: return, today, zone)
             DayEvent.KidAsleep -> SegmentBook.kidAsleep(book, today, zone, now)
             is DayEvent.EveningChoice -> SegmentBook.eveningChoice(book, event.choice, today, zone, now)
             is DayEvent.EndDay -> SegmentBook.endDay(book, now, _state.value is DayState.KidTime)
@@ -260,7 +285,7 @@ class DayOrchestrator @Inject constructor(
         val index = (_state.value as? DayState.Running)?.blockIndex ?: 0
         val wake = engine.nextWakeUp(_state.value, today, now, template, index)
         if (wake == null) alarms.cancel() else alarms.schedule(wake)
-        val timeline = engine.timelineAt(template, today, zone, _segments.value, now)
+        val timeline = engine.timelineAt(template, today, zone, _segments.value, now, book.planStartsAt)
         notificationRenderer.render(notificationMapper.from(_state.value, timeline, now), transition)
     }
 
@@ -275,7 +300,9 @@ class DayOrchestrator @Inject constructor(
         val stored = prefs.read(PrefsFile.DAY, STATE, DayStateSerializer) ?: DayState.NotStarted
         _state.value = if (storedDate != null && storedDate != today) DayState.NotStarted else stored
         _segments.value = prefs.read(PrefsFile.DAY, SEGMENTS, ListSerializer(Segment.serializer())) ?: emptyList()
-        book = rehydratedBook()
+        book = rehydratedBook().copy(
+            planStartsAt = prefs.read(PrefsFile.DAY, PLAN_STARTS_AT, InstantSerializer.nullable),
+        )
         persist()
         replayMissedTransitions()
         if (_state.value == DayState.Ended || _state.value == DayState.Off) return
@@ -335,6 +362,7 @@ class DayOrchestrator @Inject constructor(
         prefs.write(PrefsFile.DAY, STATE, _state.value, DayStateSerializer)
         prefs.write(PrefsFile.DAY, SEGMENTS, _segments.value, ListSerializer(Segment.serializer()))
         prefs.write(PrefsFile.DAY, DATE, today(), LocalDateSerializer)
+        prefs.write(PrefsFile.DAY, PLAN_STARTS_AT, book.planStartsAt, InstantSerializer.nullable)
         _state.value.templateId()?.let { prefs.write(PrefsFile.DAY, TEMPLATE, it, TemplateId.serializer()) }
     }
 
@@ -358,6 +386,7 @@ class DayOrchestrator @Inject constructor(
         const val SEGMENTS = "today_segments"
         const val DATE = "today_date"
         const val TEMPLATE = "template_id"
+        const val PLAN_STARTS_AT = "plan_starts_at"
         const val MAX_REPLAY_STEPS = 500
     }
 }
