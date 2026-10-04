@@ -27,10 +27,19 @@
    returns `TEMPLATE_PICKER` instead of `HOME`.
    Evidence: reproduced with Task-6's work removed entirely — `git stash push -u`, then
    `:app:testDebugUnitTest --tests "...DayOrchestratorRestoreTest"` gives `4 tests completed,
-   1 failed`, same assertion. The companion `legacyInterrupted_restoresAsRunning` in the same class
-   passes alone and only failed when it inherited an orphan write; making `PrefsStorage`'s IO
-   dispatcher injectable and synchronous in tests fixed that one, leaving only this failure. It is
-   not caused by Task-6, which does not change restore's state logic. The fix belongs in this test
+   1 failed`, same assertion. It is deterministic, not order-dependent: it still fails when run
+   as the only test in the class. The sibling tests in the same class *were* order-dependent —
+   `legacyInterrupted_restoresAsRunning` passed alone but failed in-class, because
+   `DayOrchestratorRestoreTest` built its orchestrators on `CoroutineScope(SupervisorJob() + ...)`
+   and never cancelled them, so a finished test's coroutine could finish its write after
+   `tearDown` cleared prefs. Tracking and cancelling those scopes fixed that; the surviving failure
+   is this one. Ruled out so far: it is not pollution (fails alone), not the mapper
+   (`resolveStartDestination` is exhaustive, `Running` maps to `HOME`), not a swallowed restore
+   exception (no `blocks.log` entry is written for this class, so the `catch` at
+   `DayOrchestrator.ensureRestored` never fires), and not `PrefsStorage`'s new `io` seam. The
+   remaining suspect is the two-orchestrator shape itself — it is the only test in the suite that
+   builds two, and `restoreFromStorage` writes state back through `persist()` on the way in.
+   Not caused by Task-6, which does not change restore's state logic. The fix belongs in this test
    or in `DayOrchestrator`'s single-flight restore, not in Task-6.
 
 Nothing else is open: every slice's compile gate passes on this machine, and the unit gate is green
