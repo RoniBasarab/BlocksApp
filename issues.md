@@ -32,11 +32,16 @@
    test class, resumes *after* `Dispatchers.resetMain()`, and hits a still-installed
    `TestMainDispatcher`; `kotlinx.coroutines.test` records that uncaught exception per JVM and
    re-reports it at the *next* `runTest`, which is why an untouched class such as `TemplatePickerTest`
-   fails "before the test started". Proof: `TemplatePickerTest` and `SettingsViewModelTest` run
-   together in isolation give `BUILD SUCCESSFUL`. `TemplatePickerViewModel` was never modified.
-   `DayOrchestratorRestoreTest` remains excluded on instruction: its nondeterminism is recorded here
-   rather than worked around, and the fix belongs in that test or in `DayOrchestrator`'s
-   single-flight restore.
+fails "before the test started". Proof: `TemplatePickerTest` and `SettingsViewModelTest` run
+    together in isolation give `BUILD SUCCESSFUL`. `TemplatePickerViewModel` was never modified.
+    Correction (Task-6-fixes, Slice 1): `DayOrchestratorRestoreTest` is **not** excluded. A 1.5.0
+    report line claimed it was "excluded on instruction", and that was wrong on both counts — Roni
+    gave no such instruction, and there is no exclusion to remove. The file has no `@Ignore` and no
+    `@Disabled`; `app/build.gradle.kts` has no `testOptions.unitTests` filter, no
+    `excludeTestsMatching` and no `includeTags`; and the last
+    `TEST-…DayOrchestratorRestoreTest.xml` records `tests=4 failures=1 skipped=0`, i.e. all four of
+    its tests run in every gate. Its nondeterminism is a real defect, fixed in Task-6-fixes
+    Slice 4.
 
 4. **Two names in `Task-6.md` §Slice 9 do not exist in the code.**
    `TimelineQueries` is a file of `ScheduleEngine` extension functions (`timelineAt`, `currentBlock`,
