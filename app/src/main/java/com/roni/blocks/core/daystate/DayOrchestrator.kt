@@ -28,12 +28,15 @@ import com.roni.blocks.core.time.at
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.time.Clock
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
@@ -65,10 +68,11 @@ class DayOrchestrator @Inject constructor(
     private val _isRestored = MutableStateFlow(false)
     val isRestored: StateFlow<Boolean> = _isRestored.asStateFlow()
     private var book = DayBook()
+    private val restoreMutex = Mutex()
 
     init {
         scope.launch {
-            restore()
+            ensureRestored()
         }
         scope.launch {
             state.catch { logger.error("state flow", it) }.collect { }
@@ -76,10 +80,37 @@ class DayOrchestrator @Inject constructor(
     }
 
     fun send(event: DayEvent) {
-        scope.launch { handle(event) }
+        scope.launch {
+            ensureRestored()
+            handle(event)
+        }
     }
 
-    suspend fun handle(event: DayEvent) = apply(event)
+    suspend fun handle(event: DayEvent) {
+        ensureRestored()
+        apply(event)
+    }
+
+    /**
+     * Idempotent and single-flight. Every entry point calls this before touching the day: the UI
+     * gate, [send], and each receiver. It always finishes and always ends up marking the day
+     * restored, because a restore that throws must not leave the splash up forever.
+     */
+    suspend fun ensureRestored() {
+        if (_isRestored.value) return
+        restoreMutex.withLock {
+            if (_isRestored.value) return
+            try {
+                restoreFromStorage()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logger.error("Restore failed; continuing with the safest state", e)
+            } finally {
+                _isRestored.value = true
+            }
+        }
+    }
 
     /**
      * A tap on a notification button. [expectedBlockId] is the block the button was built for: a
@@ -87,15 +118,17 @@ class DayOrchestrator @Inject constructor(
      * makes a double tap advance exactly once.
      */
     suspend fun handleNotificationAction(event: ActionEvent, expectedBlockId: String?) {
+        ensureRestored()
         val current = _state.value.currentBlockId()
         if (expectedBlockId != null && expectedBlockId != current) {
             logger.info("stale $event for $expectedBlockId, now ${current ?: "-"}")
             return
         }
-        handle(event.toDayEvent(expectedBlockId))
+        apply(event.toDayEvent(expectedBlockId))
     }
 
     suspend fun onAlarm() {
+        ensureRestored()
         val today = today()
         val stored = prefs.read(PrefsFile.DAY, DATE, LocalDateSerializer) ?: today
         val rolled = rollover(_state.value, stored, today)
@@ -105,28 +138,7 @@ class DayOrchestrator @Inject constructor(
             _segments.value = emptyList()
             persist()
         }
-    val template = currentTemplate()
-    val now = clock.now()
-    if (template != null && _state.value is DayState.Paused) {
-        val blockEnd = book.segments.lastOrNull { it.kind == SegmentKind.PLANNED && it.actualEnd == null }?.plannedEnd
-        if (blockEnd != null && now >= blockEnd) {
-            apply(DayEvent.Resume)
-            return
-        }
-    }
-    if (template != null && _state.value is DayState.Running) {
-        val kidStart = template.blocks.firstOrNull { it.type == BlockType.KidTime }?.start
-        if (kidStart != null && now >= kidStart.at(today, zone)) {
-            apply(DayEvent.KidTimeStarted)
-            return
-        }
-        val freeEnd = book.segments.lastOrNull { it.kind == SegmentKind.SYNTHETIC_FREE && it.actualEnd == null }?.plannedEnd
-        if (freeEnd != null && now >= freeEnd) {
-            apply(DayEvent.Next(_state.value.currentBlockId().orEmpty()))
-            return
-        }
-    }
-        if (endDayIfDue()) return
+        if (applyOneMissedTransition()) return
         sideEffects()
     }
 
@@ -135,12 +147,14 @@ class DayOrchestrator @Inject constructor(
      * advancing a block: nothing was run, so there is nothing to record.
      */
     suspend fun onTimeChanged() {
+        ensureRestored()
         if (endDayIfDue()) return
         sideEffects()
     }
 
     /** Settings "Reset today": back to NotStarted, nothing recorded, alerts restored for a fresh pick. */
     suspend fun resetToday() {
+        ensureRestored()
         book = DayBook()
         _state.value = DayState.NotStarted
         _segments.value = emptyList()
@@ -250,15 +264,71 @@ class DayOrchestrator @Inject constructor(
         notificationRenderer.render(notificationMapper.from(_state.value, timeline, now), transition)
     }
 
-    private suspend fun restore() {
+    /**
+     * Reads the day back and puts the process back where it was. Deliberately does not call [send],
+     * [ensureRestored] or anything else that takes [restoreMutex]: the replay below has to reach the
+     * internal transition path or a cold start deadlocks against itself.
+     */
+    private suspend fun restoreFromStorage() {
         val today = today()
         val storedDate = prefs.read(PrefsFile.DAY, DATE, LocalDateSerializer)
         val stored = prefs.read(PrefsFile.DAY, STATE, DayStateSerializer) ?: DayState.NotStarted
         _state.value = if (storedDate != null && storedDate != today) DayState.NotStarted else stored
         _segments.value = prefs.read(PrefsFile.DAY, SEGMENTS, ListSerializer(Segment.serializer())) ?: emptyList()
+        book = rehydratedBook()
         persist()
+        replayMissedTransitions()
+        if (_state.value == DayState.Ended || _state.value == DayState.Off) return
         sideEffects()
-        _isRestored.value = true
+    }
+
+    /**
+     * Segments are the day's history, so the book has to be rebuilt from them: without this the
+     * first action after a process death would write a fresh segment list and drop everything the
+     * day had already recorded.
+     */
+    private fun rehydratedBook(): DayBook {
+        val template = _state.value.templateId()?.let { runCatching { templates.get(it) }.getOrNull() }
+            ?: return DayBook(segments = _segments.value)
+        return SegmentBook.rehydrate(_segments.value, template, today(), zone)
+    }
+
+    private suspend fun replayMissedTransitions() {
+        var steps = 0
+        while (applyOneMissedTransition()) {
+            steps++
+            if (steps >= MAX_REPLAY_STEPS) {
+                logger.error("Replay stopped at the $MAX_REPLAY_STEPS step bound; the day may be behind")
+                return
+            }
+        }
+    }
+
+    /** One automatic transition the clock has already made true, or false when there is none left. */
+    private suspend fun applyOneMissedTransition(): Boolean {
+        val template = currentTemplate() ?: return false
+        val now = clock.now()
+        val today = today()
+        if (_state.value is DayState.Paused) {
+            val blockEnd = book.segments.lastOrNull { it.kind == SegmentKind.PLANNED && it.actualEnd == null }?.plannedEnd
+            if (blockEnd != null && now >= blockEnd) {
+                apply(DayEvent.Resume)
+                return true
+            }
+        }
+        if (_state.value is DayState.Running) {
+            val kidStart = template.blocks.firstOrNull { it.type == BlockType.KidTime }?.start
+            if (kidStart != null && now >= kidStart.at(today, zone)) {
+                apply(DayEvent.KidTimeStarted)
+                return true
+            }
+            val freeEnd = book.segments.lastOrNull { it.kind == SegmentKind.SYNTHETIC_FREE && it.actualEnd == null }?.plannedEnd
+            if (freeEnd != null && now >= freeEnd) {
+                apply(DayEvent.Next(_state.value.currentBlockId().orEmpty()))
+                return true
+            }
+        }
+        return endDayIfDue()
     }
 
     private suspend fun persist() {
@@ -288,5 +358,6 @@ class DayOrchestrator @Inject constructor(
         const val SEGMENTS = "today_segments"
         const val DATE = "today_date"
         const val TEMPLATE = "template_id"
+        const val MAX_REPLAY_STEPS = 500
     }
 }

@@ -25,6 +25,27 @@ data class DayBook(
 )
 
 object SegmentBook {
+    /**
+     * Rebuilds a book from persisted segments after a process death. The index has to come back
+     * with them: it is what "the next block" counts from, and a book that starts at 0 would send
+     * the day back to its first block.
+     */
+    fun rehydrate(
+        segments: List<Segment>,
+        template: Template,
+        date: LocalDate,
+        zone: TimeZone,
+        shift: Duration = Duration.ZERO,
+    ): DayBook {
+        val blocks = resolve(template, date, zone, shift)
+        val anchor = segments.lastOrNull { it.kind == SegmentKind.PLANNED }
+        val matched = anchor?.let { open ->
+            blocks.indexOfFirst { it.plannedStart == open.plannedStart && it.plannedEnd == open.plannedEnd }
+        }?.takeIf { it >= 0 }
+        val index = matched ?: segments.count { it.kind == SegmentKind.CONSUMED }
+        return DayBook(segments = segments, shift = shift, index = index.coerceAtLeast(0))
+    }
+
     fun startDay(template: Template, date: LocalDate, zone: TimeZone, now: Instant): DayBook {
         val blocks = resolve(template, date, zone, Duration.ZERO)
         val index = blocks.indexOfFirst { now >= it.plannedStart && now < it.plannedEnd }
