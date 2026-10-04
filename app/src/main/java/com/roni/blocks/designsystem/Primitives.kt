@@ -94,6 +94,7 @@ fun SettingsRow(
     subtitle: String? = null,
     titleColor: Color = AppTheme.colors.textPrimary,
     onClick: (() -> Unit)? = null,
+    enabled: Boolean = true,
     trailing: @Composable (() -> Unit)? = null,
 ) {
     Row(
@@ -101,14 +102,18 @@ fun SettingsRow(
             .testTag("settings_row")
             .fillMaxWidth()
             .heightIn(min = Metrics.row)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(if (onClick != null && enabled) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = Spacing.l, vertical = Spacing.m),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconCircle(icon)
         Spacer(Modifier.width(Spacing.m))
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, color = titleColor)
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (enabled) titleColor else AppTheme.colors.textMuted,
+            )
             if (subtitle != null) {
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = AppTheme.colors.textSecondary)
             }

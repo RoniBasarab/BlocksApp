@@ -154,6 +154,18 @@ class DayOrchestrator @Inject constructor(
         sideEffects()
     }
 
+    /**
+     * The debug clock was moved on purpose, so the day catches up to where it now is: every
+     * transition the clock already made true is applied, exactly as a cold start would. This is
+     * the opposite of [onTimeChanged], which is for a clock that drifted while nothing was missed.
+     */
+    suspend fun onTimeTravelled() {
+        ensureRestored()
+        replayMissedTransitions()
+        if (_state.value == DayState.Ended || _state.value == DayState.Off) return
+        sideEffects()
+    }
+
     /** Settings "Reset today": back to NotStarted, nothing recorded, alerts restored for a fresh pick. */
     suspend fun resetToday() {
         ensureRestored()

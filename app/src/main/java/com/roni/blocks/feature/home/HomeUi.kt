@@ -58,6 +58,7 @@ data class HomeState(
     val dayOfMonth: String = "",
     val title: String = "",
     val status: String = "",
+    val debugClock: String? = null,
     val hourLabels: ImmutableList<String> = persistentListOf(),
     val blocks: ImmutableList<CalendarBlockUi> = persistentListOf(),
     val currentBlockId: String? = null,

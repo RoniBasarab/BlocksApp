@@ -20,6 +20,8 @@ import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
 import com.roni.blocks.core.system.SystemStatuses
+import com.roni.blocks.core.time.DebugClock
+import com.roni.blocks.core.time.DebugTimeController
 import com.roni.blocks.core.time.SystemTimeMapper
 import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.core.time.at
@@ -72,6 +74,7 @@ class SettingsViewModelTest {
     private lateinit var orchestrator: DayOrchestrator
     private lateinit var port: FakeNotificationPort
     private lateinit var statuses: FakeSystemStatuses
+    private lateinit var debugTime: DebugTimeController
     private lateinit var viewModel: SettingsViewModel
 
     @Before
@@ -97,6 +100,7 @@ class SettingsViewModelTest {
             logger = logger,
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
         )
+        debugTime = DebugTimeController(DebugClock(context).apply { setOffsetMinutes(0) }, orchestrator, logger, zone)
         viewModel = newViewModel(DemoDataGenerator(TemplateManager(context), history, clock, zone))
     }
 
@@ -108,6 +112,7 @@ class SettingsViewModelTest {
         notificationPort = port,
         statuses = statuses,
         demoData = demoData,
+        debugTime = debugTime,
         clock = clock,
         zone = zone,
     )

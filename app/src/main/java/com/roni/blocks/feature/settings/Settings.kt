@@ -1,8 +1,13 @@
 package com.roni.blocks.feature.settings
 
 import android.content.Intent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -19,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Alarm
+import androidx.compose.material.icons.outlined.Bedtime
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Email
@@ -26,6 +32,8 @@ import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Restaurant
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -46,6 +54,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -62,11 +71,15 @@ import androidx.lifecycle.viewModelScope
 import com.roni.blocks.BuildConfig
 import com.roni.blocks.core.demo.DemoDataGenerator
 import com.roni.blocks.core.daystate.DayOrchestrator
+import com.roni.blocks.core.daystate.DayState
+import com.roni.blocks.core.daystate.isDishesSlot
 import com.roni.blocks.core.logging.AppLogger
 import com.roni.blocks.core.notifications.NotificationPort
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.system.SystemStatuses
+import com.roni.blocks.core.time.DebugTimeController
 import com.roni.blocks.core.time.TimeFormatter
+import com.roni.blocks.core.time.minuteOfDay
 import com.roni.blocks.designsystem.AppShapes
 import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.BackTopBar
@@ -102,6 +115,10 @@ data class SettingsUiState(
     val notificationPermission: PermissionStatus = PermissionStatus.ALLOWED,
     val exactAlarms: PermissionStatus = PermissionStatus.ALLOWED,
     val demoBusy: Boolean = false,
+    val clockLabel: String = "Real time",
+    val clockShifted: Boolean = false,
+    val inKidTime: Boolean = false,
+    val inDishes: Boolean = false,
 )
 
 sealed interface SettingsAction {
@@ -115,12 +132,26 @@ sealed interface SettingsAction {
     data object ClearHistory : SettingsAction
     data object LoadDemoData : SettingsAction
     data object ClearDemoData : SettingsAction
+    data class DebugClockTo(val hhmm: String) : SettingsAction
+    data class DebugClockShift(val minutes: Int) : SettingsAction
+    data object DebugClockRealTime : SettingsAction
+    data object DebugKidAsleep : SettingsAction
+    data object DebugSkipDishes : SettingsAction
 }
 
 /** One-shot outcomes the screen surfaces in its snackbar. */
 sealed interface SettingsEffect {
     data class ShowMessage(val text: String) : SettingsEffect
 }
+
+private data class DebugClockUi(
+    val label: String,
+    val shifted: Boolean,
+    val inKidTime: Boolean,
+    val inDishes: Boolean,
+)
+
+private fun formatShift(minutes: Int): String = "+%dh %02dm".format(minutes / 60, minutes % 60)
 
 private enum class ConfirmDialogSpec { RESET_TODAY, CLEAR_HISTORY }
 
@@ -135,6 +166,7 @@ class SettingsViewModel @Inject constructor(
     private val demoData: DemoDataGenerator,
     private val clock: Clock,
     private val zone: TimeZone,
+    private val debugTime: DebugTimeController,
 ) : ViewModel() {
     private val _notificationPermission = MutableStateFlow(statuses.notificationsEnabled())
     private val _exactAlarms = MutableStateFlow(statuses.canScheduleExactAlarms())
@@ -143,17 +175,35 @@ class SettingsViewModel @Inject constructor(
 
     val effects: Flow<SettingsEffect> = _effects.receiveAsFlow()
 
+    private val debugClock: Flow<DebugClockUi> = combine(
+        debugTime.offsetMinutes,
+        timeFormatter.use24,
+        orchestrator.state,
+    ) { offset, use24, dayState ->
+        DebugClockUi(
+            label = if (offset == 0) "Real time" else "${TimeFormatter.label(clock.now().minuteOfDay(zone), use24)} · shifted ${formatShift(offset)}",
+            shifted = offset != 0,
+            inKidTime = dayState == DayState.KidTime,
+            inDishes = dayState.isDishesSlot,
+        )
+    }
+
     val state: StateFlow<SettingsUiState> = combine(
         timeFormatter.use24,
         _notificationPermission,
         _exactAlarms,
         _demoBusy,
-    ) { use24, notifications, alarms, demoBusy ->
+        debugClock,
+    ) { use24, notifications, alarms, demoBusy, clockUi ->
         SettingsUiState(
             hourFormat24 = use24,
             notificationPermission = if (notifications) PermissionStatus.ALLOWED else PermissionStatus.BLOCKED,
             exactAlarms = if (alarms) PermissionStatus.ALLOWED else PermissionStatus.BLOCKED,
             demoBusy = demoBusy,
+            clockLabel = clockUi.label,
+            clockShifted = clockUi.shifted,
+            inKidTime = clockUi.inKidTime,
+            inDishes = clockUi.inDishes,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
@@ -223,6 +273,42 @@ class SettingsViewModel @Inject constructor(
             }
         }
     }
+
+    fun debugClockTo(hhmm: String) {
+        viewModelScope.launch {
+            if (debugTime.setTo(hhmm)) showMessage("Clock set to $hhmm")
+        }
+    }
+
+    fun debugClockShift(minutes: Int) {
+        viewModelScope.launch {
+            debugTime.shiftBy(minutes)
+            showMessage("Clock set to ${appClockLabel()}")
+        }
+    }
+
+    fun debugClockRealTime() {
+        viewModelScope.launch {
+            debugTime.useRealTime()
+            showMessage("Clock set to real time")
+        }
+    }
+
+    fun debugKidAsleep() {
+        viewModelScope.launch {
+            debugTime.sendKidAsleep()
+            showMessage("Kid asleep sent")
+        }
+    }
+
+    fun debugSkipDishes() {
+        viewModelScope.launch {
+            if (debugTime.skipDishes()) showMessage("Dishes skipped")
+        }
+    }
+
+    private fun appClockLabel(): String =
+        TimeFormatter.label(clock.now().minuteOfDay(zone), timeFormatter.use24.value)
 
     fun logFile() = logger.shareFile()
 
@@ -360,6 +446,37 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
                 SectionHeader("Developer")
                 SectionCard {
                     SettingsRow(
+                        icon = Icons.Outlined.Schedule,
+                        title = "Clock",
+                        trailing = {
+                            Text(
+                                state.clockLabel,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (state.clockShifted) AppTheme.colors.secondary else AppTheme.colors.textMuted,
+                            )
+                        },
+                    )
+                }
+                ClockChips(shifted = state.clockShifted, onAction = onAction)
+                SectionCard {
+                    SettingsRow(
+                        icon = Icons.Outlined.Bedtime,
+                        title = "Kid asleep now",
+                        trailing = { Chevron() },
+                        enabled = state.inKidTime,
+                        onClick = { onAction(SettingsAction.DebugKidAsleep) },
+                    )
+                    CardDivider()
+                    SettingsRow(
+                        icon = Icons.Outlined.Restaurant,
+                        title = "Skip dishes",
+                        trailing = { Chevron() },
+                        enabled = state.inDishes,
+                        onClick = { onAction(SettingsAction.DebugSkipDishes) },
+                    )
+                }
+                SectionCard {
+                    SettingsRow(
                         icon = Icons.Outlined.Refresh,
                         title = "Load demo data (4 weeks)",
                         trailing = { DemoBusyTrailing(state.demoBusy) },
@@ -419,6 +536,44 @@ private fun DemoBusyTrailing(busy: Boolean) {
         modifier = Modifier.size(20.dp).testTag("demo_progress"),
         strokeWidth = 2.dp,
         color = AppTheme.colors.textSecondary,
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ClockChips(shifted: Boolean, onAction: (SettingsAction) -> Unit) {
+    FlowRow(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.l),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+        verticalArrangement = Arrangement.spacedBy(Spacing.s),
+    ) {
+        listOf(
+            "09:31" to "09:31 · CV ran over",
+            "12:00" to "12:00 · Gym",
+            "16:20" to "16:20 · Kid time",
+            "20:05" to "20:05 · Evening prompt",
+        ).forEach { (hhmm, label) ->
+            ClockChip(label) { onAction(SettingsAction.DebugClockTo(hhmm)) }
+        }
+        ClockChip("+10 min") { onAction(SettingsAction.DebugClockShift(10)) }
+        ClockChip("+30 min") { onAction(SettingsAction.DebugClockShift(30)) }
+        ClockChip("Real time", selected = !shifted) { onAction(SettingsAction.DebugClockRealTime) }
+    }
+}
+
+@Composable
+private fun ClockChip(label: String, selected: Boolean = false, onClick: () -> Unit) {
+    Text(
+        label,
+        Modifier
+            .clip(AppShapes.chip)
+            .background(AppTheme.colors.secondary.copy(alpha = if (selected) 0.32f else 0.16f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = Spacing.m, vertical = Spacing.s),
+        style = MaterialTheme.typography.labelLarge,
+        color = AppTheme.colors.secondary,
     )
 }
 
@@ -555,6 +710,11 @@ fun SettingsRoute(
                         SettingsAction.ClearHistory -> pending = ConfirmDialogSpec.CLEAR_HISTORY
                         SettingsAction.LoadDemoData -> viewModel.loadDemoData()
                         SettingsAction.ClearDemoData -> viewModel.clearDemoData()
+                        is SettingsAction.DebugClockTo -> viewModel.debugClockTo(action.hhmm)
+                        is SettingsAction.DebugClockShift -> viewModel.debugClockShift(action.minutes)
+                        SettingsAction.DebugClockRealTime -> viewModel.debugClockRealTime()
+                        SettingsAction.DebugKidAsleep -> viewModel.debugKidAsleep()
+                        SettingsAction.DebugSkipDishes -> viewModel.debugSkipDishes()
                     }
                 },
             )

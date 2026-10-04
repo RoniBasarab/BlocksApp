@@ -65,6 +65,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.navigation3.runtime.NavKey
+import com.roni.blocks.BuildConfig
 import com.roni.blocks.core.daystate.DayEvent
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.daystate.DayState
@@ -81,6 +82,7 @@ import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
+import com.roni.blocks.core.time.DebugTimeController
 import com.roni.blocks.core.time.Ticker
 import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.core.time.minuteOfDay
@@ -124,6 +126,7 @@ private val day: DayOrchestrator,
     private val zone: TimeZone,
     private val prefs: PrefsStorage,
     private val timeFormatter: TimeFormatter,
+    private val debugTime: DebugTimeController,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state.asStateFlow()
@@ -166,6 +169,9 @@ private val day: DayOrchestrator,
         // Leaking is a boundary, not a per-minute value: only re-publish when it flips.
         viewModelScope.launch { minuteOfDay.collect { publishLeakIfChanged() } }
         viewModelScope.launch { timeFormatter.use24.collect { publish(day.state.value) } }
+        if (BuildConfig.DEBUG) {
+            viewModelScope.launch { debugTime.offsetMinutes.collect { publish(day.state.value) } }
+        }
         viewModelScope.launch {
             val stored = prefs.read(
                 PrefsFile.SETTINGS,
@@ -256,6 +262,7 @@ private val day: DayOrchestrator,
             dayOfMonth = now.toLocalDateTime(zone).day.toString(),
             title = id?.let { templateDisplay(it).title }.orEmpty(),
             status = status(blocks, index, leaking, effectiveEndMin, minute),
+            debugClock = debugClockLabel(minute),
             hourLabels = CalendarMapper.hourLabels(DAY_START_MIN, DAY_END_MIN, timeFormatter.use24.value).toPersistentList(),
             blocks = blocks,
             currentBlockId = current?.id,
@@ -267,6 +274,9 @@ private val day: DayOrchestrator,
             blockSheet = blockSheet(blocks.firstOrNull { it.id == selectedBlockId }, segments, minute),
         )
     }
+
+    private fun debugClockLabel(minute: Int): String? =
+        if (debugTime.offsetMinutes.value == 0) null else "Debug clock ${TimeFormatter.label(minute, timeFormatter.use24.value)}"
 
     private fun publishLeakIfChanged() {
         val before = _state.value.leakFromMin
@@ -558,6 +568,7 @@ fun HomeScreen(
                 dayOfMonth = state.dayOfMonth,
                 title = state.title,
                 status = state.status,
+                debugClock = state.debugClock,
                 showDivider = { scroll.value > 0 },
                 onAction = onAction,
             )
@@ -614,6 +625,7 @@ fun HomeTopBar(
     dayOfMonth: String,
     title: String,
     status: String,
+    debugClock: String?,
     showDivider: () -> Boolean,
     onAction: (HomeAction) -> Unit,
 ) {
@@ -645,7 +657,10 @@ fun HomeTopBar(
         Spacer(Modifier.width(Spacing.m))
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(status, style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(status, style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                debugClock?.let { AppChip(it, c.secondary, Modifier.padding(start = Spacing.xxs)) }
+            }
         }
         IconButton(onClick = { onAction(HomeAction.SwapTemplate) }) {
             Icon(Icons.Outlined.SwapHoriz, "Swap template")
