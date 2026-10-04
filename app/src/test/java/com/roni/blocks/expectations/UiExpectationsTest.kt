@@ -1,11 +1,13 @@
 package com.roni.blocks.expectations
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -50,6 +52,12 @@ class UiExpectationsTest {
     private fun DpRect.widthDp(): Dp = right - left
 
     private fun DpRect.heightDp(): Dp = bottom - top
+
+    /**
+     * Laid-out height, ignoring how much of the node the viewport happens to clip.
+     * A row scrolled past the fold is still a full-height touch target.
+     */
+    private fun SemanticsNodeInteraction.unclippedHeightDp(): Dp = getUnclippedBoundsInRoot().heightDp()
 
     private fun assertNear(expected: Dp, actual: Dp, what: String, tolerance: Dp = tol) {
         assertTrue("$what: expected $expected ± $tolerance but was $actual", abs((expected - actual).value) <= tolerance.value)
@@ -140,12 +148,12 @@ class UiExpectationsTest {
         val rows = compose.onAllNodesWithTag("settings_row")
         val n = rows.fetchSemanticsNodes().size
         assertTrue("expected ≥ 7 settings rows, found $n", n >= 7)
-        repeat(n) { assertTrue("settings_row $it ≥ 56dp", rows[it].getBoundsInRoot().heightDp() >= 56.dp - tol) }
+        repeat(n) { assertTrue("settings_row $it ≥ 56dp", rows[it].unclippedHeightDp() >= 56.dp - tol) }
         compose.onNodeWithTag("hour_format_24").assertIsSelected()
         compose.onNodeWithTag("hour_format_12").assertIsNotSelected()
         assertTrue(
             "hour_format_24 ≥ 56dp",
-            compose.onNodeWithTag("hour_format_24").getBoundsInRoot().heightDp() >= 56.dp - tol,
+            compose.onNodeWithTag("hour_format_24").unclippedHeightDp() >= 56.dp - tol,
         )
         val version = compose.onNodeWithText("V ${BuildConfig.VERSION_NAME}").performScrollTo().getBoundsInRoot()
         assertNear(root().right - gutter, version.right, "version right edge")

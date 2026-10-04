@@ -27,6 +27,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -59,6 +60,7 @@ class DayOrchestratorRestoreTest {
     private val instant = LocalTime(9, 40).at(today, zone)
 
     private lateinit var prefs: PrefsStorage
+    private val scopes = mutableListOf<CoroutineScope>()
 
     @Before
     fun setUp() {
@@ -69,8 +71,15 @@ class DayOrchestratorRestoreTest {
 
     @After
     fun tearDown() {
+        // Cancel before clearing: a scope left running can finish its write after the clear and
+        // land in the next test's window.
+        scopes.forEach { it.cancel() }
+        scopes.clear()
         context.getSharedPreferences(PrefsFile.DAY.name.lowercase(), 0).edit().clear().commit()
     }
+
+    private fun scope(dispatcher: CoroutineDispatcher): CoroutineScope =
+        CoroutineScope(SupervisorJob() + dispatcher).also { scopes += it }
 
     @Test
     fun todaysRunningState_isRestoredAsRunning() = runBlocking {
@@ -153,12 +162,12 @@ class DayOrchestratorRestoreTest {
             templates = TemplateManager(context),
             history = HistoryManager(prefs),
             alarms = AlarmScheduler(context, SystemTimeMapper.Identity, logger),
-            notificationMapper = NotificationModelMapper(engine, zone, TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))),
+            notificationMapper = NotificationModelMapper(engine, zone, TimeFormatter(prefs, scope(Dispatchers.Unconfined))),
             notificationRenderer = SilentNotificationPort,
             clock = clock,
             zone = zone,
             logger = logger,
-            scope = CoroutineScope(SupervisorJob() + dispatcher),
+            scope = scope(dispatcher),
         )
     }
 
