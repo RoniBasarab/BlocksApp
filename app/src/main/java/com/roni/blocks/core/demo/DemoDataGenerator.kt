@@ -118,6 +118,7 @@ class DemoDataGenerator @Inject constructor(
                 DayEvent.KidAsleep -> SegmentBook.kidAsleep(book, date, zone, at)
                 is DayEvent.EveningChoice -> SegmentBook.eveningChoice(book, event.choice, date, zone, at)
                 is DayEvent.EndDay -> SegmentBook.endDay(book, at, state is DayState.KidTime)
+                is DayEvent.SwapTemplate -> book
                 DayEvent.TakeOffDay -> book
             }
             state = DayStateMachine.transition(state, event, at) ?: state

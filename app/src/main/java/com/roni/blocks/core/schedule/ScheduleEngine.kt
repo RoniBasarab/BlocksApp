@@ -46,12 +46,26 @@ class ScheduleEngine @Inject constructor(
 ) {
     fun now(): Instant = clock.now()
 
-    fun planned(template: Template, date: LocalDate): List<ResolvedBlock> =
-        template.blocks.map { spec ->
-            val start = spec.start.at(date, zone)
-            val end = spec.end.at(date, zone)
-            ResolvedBlock(spec, SegmentKind.PLANNED, start, end, start, end)
-        }
+    /**
+     * [planStartsAt] is set when the day was re-planned from now by a template swap. Blocks that had
+     * already ended by then are left out rather than shown as missed, and the block containing it
+     * starts at that instant. It is null for every day that was never swapped.
+     */
+    fun planned(template: Template, date: LocalDate, planStartsAt: Instant? = null): List<ResolvedBlock> =
+        template.blocks
+            .map { spec ->
+                val start = spec.start.at(date, zone)
+                val end = spec.end.at(date, zone)
+                ResolvedBlock(spec, SegmentKind.PLANNED, start, end, start, end)
+            }
+            .filter { planStartsAt == null || it.plannedEnd > planStartsAt }
+            .map { block ->
+                if (planStartsAt != null && planStartsAt in block.plannedStart..block.plannedEnd) {
+                    block.copy(effectiveStart = planStartsAt)
+                } else {
+                    block
+                }
+            }
 
     fun overrun(template: Template, date: LocalDate, blockIndex: Int, actualEnd: Instant): List<Segment> {
         val blocks = planned(template, date)
