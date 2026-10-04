@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -17,8 +18,10 @@ enum class PrefsFile { DAY, SETTINGS, HISTORY }
 
 @Singleton
 class PrefsStorage @Inject constructor(
-    @ApplicationContext context: Context,
+    @ApplicationContext private val context: Context,
 ) {
+    // Dagger has no binding for a dispatcher, so tests that need writes to land synchronously swap this.
+    internal var io: CoroutineDispatcher = Dispatchers.IO
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -29,7 +32,7 @@ class PrefsStorage @Inject constructor(
 
     suspend fun <T> write(file: PrefsFile, key: String, value: T, serializer: KSerializer<T>) {
         val encoded = json.encodeToString(serializer, value)
-        withContext(Dispatchers.IO) {
+        withContext(io) {
             check(files.getValue(file).edit().putString(key, encoded).commit())
         }
     }
@@ -50,7 +53,7 @@ class PrefsStorage @Inject constructor(
     }
 
     suspend fun remove(file: PrefsFile, key: String) {
-        withContext(Dispatchers.IO) {
+        withContext(io) {
             files.getValue(file).edit().remove(key).commit()
         }
     }

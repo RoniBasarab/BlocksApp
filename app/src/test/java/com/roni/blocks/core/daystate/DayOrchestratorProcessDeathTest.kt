@@ -30,13 +30,15 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
-import kotlinx.coroutines.cancel
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -73,6 +75,7 @@ class DayOrchestratorProcessDeathTest {
     fun setUp() {
         context.getSharedPreferences(PrefsFile.DAY.name.lowercase(), 0).edit().clear().commit()
         prefs = PrefsStorage(context)
+        prefs.io = UnconfinedTestDispatcher()
         File(context.filesDir, "logs/blocks.log").delete()
     }
 
@@ -80,10 +83,13 @@ class DayOrchestratorProcessDeathTest {
     fun tearDown() {
         scopes.forEach { it.cancel() }
         scopes.clear()
+        // This class deliberately stores an unreadable day state, so it must not leave that behind for
+        // whichever test class runs next: restore fails closed and every later expectation breaks.
+        context.getSharedPreferences(PrefsFile.DAY.name.lowercase(), 0).edit().clear().commit()
     }
 
     @Test
-    fun coldStart_restoresWithinTwoSeconds() = runBlocking {
+    fun coldStart_restoresWithinTwoSeconds() = runTest {
         val cases = listOf(
             Case("running mid-block", DayState.Running(TemplateId.SUN_TUE_WED, 1), LocalTime(9, 40), planned("sun_tue_wed.coding_am", 9, 30, 11, 30)),
             Case("running after its end", DayState.Running(TemplateId.SUN_TUE_WED, 1), LocalTime(11, 45), planned("sun_tue_wed.coding_am", 9, 30, 11, 30)),
@@ -99,15 +105,14 @@ class DayOrchestratorProcessDeathTest {
             seed(case.state, case.segments)
             val orchestrator = orchestrator(at(case.time))
 
-            withTimeout(2_000) { orchestrator.isRestored.first { it } }
-
+            assertTrue(case.name + " must finish restoring", orchestrator.isRestored.value)
             assertEquals(case.name, case.state, orchestrator.state.value)
             assertEquals(case.name, case.segments, orchestrator.segments.value)
         }
     }
 
     @Test
-    fun notificationAction_onFreshProcess_isApplied() = runBlocking {
+    fun notificationAction_onFreshProcess_isApplied() = runTest {
         seed(
             DayState.Running(TemplateId.SUN_TUE_WED, 0),
             listOf(segment("sun_tue_wed.cv", BlockType.Cv, SegmentKind.PLANNED, 9, 0, 9, 30, 9, 0)),
@@ -130,14 +135,14 @@ class DayOrchestratorProcessDeathTest {
         val sent = orchestrator(LocalTime(9, 40).at(date, zone))
         sent.send(DayEvent.Next(expectedBlockId = "sun_tue_wed.cv"))
 
-        val state = withTimeout(5_000) {
-            sent.state.first { it == DayState.Running(TemplateId.SUN_TUE_WED, 1) }
+        val state = withContext(Dispatchers.Default) {
+            withTimeout(5_000) { sent.state.first { it == DayState.Running(TemplateId.SUN_TUE_WED, 1) } }
         }
         assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 1), state)
     }
 
     @Test
-    fun restoreFailure_stillMarksRestored() = runBlocking {
+    fun restoreFailure_stillMarksRestored() = runTest {
         // The one thing a restore cannot survive is unreadable state. It must still let the app open.
         check(
             context.getSharedPreferences(PrefsFile.DAY.name.lowercase(), 0).edit()
@@ -146,7 +151,7 @@ class DayOrchestratorProcessDeathTest {
         )
         val orchestrator = orchestrator(LocalTime(9, 40).at(date, zone))
 
-        withTimeout(2_000) { orchestrator.isRestored.first { it } }
+        awaitRestored(orchestrator)
 
         assertEquals(DayState.NotStarted, orchestrator.state.value)
         val log = File(context.filesDir, "logs/blocks.log").readText()
@@ -189,6 +194,10 @@ class DayOrchestratorProcessDeathTest {
         actualStart = at(LocalTime(actualStartHour, actualStartMinute)),
         actualEnd = actualEndMinute?.let { at(LocalTime(actualStartHour, it)) },
     )
+
+    private suspend fun awaitRestored(orchestrator: DayOrchestrator) {
+        withContext(Dispatchers.Default) { withTimeout(2_000) { orchestrator.isRestored.first { it } } }
+    }
 
     private suspend fun seed(state: DayState, segments: List<Segment>) {
         prefs.write(PrefsFile.DAY, "day_state", state, DayState.serializer())

@@ -29,10 +29,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.withTimeout
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Before
@@ -62,6 +64,12 @@ class DayOrchestratorRestoreTest {
     fun setUp() {
         context.getSharedPreferences(PrefsFile.DAY.name.lowercase(), 0).edit().clear().commit()
         prefs = PrefsStorage(context)
+        prefs.io = UnconfinedTestDispatcher()
+    }
+
+    @After
+    fun tearDown() {
+        context.getSharedPreferences(PrefsFile.DAY.name.lowercase(), 0).edit().clear().commit()
     }
 
     @Test
