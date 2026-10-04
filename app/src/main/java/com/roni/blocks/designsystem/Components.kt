@@ -50,6 +50,7 @@ enum class TrendDirection { UP, DOWN, FLAT }
 fun ScreenScaffold(
     topBar: @Composable () -> Unit = {},
     bottomBar: @Composable (() -> Unit)? = null,
+    snackbarHost: @Composable (() -> Unit)? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     AppBackground {
@@ -60,6 +61,7 @@ fun ScreenScaffold(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = topBar,
             bottomBar = { bottomBar?.invoke() },
+            snackbarHost = { snackbarHost?.invoke() },
         ) { inner ->
             Box(Modifier.padding(inner)) {
                 content(inner)

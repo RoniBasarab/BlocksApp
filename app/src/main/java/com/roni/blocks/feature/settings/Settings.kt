@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
@@ -22,17 +23,23 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +50,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -59,6 +67,7 @@ import com.roni.blocks.core.notifications.NotificationPort
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.system.SystemStatuses
 import com.roni.blocks.core.time.TimeFormatter
+import com.roni.blocks.designsystem.AppShapes
 import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.BackTopBar
 import com.roni.blocks.designsystem.CardDivider
@@ -72,10 +81,14 @@ import com.roni.blocks.designsystem.Spacing
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlin.time.Clock
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.datetime.LocalDate
@@ -88,18 +101,25 @@ data class SettingsUiState(
     val hourFormat24: Boolean = true,
     val notificationPermission: PermissionStatus = PermissionStatus.ALLOWED,
     val exactAlarms: PermissionStatus = PermissionStatus.ALLOWED,
+    val demoBusy: Boolean = false,
 )
 
 sealed interface SettingsAction {
     data class SetHourFormat(val use24Hour: Boolean) : SettingsAction
     data object OpenNotificationSettings : SettingsAction
     data object OpenExactAlarmSettings : SettingsAction
+    data object OpenAlertSoundSettings : SettingsAction
     data object SendTestNotification : SettingsAction
     data object ShareLog : SettingsAction
     data object ResetToday : SettingsAction
     data object ClearHistory : SettingsAction
     data object LoadDemoData : SettingsAction
     data object ClearDemoData : SettingsAction
+}
+
+/** One-shot outcomes the screen surfaces in its snackbar. */
+sealed interface SettingsEffect {
+    data class ShowMessage(val text: String) : SettingsEffect
 }
 
 private enum class ConfirmDialogSpec { RESET_TODAY, CLEAR_HISTORY }
@@ -118,16 +138,22 @@ class SettingsViewModel @Inject constructor(
 ) : ViewModel() {
     private val _notificationPermission = MutableStateFlow(statuses.notificationsEnabled())
     private val _exactAlarms = MutableStateFlow(statuses.canScheduleExactAlarms())
+    private val _demoBusy = MutableStateFlow(false)
+    private val _effects = Channel<SettingsEffect>(Channel.BUFFERED)
+
+    val effects: Flow<SettingsEffect> = _effects.receiveAsFlow()
 
     val state: StateFlow<SettingsUiState> = combine(
         timeFormatter.use24,
         _notificationPermission,
         _exactAlarms,
-    ) { use24, notifications, alarms ->
+        _demoBusy,
+    ) { use24, notifications, alarms, demoBusy ->
         SettingsUiState(
             hourFormat24 = use24,
             notificationPermission = if (notifications) PermissionStatus.ALLOWED else PermissionStatus.BLOCKED,
             exactAlarms = if (alarms) PermissionStatus.ALLOWED else PermissionStatus.BLOCKED,
+            demoBusy = demoBusy,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
@@ -140,28 +166,73 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { timeFormatter.setUse24(use24Hour) }
     }
 
+    private fun showMessage(text: String) {
+        _effects.trySend(SettingsEffect.ShowMessage(text))
+    }
+
     fun sendTestNotification() {
         notificationPort.sendTestNotification()
+        showMessage("Test notification sent")
     }
 
     fun resetToday() {
-        viewModelScope.launch { orchestrator.resetToday() }
+        viewModelScope.launch {
+            orchestrator.resetToday()
+            showMessage("Today was reset")
+        }
     }
 
     fun clearHistory() {
         val keepToday = clock.now().toLocalDateTime(zone).date
-        viewModelScope.launch { history.clear(keepToday) }
+        viewModelScope.launch {
+            history.clear(keepToday)
+            showMessage("History cleared")
+        }
     }
 
     fun loadDemoData() {
-        viewModelScope.launch { demoData.seed(weeks = 4) }
+        viewModelScope.launch {
+            _demoBusy.value = true
+            try {
+                val days = demoData.seed(weeks = 4)
+                showMessage("Demo data loaded: $days days")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logger.error("Load demo data failed", e)
+                showMessage("Couldn't load demo data. Details are in the log.")
+            } finally {
+                _demoBusy.value = false
+            }
+        }
     }
 
     fun clearDemoData() {
-        viewModelScope.launch { demoData.clear() }
+        viewModelScope.launch {
+            _demoBusy.value = true
+            try {
+                demoData.clear()
+                showMessage("Demo data cleared")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logger.error("Clear demo data failed", e)
+                showMessage("Couldn't load demo data. Details are in the log.")
+            } finally {
+                _demoBusy.value = false
+            }
+        }
     }
 
     fun logFile() = logger.shareFile()
+
+    fun openAlertSoundSettings(context: android.content.Context) {
+        context.startActivity(
+            Intent(android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                .putExtra(android.provider.Settings.EXTRA_CHANNEL_ID, "day"),
+        )
+    }
 
     fun openNotificationSettings(context: android.content.Context) {
         context.startActivity(
@@ -233,6 +304,14 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
                         }
                     },
                 )
+                CardDivider()
+                SettingsRow(
+                    icon = Icons.Outlined.MusicNote,
+                    title = "Alert sound",
+                    subtitle = "Choose the sound for block changes",
+                    trailing = { Chevron() },
+                    onClick = { onAction(SettingsAction.OpenAlertSoundSettings) },
+                )
             }
 
             SectionHeader("Display")
@@ -283,14 +362,14 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
                     SettingsRow(
                         icon = Icons.Outlined.Refresh,
                         title = "Load demo data (4 weeks)",
-                        trailing = { Chevron() },
+                        trailing = { DemoBusyTrailing(state.demoBusy) },
                         onClick = { onAction(SettingsAction.LoadDemoData) },
                     )
                     CardDivider()
                     SettingsRow(
                         icon = Icons.Outlined.Delete,
                         title = "Clear demo data",
-                        trailing = { Chevron() },
+                        trailing = { DemoBusyTrailing(state.demoBusy) },
                         onClick = { onAction(SettingsAction.ClearDemoData) },
                     )
                 }
@@ -328,6 +407,19 @@ private fun StatusTrailing(status: PermissionStatus) {
         )
         Chevron()
     }
+}
+
+@Composable
+private fun DemoBusyTrailing(busy: Boolean) {
+    if (!busy) {
+        Chevron()
+        return
+    }
+    CircularProgressIndicator(
+        modifier = Modifier.size(20.dp).testTag("demo_progress"),
+        strokeWidth = 2.dp,
+        color = AppTheme.colors.textSecondary,
+    )
 }
 
 @Composable
@@ -414,6 +506,15 @@ fun SettingsRoute(
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     var pending by remember { mutableStateOf<ConfirmDialogSpec?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(viewModel) {
+        viewModel.effects.collect { effect ->
+            when (effect) {
+                is SettingsEffect.ShowMessage -> snackbarHostState.showSnackbar(effect.text)
+            }
+        }
+    }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -428,6 +529,16 @@ fun SettingsRoute(
         topBar = {
             BackTopBar(title = "Settings", onBack = onBack)
         },
+        snackbarHost = {
+            SnackbarHost(snackbarHostState) { data ->
+                Snackbar(
+                    snackbarData = data,
+                    containerColor = AppTheme.colors.surfaceRaised,
+                    contentColor = AppTheme.colors.textPrimary,
+                    shape = AppShapes.card,
+                )
+            }
+        },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             SettingsScreen(
@@ -437,6 +548,7 @@ fun SettingsRoute(
                         is SettingsAction.SetHourFormat -> viewModel.setHourFormat(action.use24Hour)
                         SettingsAction.OpenNotificationSettings -> viewModel.openNotificationSettings(context)
                         SettingsAction.OpenExactAlarmSettings -> viewModel.openExactAlarmSettings(context)
+                        SettingsAction.OpenAlertSoundSettings -> viewModel.openAlertSoundSettings(context)
                         SettingsAction.SendTestNotification -> viewModel.sendTestNotification()
                         SettingsAction.ShareLog -> viewModel.shareLog(context)
                         SettingsAction.ResetToday -> pending = ConfirmDialogSpec.RESET_TODAY

@@ -65,6 +65,7 @@ class SettingsViewModelTest {
     private val yesterday = LocalDate(2026, 9, 26)
 
     private lateinit var clock: MovableClock
+    private lateinit var logger: AppLogger
     private lateinit var prefs: PrefsStorage
     private lateinit var history: HistoryManager
     private lateinit var timeFormatter: TimeFormatter
@@ -77,7 +78,7 @@ class SettingsViewModelTest {
     fun setUp() {
         Dispatchers.setMain(Dispatchers.Unconfined)
         clock = MovableClock(LocalTime(10, 0).at(date, zone))
-        val logger = AppLogger(context)
+        logger = AppLogger(context)
         prefs = PrefsStorage(context)
         history = HistoryManager(prefs)
         timeFormatter = TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))
@@ -96,18 +97,20 @@ class SettingsViewModelTest {
             logger = logger,
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
         )
-        viewModel = SettingsViewModel(
-            logger = logger,
-            history = history,
-            timeFormatter = timeFormatter,
-            orchestrator = orchestrator,
-            notificationPort = port,
-            statuses = statuses,
-            demoData = DemoDataGenerator(TemplateManager(context), history, clock, zone),
-            clock = clock,
-            zone = zone,
-        )
+        viewModel = newViewModel(DemoDataGenerator(TemplateManager(context), history, clock, zone))
     }
+
+    private fun newViewModel(demoData: DemoDataGenerator) = SettingsViewModel(
+        logger = logger,
+        history = history,
+        timeFormatter = timeFormatter,
+        orchestrator = orchestrator,
+        notificationPort = port,
+        statuses = statuses,
+        demoData = demoData,
+        clock = clock,
+        zone = zone,
+    )
 
     @After
     fun tearDown() {
@@ -170,6 +173,29 @@ class SettingsViewModelTest {
         }
         assertNotNull(history.readDay(date))
         assertNull(history.readDay(yesterday))
+    }
+
+    @Test
+    fun loadDemoData_reportsHowManyDaysWereSeeded() = runBlocking {
+        viewModel.loadDemoData()
+
+        val effect = withTimeout(60_000) { viewModel.effects.first() }
+
+        assertEquals(SettingsEffect.ShowMessage("Demo data loaded: 28 days"), effect)
+    }
+
+    @Test
+    fun loadDemoData_reportsFailureInTheLog() = runBlocking {
+        val failing = object : DemoDataGenerator(TemplateManager(context), history, clock, zone) {
+            override suspend fun seed(weeks: Int, seed: Int): Int = throw IllegalStateException("seed failed")
+        }
+        val failingViewModel = newViewModel(failing)
+
+        failingViewModel.loadDemoData()
+
+        val effect = withTimeout(5_000) { failingViewModel.effects.first() }
+
+        assertEquals(SettingsEffect.ShowMessage("Couldn't load demo data. Details are in the log."), effect)
     }
 
     private suspend fun awaitState(

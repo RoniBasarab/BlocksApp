@@ -37,14 +37,15 @@ import kotlinx.datetime.toLocalDateTime
  * a plausible user would have tapped, so demo days behave exactly like real ones.
  */
 @Singleton
-class DemoDataGenerator @Inject constructor(
+open class DemoDataGenerator @Inject constructor(
     private val templates: TemplateManager,
     private val history: HistoryManager,
     private val clock: Clock,
     private val zone: TimeZone,
 ) {
-    suspend fun seed(weeks: Int = 4, seed: Int = 42) {
-        if (!BuildConfig.DEBUG) return
+    /** Seeds [weeks] of demo history and returns how many days were written. */
+    open suspend fun seed(weeks: Int = 4, seed: Int = 42): Int {
+        if (!BuildConfig.DEBUG) return 0
         val rng = Random(seed)
         val today = clock.now().toLocalDateTime(zone).date
         val dayCount = weeks * 7
@@ -71,9 +72,10 @@ class DemoDataGenerator @Inject constructor(
         seeded.map { history.weekStart(it) }.distinct().forEach { week ->
             rebuildAggregates(week)
         }
+        return seeded.size
     }
 
-    suspend fun clear() {
+    open suspend fun clear() {
         if (!BuildConfig.DEBUG) return
         val removed = history.clearDemoData()
         removed.map { history.weekStart(it) }.distinct().forEach { week ->

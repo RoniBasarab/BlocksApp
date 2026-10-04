@@ -73,7 +73,7 @@ class UiExpectationsTest {
         val nodes = compose.onAllNodesWithTag(tag).fetchSemanticsNodes()
         assertTrue("expected at least one '$tag'", nodes.isNotEmpty())
         nodes.forEachIndexed { i, _ ->
-            val b = compose.onAllNodesWithTag(tag)[i].getBoundsInRoot()
+            val b = compose.onAllNodesWithTag(tag)[i].getUnclippedBoundsInRoot()
             assertNear(r.left + gutter, b.left, "$tag[$i] left edge")
             assertNear(r.right - gutter, b.right, "$tag[$i] right edge")
         }
