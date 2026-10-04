@@ -38,7 +38,6 @@ import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.debtMinutes
 import com.roni.blocks.core.time.TimeFormatter
-import com.roni.blocks.core.time.minuteOfDay
 import com.roni.blocks.designsystem.AppCard
 import com.roni.blocks.designsystem.AppChip
 import com.roni.blocks.designsystem.AppTheme
@@ -53,14 +52,13 @@ import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.TextSecondary
 import com.roni.blocks.designsystem.blockColors
 import com.roni.blocks.designsystem.templateDisplay
-import com.roni.blocks.feature.home.CalendarBlockUi
+import com.roni.blocks.feature.home.ActualDayCanvas
+import com.roni.blocks.feature.home.ActualDayMapper
+import com.roni.blocks.feature.home.ActualDayUi
 import com.roni.blocks.feature.home.CalendarMapper
-import com.roni.blocks.feature.home.DayCalendar
-import com.roni.blocks.feature.home.blockTitle
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlin.time.Clock
-import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -97,8 +95,7 @@ data class HistoryUiState(
 
 data class HistoryDetailUi(
     val title: String,
-    val summary: String,
-    val blocks: ImmutableList<CalendarBlockUi>,
+    val day: ActualDayUi,
 )
 
 /** Content only; the top bar lives in [HistoryRoute]. */
@@ -123,9 +120,9 @@ fun HistoryScreen(state: HistoryUiState, onAction: (HistoryDay) -> Unit) {
         ),
         verticalArrangement = Arrangement.spacedBy(Spacing.m),
     ) {
-        state.weeks.forEach { week ->
-            stickyHeader(key = "header-${week.header}") {
-                HistoryHeader(week.header)
+        state.weeks.forEachIndexed { index, week ->
+            item(key = "header-${week.header}") {
+                HistoryHeader(week.header, isFirst = index == 0)
             }
             items(items = week.days, key = { it.date }) { day ->
                 HistoryDayRow(day = day, onClick = { onAction(day) })
@@ -135,19 +132,15 @@ fun HistoryScreen(state: HistoryUiState, onAction: (HistoryDay) -> Unit) {
 }
 
 @Composable
-private fun HistoryHeader(header: String) {
-    Box(
-        Modifier
+private fun HistoryHeader(header: String, isFirst: Boolean) {
+    Text(
+        text = header,
+        style = MaterialTheme.typography.labelLarge,
+        color = AppTheme.colors.textSecondary,
+        modifier = Modifier
             .fillMaxWidth()
-            .background(AppTheme.colors.backgroundBottom.copy(alpha = 0.92f))
-            .padding(vertical = 8.dp),
-    ) {
-        Text(
-            text = header,
-            style = MaterialTheme.typography.labelLarge,
-            color = AppTheme.colors.textSecondary,
-        )
-    }
+            .padding(start = 4.dp, top = if (isFirst) 0.dp else 16.dp, bottom = 8.dp),
+    )
 }
 
 @Composable
@@ -295,42 +288,9 @@ class HistoryDetailViewModel @Inject constructor(
                 _state.value = null
                 return@launch
             }
-            val leak = debtMinutes(record.segments)
-            val pauseMinutes = record.segments
-                .filter { it.kind == SegmentKind.PAUSE && it.actualEnd != null }
-                .sumOf { (it.actualEnd!! - it.actualStart).inWholeMinutes }.toInt()
-            val done = record.segments.count { it.kind == SegmentKind.PLANNED && it.actualEnd != null }
-            val planned = record.segments.count { it.kind == SegmentKind.PLANNED }
-            val summary = buildString {
-                if (planned > 0) append("$done/$planned blocks")
-                if (leak > 0) {
-                    if (isNotEmpty()) append(" ·")
-                    append(" leak ${leak}m")
-                }
-                if (pauseMinutes > 0) {
-                    if (isNotEmpty()) append(" ·")
-                    append(" pause ${pauseMinutes}m")
-                }
-            }
-            val blocks = record.segments
-                .filter { it.actualEnd != null && (it.kind == SegmentKind.PLANNED || it.kind == SegmentKind.SYNTHETIC_FREE) }
-                .mapIndexed { index, segment ->
-                    val startMin = segment.actualStart.minuteOfDay(zone)
-                    val endMin = segment.actualEnd!!.minuteOfDay(zone)
-                    CalendarBlockUi(
-                        id = "d$index",
-                        type = segment.type,
-                        title = blockTitle(segment.type),
-                        startMin = startMin,
-                        endMin = endMin,
-                        timeLabel = "${timeFormatter.label(startMin)}–${timeFormatter.label(endMin)}",
-                        subtitle = null,
-                    )
-                }
             _state.value = HistoryDetailUi(
                 title = "${weekdayFull(record.date.dayOfWeek)} ${record.date.dayOfMonth} ${monthName(record.date.monthNumber)}",
-                summary = summary,
-                blocks = blocks.toPersistentList(),
+                day = ActualDayMapper.map(record, timeFormatter),
             )
         }
     }
@@ -365,21 +325,17 @@ fun HistoryDetailRoute(date: String?, onBack: () -> Unit, viewModel: HistoryDeta
         detail?.let { d ->
             Column(Modifier.fillMaxSize().padding(padding)) {
                 Text(
-                    text = d.summary,
+                    text = d.day.summary,
                     style = MaterialTheme.typography.labelLarge,
                     color = AppTheme.colors.textSecondary,
                     modifier = Modifier.padding(horizontal = Spacing.l, vertical = Spacing.m),
                 )
-                DayCalendar(
-                    blocks = d.blocks,
-                    currentBlockId = null,
-                    leakFromMin = null,
+                ActualDayCanvas(
+                    day = d.day,
                     hourLabels = CalendarMapper.hourLabels().toPersistentList(),
-                    minuteOfDay = { 23 * 60 },
                     scrollState = rememberScrollState(),
                     bottomPadding = Spacing.l +
                         WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
-                    onBlockClick = {},
                 )
             }
         }

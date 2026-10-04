@@ -24,8 +24,11 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.Layout
@@ -73,33 +76,9 @@ fun DayCalendar(
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(gridHeight + bottomPadding)
-                .drawWithCache {
-                    val pxPerMin = HourHeight.toPx() / 60f
-                    val gutterPx = Gutter.toPx()
-                    val top = TopInset.toPx()
-                    val labels: List<TextLayoutResult> = hourLabels.map { measurer.measure(it, labelStyle) }
-                    onDrawBehind {
-                        labels.forEachIndexed { i, label ->
-                            val y = top + i * 60 * pxPerMin
-                            drawLine(c.outline, Offset(gutterPx, y), Offset(size.width, y), Metrics.hairline.toPx())
-                            if (i < labels.lastIndex) {
-                                val half = y + 30 * pxPerMin
-                                drawLine(
-                                    c.outline.copy(alpha = 0.5f),
-                                    Offset(gutterPx, half),
-                                    Offset(size.width, half),
-                                    Metrics.halfHairline.toPx(),
-                                )
-                            }
-                            drawText(
-                                label,
-                                topLeft = Offset(gutterPx - Metrics.blockPadH.toPx() - label.size.width, y - label.size.height / 2f),
-                            )
-                        }
-                    }
-                },
+                .height(gridHeight + bottomPadding),
         ) {
+            HourGrid(hourLabels, Modifier.fillMaxWidth().height(gridHeight))
             BlocksLayout(
                 blocks = blocks,
                 currentBlockId = currentBlockId,
@@ -114,6 +93,40 @@ fun DayCalendar(
             )
         }
     }
+}
+
+@Composable
+private fun HourGrid(hourLabels: ImmutableList<String>, modifier: Modifier = Modifier) {
+    val c = AppTheme.colors
+    val measurer = rememberTextMeasurer()
+    val labelStyle = MaterialTheme.typography.labelSmall.merge(AppType.numbers).copy(color = c.textSecondary)
+    Box(
+        modifier.drawWithCache {
+            val pxPerMin = HourHeight.toPx() / 60f
+            val gutterPx = Gutter.toPx()
+            val top = TopInset.toPx()
+            val labels: List<TextLayoutResult> = hourLabels.map { measurer.measure(it, labelStyle) }
+            onDrawBehind {
+                labels.forEachIndexed { i, label ->
+                    val y = top + i * 60 * pxPerMin
+                    drawLine(c.outline, Offset(gutterPx, y), Offset(size.width, y), Metrics.hairline.toPx())
+                    if (i < labels.lastIndex) {
+                        val half = y + 30 * pxPerMin
+                        drawLine(
+                            c.outline.copy(alpha = 0.5f),
+                            Offset(gutterPx, half),
+                            Offset(size.width, half),
+                            Metrics.halfHairline.toPx(),
+                        )
+                    }
+                    drawText(
+                        label,
+                        topLeft = Offset(gutterPx - Metrics.blockPadH.toPx() - label.size.width, y - label.size.height / 2f),
+                    )
+                }
+            }
+        },
+    )
 }
 
 @Composable
@@ -240,6 +253,182 @@ private fun LeakOverlay(leakFromMin: Int?, minuteOfDay: () -> Int, modifier: Mod
                 val t = measurer.measure("+${now - leakFromMin} min", style)
                 drawText(t, topLeft = Offset(right - t.size.width - Metrics.blockPadH.toPx(), bottom - t.size.height - Metrics.blockPadV.toPx()))
             }
+        },
+    )
+}
+
+/**
+ * Diagonal hatching for the parts of a day that were not spent working on a block: a pause inside
+ * a block, and downtime where the phone was off.
+ */
+fun DrawScope.hatch(rect: Rect, color: Color, gap: Dp = 6.dp) {
+    clipRect(rect.left, rect.top, rect.right, rect.bottom) {
+        val step = gap.toPx()
+        var x = rect.left - rect.height
+        while (x < rect.right) {
+            drawLine(color, Offset(x, rect.bottom), Offset(x + rect.height, rect.top), strokeWidth = 1.dp.toPx())
+            x += step
+        }
+    }
+}
+
+/**
+ * A finished day, drawn from [ActualDayMapper] output and nothing else. Same grid and block
+ * styling as [DayCalendar], but with no now line, no current-block emphasis and no auto-scroll:
+ * the day is over, so there is nothing left to follow.
+ */
+@Composable
+fun ActualDayCanvas(
+    day: ActualDayUi,
+    hourLabels: ImmutableList<String>,
+    scrollState: ScrollState,
+    bottomPadding: Dp,
+    modifier: Modifier = Modifier,
+) {
+    SideEffect { RecompositionCounter.hit("ActualDayCanvas") }
+    val gridHeight = TopInset + HourHeight * ((DAY_END_MIN - DAY_START_MIN) / 60f)
+
+    Box(modifier.fillMaxWidth().verticalScroll(scrollState)) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(gridHeight + bottomPadding),
+        ) {
+            HourGrid(hourLabels, Modifier.fillMaxWidth().height(gridHeight))
+            ActualBlocks(day.blocks, Modifier.fillMaxWidth().height(gridHeight))
+            DowntimeOverlay(day.downtime, Modifier.fillMaxWidth().height(gridHeight))
+            EmergencyOverlay(day.emergencyAtMin, Modifier.fillMaxWidth().height(gridHeight))
+        }
+    }
+}
+
+@Composable
+private fun ActualBlocks(blocks: ImmutableList<ActualBlockUi>, modifier: Modifier = Modifier) {
+    Layout(
+        modifier = modifier,
+        content = {
+            blocks.forEach { block ->
+                key(block.id) { ActualBlock(block) }
+            }
+        },
+    ) { measurables, constraints ->
+        val pxPerMin = HourHeight.toPx() / 60f
+        val left = (Gutter + Metrics.calendarGap).roundToPx()
+        val width = constraints.maxWidth - left - Metrics.calendarRight.roundToPx()
+        val gap = Metrics.calendarGap.toPx()
+        val top = TopInset.toPx()
+        val placeables = measurables.mapIndexed { i, m ->
+            val b = blocks[i]
+            val h = ((b.endMin - b.startMin) * pxPerMin - 2 * gap).roundToInt().coerceAtLeast(0)
+            m.measure(Constraints.fixed(width, h))
+        }
+        layout(constraints.maxWidth, constraints.maxHeight) {
+            placeables.forEachIndexed { i, p ->
+                p.place(left, (top + (blocks[i].startMin - DAY_START_MIN) * pxPerMin + gap).roundToInt())
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActualBlock(block: ActualBlockUi) {
+    val c = AppTheme.colors
+    val palette = c.block(block.type)
+    val measurer = rememberTextMeasurer()
+    val overStyle = MaterialTheme.typography.labelSmall.merge(AppType.numbers).copy(color = c.leak)
+
+    BoxWithConstraints(
+        Modifier
+            .graphicsLayer {
+                shape = AppShapes.block
+                clip = true
+            }
+            .drawBehind { drawRect(palette.container) }
+            .drawWithContent {
+                drawContent()
+                val pxPerMin = HourHeight.toPx() / 60f
+                val plannedEnd = block.plannedEndMin
+                if (plannedEnd != null && plannedEnd < block.endMin) {
+                    val y = (plannedEnd - block.startMin) * pxPerMin
+                    drawRect(
+                        c.leakContainer.copy(alpha = 0.85f),
+                        topLeft = Offset(0f, y),
+                        size = Size(size.width, size.height - y),
+                    )
+                    drawLine(c.leak, Offset(0f, y), Offset(size.width, y), Metrics.hairline.toPx())
+                    if (size.height - y >= Metrics.leakLabelMin.toPx()) {
+                        val t = measurer.measure("+${block.endMin - plannedEnd}m", overStyle)
+                        drawText(
+                            t,
+                            topLeft = Offset(
+                                size.width - t.size.width - Metrics.blockPadH.toPx(),
+                                y + Metrics.blockPadV.toPx(),
+                            ),
+                        )
+                    }
+                }
+                block.pauses.forEach { range ->
+                    val top = (range.first - block.startMin) * pxPerMin
+                    val bottom = (range.last - block.startMin) * pxPerMin
+                    hatch(Rect(0f, top, size.width, bottom), c.textSecondary.copy(alpha = 0.6f))
+                }
+            }
+            .padding(horizontal = Metrics.blockPadH, vertical = Metrics.blockPadV),
+    ) {
+        when {
+            maxHeight >= Metrics.blockOneLineMax -> Column {
+                Text(block.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    block.timeLabel,
+                    style = MaterialTheme.typography.labelSmall.merge(AppType.numbers),
+                    color = palette.accent,
+                    maxLines = 1,
+                )
+            }
+
+            maxHeight >= Metrics.blockTextMin -> Text(
+                "${block.title} · ${block.timeLabel}",
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DowntimeOverlay(downtime: ImmutableList<IntRange>, modifier: Modifier = Modifier) {
+    if (downtime.isEmpty()) return
+    val c = AppTheme.colors
+    Spacer(
+        modifier.drawBehind {
+            val pxPerMin = HourHeight.toPx() / 60f
+            val left = (Gutter + Metrics.calendarGap).toPx()
+            val right = size.width - Metrics.calendarRight.toPx()
+            downtime.forEach { range ->
+                val top = TopInset.toPx() + (range.first - DAY_START_MIN) * pxPerMin
+                val bottom = TopInset.toPx() + (range.last - DAY_START_MIN) * pxPerMin
+                hatch(Rect(left, top, right, bottom), c.textSecondary)
+            }
+        },
+    )
+}
+
+@Composable
+private fun EmergencyOverlay(emergencyAtMin: Int?, modifier: Modifier = Modifier) {
+    if (emergencyAtMin == null) return
+    val c = AppTheme.colors
+    val measurer = rememberTextMeasurer()
+    val style = MaterialTheme.typography.labelSmall.merge(AppType.numbers).copy(color = c.leak)
+    Spacer(
+        modifier.drawBehind {
+            val pxPerMin = HourHeight.toPx() / 60f
+            val left = (Gutter + Metrics.calendarGap).toPx()
+            val right = size.width - Metrics.calendarRight.toPx()
+            val y = TopInset.toPx() + (emergencyAtMin - DAY_START_MIN) * pxPerMin
+            drawLine(c.leak, Offset(left, y), Offset(right, y), Metrics.nowLine.toPx())
+            val t = measurer.measure("Emergency stop", style)
+            drawText(t, topLeft = Offset(left, y - t.size.height - Metrics.blockPadV.toPx()))
         },
     )
 }

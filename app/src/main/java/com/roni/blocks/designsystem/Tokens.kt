@@ -64,6 +64,7 @@ object Metrics {
     val pressScale = 0.97f
     val currentScale = 1.02f
     val blockOneLineMax = 36.dp
+    val blockTextMin = 18.dp
     val leakLabelMin = 18.dp
     val scrollLeadIn = 96.dp
 }
