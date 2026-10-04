@@ -20,5 +20,18 @@
    and did not recur across 3 full runs after the Task-6 process-death test stopped leaking
    unscoped coroutines. The fix belongs in the test or in `setHourFormat`, not in Task-6.
 
-Nothing else is open: every slice's unit gate (`:app:testDebugUnitTest`) and its compile gates
-pass on this machine.
+4. **`DayOrchestratorRestoreTest.startDestination_isOnlyCorrectOnceRestoreHasRun` fails on the
+   committed baseline, independent of Task-6.** The test seeds `Running(SUN_TUE_WED, 1)` for today,
+   builds one orchestrator on a dispatcher that never runs work, then a second on
+   `Dispatchers.Unconfined`; the second one restores `NotStarted`, so `resolveStartDestination`
+   returns `TEMPLATE_PICKER` instead of `HOME`.
+   Evidence: reproduced with Task-6's work removed entirely — `git stash push -u`, then
+   `:app:testDebugUnitTest --tests "...DayOrchestratorRestoreTest"` gives `4 tests completed,
+   1 failed`, same assertion. The companion `legacyInterrupted_restoresAsRunning` in the same class
+   passes alone and only failed when it inherited an orphan write; making `PrefsStorage`'s IO
+   dispatcher injectable and synchronous in tests fixed that one, leaving only this failure. It is
+   not caused by Task-6, which does not change restore's state logic. The fix belongs in this test
+   or in `DayOrchestrator`'s single-flight restore, not in Task-6.
+
+Nothing else is open: every slice's compile gate passes on this machine, and the unit gate is green
+except for the two pre-existing failures recorded above.
