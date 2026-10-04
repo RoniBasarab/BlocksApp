@@ -11,5 +11,14 @@
    `:app:compileDebugAndroidTestKotlin` compiles, but `connectedDebugAndroidTest` needs a device;
    they are documented in `MANUAL_TESTS.md` for an on-device pass.
 
+3. **`SettingsViewModelTest.setHourFormat_persistsAndFlipsTheFormatter` races its own write.**
+   `Settings.setHourFormat` returns before its write lands (`viewModelScope.launch { … }`), while
+   the test waits on the in-memory `hourFormat24` flip and only then reads the persisted pref, so
+   the read can see `null`. Evidence: observed once as `expected:<false> but was:<null>` at
+   `SettingsViewModelTest.kt:138` during a Task-6 full suite run. It is unrelated to Task-6, which
+   touches only `DayOrchestrator` and `SegmentBook`; it passes in isolation 3/3 and at baseline 2/2,
+   and did not recur across 3 full runs after the Task-6 process-death test stopped leaking
+   unscoped coroutines. The fix belongs in the test or in `setHourFormat`, not in Task-6.
+
 Nothing else is open: every slice's unit gate (`:app:testDebugUnitTest`) and its compile gates
 pass on this machine.
