@@ -77,6 +77,7 @@ import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
+import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
@@ -115,9 +116,10 @@ import kotlinx.datetime.toLocalDateTime
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    private val day: DayOrchestrator,
-    private val templates: TemplateManager,
-    private val ticker: Ticker,
+private val day: DayOrchestrator,
+      private val templates: TemplateManager,
+      private val history: HistoryManager,
+      private val ticker: Ticker,
     private val clock: Clock,
     private val zone: TimeZone,
     private val prefs: PrefsStorage,
@@ -125,6 +127,7 @@ class HomeViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state.asStateFlow()
+    private var actualDay: ActualDayUi? = null
 
     private val _suppressedConfirmations = MutableStateFlow<Set<NowButtonId>>(emptySet())
 
@@ -149,7 +152,17 @@ class HomeViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0f)
 
     init {
-        viewModelScope.launch { day.state.collect { publish(it) } }
+        viewModelScope.launch {
+            day.state.collect { state ->
+                actualDay = if (state is DayState.Ended) {
+                    history.readDay(clock.now().toLocalDateTime(zone).date)
+                        ?.let { ActualDayMapper.map(it, timeFormatter) }
+                } else {
+                    null
+                }
+                publish(state)
+            }
+        }
         // Leaking is a boundary, not a per-minute value: only re-publish when it flips.
         viewModelScope.launch { minuteOfDay.collect { publishLeakIfChanged() } }
         viewModelScope.launch { timeFormatter.use24.collect { publish(day.state.value) } }
@@ -247,6 +260,7 @@ class HomeViewModel @Inject constructor(
             blocks = blocks,
             currentBlockId = current?.id,
             leakFromMin = if (leaking) effectiveEndMin else null,
+            actualDay = actualDay,
             nowCard = nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel),
             eveningChoicePending = dayState.isDishesSlot,
             eveningSheetOpen = eveningSheetOpen,
@@ -547,17 +561,28 @@ fun HomeScreen(
                 showDivider = { scroll.value > 0 },
                 onAction = onAction,
             )
-            DayCalendar(
-                blocks = state.blocks,
-                currentBlockId = state.currentBlockId,
-                leakFromMin = state.leakFromMin,
-                hourLabels = state.hourLabels,
-                minuteOfDay = minuteOfDay,
-                scrollState = scroll,
-                bottomPadding = NowCardReservedHeight,
-                onBlockClick = { onAction(HomeAction.BlockClicked(it)) },
-                modifier = Modifier.weight(1f).testTag("home_calendar"),
-            )
+            val actual = state.actualDay
+            if (actual != null) {
+                ActualDayCanvas(
+                    day = actual,
+                    hourLabels = state.hourLabels,
+                    scrollState = scroll,
+                    bottomPadding = NowCardReservedHeight,
+                    modifier = Modifier.weight(1f).testTag("home_calendar"),
+                )
+            } else {
+                DayCalendar(
+                    blocks = state.blocks,
+                    currentBlockId = state.currentBlockId,
+                    leakFromMin = state.leakFromMin,
+                    hourLabels = state.hourLabels,
+                    minuteOfDay = minuteOfDay,
+                    scrollState = scroll,
+                    bottomPadding = NowCardReservedHeight,
+                    onBlockClick = { onAction(HomeAction.BlockClicked(it)) },
+                    modifier = Modifier.weight(1f).testTag("home_calendar"),
+                )
+            }
         }
         state.nowCard?.let { ui ->
             NowCard(
