@@ -22,7 +22,10 @@ class AlarmReceiver : BroadcastReceiver() {
         val pending = goAsync()
         appScope.launch {
             try {
-                withTimeout(9_000) { orchestrator.onAlarm() }
+                withTimeout(9_000) {
+                    orchestrator.ensureRestored()
+                    orchestrator.onAlarm()
+                }
             } catch (t: Throwable) {
                 logger.error("AlarmReceiver", t)
             } finally {
@@ -42,7 +45,10 @@ class SystemEventsReceiver : BroadcastReceiver() {
         val pending = goAsync()
         appScope.launch {
             try {
-                withTimeout(9_000) { orchestrator.onAlarm() }
+                withTimeout(9_000) {
+                    orchestrator.ensureRestored()
+                    orchestrator.onAlarm()
+                }
             } catch (t: Throwable) {
                 logger.error("SystemEventsReceiver", t)
             } finally {

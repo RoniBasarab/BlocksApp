@@ -39,7 +39,10 @@ class NotificationActionReceiver : BroadcastReceiver() {
         val pending = goAsync()
         appScope.launch {
             try {
-                withTimeout(9_000) { orchestrator.handleNotificationAction(event, forBlockId) }
+                withTimeout(9_000) {
+                    orchestrator.ensureRestored()
+                    orchestrator.handleNotificationAction(event, forBlockId)
+                }
             } catch (t: Throwable) {
                 logger.error("NotificationActionReceiver", t)
             } finally {
