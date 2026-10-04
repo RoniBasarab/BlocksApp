@@ -10,6 +10,24 @@ With a phone attached, run them with:
 These four cannot be automated reliably (they depend on the launcher, the reboot flow, the keyguard
 and the system DND state), so Roni runs them by hand.
 
+## Check on the phone (1.5.0)
+
+1. Pick a template, swipe the app away from recents, open it: Home appears within 3 seconds.
+2. Same, but tap Pause and then Next on the notification instead: both work.
+3. Emergency: the title stays, the status says "Stopped early (emergency)", and the calendar shows
+   what happened today.
+4. After the day ends, tap swap: the dialog, then the picker, then tracking restarts from now.
+5. Swap mid-day: the new template takes over from now.
+6. History and Weekly fill the screen, with no big gap under the top bar.
+7. History's week headers line up with the cards.
+8. A day in History: no overlapping blocks, pauses hatched, skipped blocks listed in the summary.
+9. Swipe back from Settings: it fades.
+10. Load demo data: a spinner, then "Demo data loaded: 28 days".
+11. Settings → Alert sound opens Android's sound settings for the app.
+12. Debug build: Developer → "20:05 · Evening prompt" → "Kid asleep now" → "Skip dishes" → the
+    evening choice sheet appears on Home.
+13. Weekly, Insights and Time Debt: every number has a short explanation, and ⓘ explains the terms.
+
 ## Setup for every test
 
 - Install the debug build:
@@ -33,8 +51,9 @@ and the system DND state), so Roni runs them by hand.
   adb shell am broadcast -n com.roni.blocks.debug/com.roni.blocks.debugtools.TimeTravelReceiver --ez reset true
   ```
 
-  Moving the clock re-evaluates and reschedules; it is **not** an interruption, because nothing was
-  actually missed.
+  A jump catches the day up to where the clock now is, applying and recording the transitions it
+  skipped, so you can reach the evening in seconds. Only an alarm that arrives with no clock movement
+  behind it is ignored.
 
 ---
 

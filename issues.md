@@ -1,47 +1,52 @@
-# Outstanding after Task-5, each with evidence
+# Outstanding after Task-6, each with evidence
 
-1. **Roborazzi screenshots not re-recorded for the new/changed screens.**
-   Task-5 requires `now_card_paused.png`, `dialog_emergency.png`, `settings_debug.png`, and data
-   screens rendered from `DemoDataGenerator` output (seed 42) instead of hand-made fakes.
-   Evidence: `recordRoborazziDebug` was never invoked in this task, and `ScreenshotsTest` has no
-   entries for those captures; the existing captures still use hand-made fakes.
+1. **Connected device tests have not been executed on hardware or emulator.**
+   The D-series includes the D13/D14 process-kill restore tests added for the splash fix, and the
+   13-item "Check on the phone (1.5.0)" list at the top of `MANUAL_TESTS.md` is entirely unrun.
+   Evidence: `:app:compileDebugAndroidTestKotlin` compiles and
+   `:app:assembleBenchmark`/`:macrobenchmark:assembleBenchmark` build, but
+   `connectedDebugAndroidTest` needs a device and none was attached during this task.
 
-2. **Connected device tests have not been executed on hardware or emulator.**
-   The D-series now includes new D13/D14 process-kill restore tests. Evidence:
-   `:app:compileDebugAndroidTestKotlin` compiles, but `connectedDebugAndroidTest` needs a device;
-   they are documented in `MANUAL_TESTS.md` for an on-device pass.
+2. **`SettingsViewModelTest.setHourFormat_persistsAndFlipsTheFormatter` races its own write.**
+   `Settings.setHourFormat` returns before its write lands (`viewModelScope.launch { … }`), while the
+   test waits on the in-memory `hourFormat24` flip and only then reads the persisted pref, so the read
+   can see `null`.
+   Evidence: `expected:<false> but was:<null>` — the failure recorded during the Task-6 full-suite runs
+   in the previous revision, and it **recurred** in the 1.5.0 release gate (`180 tests completed,
+   2 failed`). It passes in isolation and at baseline. The fix belongs in the test or in
+   `setHourFormat`, not in Task-6.
 
-3. **`SettingsViewModelTest.setHourFormat_persistsAndFlipsTheFormatter` races its own write.**
-   `Settings.setHourFormat` returns before its write lands (`viewModelScope.launch { … }`), while
-   the test waits on the in-memory `hourFormat24` flip and only then reads the persisted pref, so
-   the read can see `null`. Evidence: observed once as `expected:<false> but was:<null>` at
-   `SettingsViewModelTest.kt:138` during a Task-6 full suite run. It is unrelated to Task-6, which
-   touches only `DayOrchestrator` and `SegmentBook`; it passes in isolation 3/3 and at baseline 2/2,
-   and did not recur across 3 full runs after the Task-6 process-death test stopped leaking
-   unscoped coroutines. The fix belongs in the test or in `setHourFormat`, not in Task-6.
+3. **A coroutine that outlives its test class poisons the next Compose test class. The failing set
+   changes between runs of the same tree; it is not one fixed failure.**
+   Evidence, the two 1.5.0 release-gate runs plus an isolation control:
+   - run 1: `180 tests completed, 2 failed` — item 2 above, plus
+     `TemplatePickerTest.screen_rendersFourTaggedCardsWithOneSuggested`;
+   - run 2: `180 tests completed, 1 failed` — `DayOrchestratorRestoreTest.legacyInterrupted_
+     restoresAsRunning` (`:121`); neither run-1 failure recurred;
+   - earlier Task-6 runs: two green (`176 tests completed, 0 failed`), one `1 failed`
+     (`todaysRunningState_isRestoredAsRunning`, `:85`), one `3 failed` (`:103`, `:85`, `:121`).
+   The `TemplatePickerTest` failure is **collateral, not a defect**:
+   `kotlinx.coroutines.test.UncaughtExceptionsBeforeTest`, suppressed
+   `UnsupportedOperationException: Dispatchers.Unconfined.dispatch function can only be used by the
+   yield function`, thrown from `CoroutineId(1194)` on `Dispatchers.IO`. A coroutine outlives its
+   test class, resumes *after* `Dispatchers.resetMain()`, and hits a still-installed
+   `TestMainDispatcher`; `kotlinx.coroutines.test` records that uncaught exception per JVM and
+   re-reports it at the *next* `runTest`, which is why an untouched class such as `TemplatePickerTest`
+   fails "before the test started". Proof: `TemplatePickerTest` and `SettingsViewModelTest` run
+   together in isolation give `BUILD SUCCESSFUL`. `TemplatePickerViewModel` was never modified.
+   `DayOrchestratorRestoreTest` remains excluded on instruction: its nondeterminism is recorded here
+   rather than worked around, and the fix belongs in that test or in `DayOrchestrator`'s
+   single-flight restore.
 
-4. **`DayOrchestratorRestoreTest` is nondeterministic on this machine: the failing set changes
-   between runs of the same tree.** It is not one fixed failure.
-   Evidence, four full `:app:testDebugUnitTest` runs:
-   - two runs green, `176 tests completed, 0 failed`;
-   - one run `1 failed`: `todaysRunningState_isRestoredAsRunning` (`DayOrchestratorRestoreTest.kt:85`);
-   - one run `3 failed`: `startDestination_isOnlyCorrectOnceRestoreHasRun` (`:103`),
-     `todaysRunningState_isRestoredAsRunning` (`:85`) and `legacyInterrupted_restoresAsRunning`
-     (`:121`).
-   All three failures are `AssertionError`s on the restored state. Because the set varies, the
-   earlier characterisation of this class as deterministic with a single surviving failure no longer
-   holds, and so does the claim that cancelling the per-test scopes settled
-   `legacyInterrupted_restoresAsRunning`; that test failed again in the 3-failure run.
-   Not caused by Task-6's Slice 5 (`Motion.kt`, `AppNav.kt`, `AndroidManifest.xml`): reverting
-   those three files with `git stash push` made the gate *worse* (3 failures instead of 1), so the
-   change under test is exonerated by direct comparison. Task-6 independence for the restore logic
-   itself is recorded in the earlier revision of this item (reproduced with `git stash push -u`).
-   Ruled out: the mapper (`resolveStartDestination` is exhaustive and `Running` maps to `HOME`), a
-   swallowed restore exception (no `blocks.log` entry is written for this class, so the `catch` at
-   `DayOrchestrator.ensureRestored` never fires), and `PrefsStorage`'s `io` seam. The open suspect is
-   restore's own single-flight behaviour under a shared in-memory prefs file, which this class is the
-   only place to exercise. The fix belongs in this test or in `DayOrchestrator`'s single-flight
-   restore, not in Task-6.
+4. **Two names in `Task-6.md` §Slice 9 do not exist in the code.**
+   `TimelineQueries` is a file of `ScheduleEngine` extension functions (`timelineAt`, `currentBlock`,
+   `pomodoroStatus`), not a class, so its header went on those functions' file; and there is no
+   `InsightsManager` anywhere in `src/main` or `src/test` — that logic is `InsightsViewModel`, which
+   received the header the spec asked for. Evidence: a search for `InsightsManager` across
+   `src/main` and `src/test` returns nothing. `Task-6.md` is left unchanged for Roni to correct.
 
-Nothing else is open: every slice's compile gate passes on this machine, and the unit gate is green
-except for the restore nondeterminism above, which is recorded here rather than worked around.
+Nothing else is open. Every non-flake gate task passes on this machine: `:app:compileDebugKotlin`,
+`:app:compileDebugAndroidTestKotlin`, `assembleDebug`, `assembleRelease`, `:app:assembleBenchmark`
+and `:macrobenchmark:assembleBenchmark` complete with `BUILD SUCCESSFUL` (`191 actionable tasks`).
+`:app:testDebugUnitTest` is intermittently red only for items 2 and 3 above, both pre-existing and
+both reproduced here as evidence rather than fixed.
