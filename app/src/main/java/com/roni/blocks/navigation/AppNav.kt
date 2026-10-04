@@ -7,6 +7,7 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.roni.blocks.core.daystate.DayState
+import com.roni.blocks.designsystem.Motion
 import com.roni.blocks.feature.history.HistoryDetailRoute
 import com.roni.blocks.feature.history.HistoryRoute
 import com.roni.blocks.feature.home.HomeRoute
@@ -56,6 +57,9 @@ fun AppRoot(start: StartDestination, modifier: Modifier = Modifier) {
     NavDisplay(
         backStack = backStack,
         modifier = modifier,
+        transitionSpec = { Motion.crossfade },
+        popTransitionSpec = { Motion.crossfade },
+        predictivePopTransitionSpec = { Motion.crossfade },
         onBack = { if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) },
         entryProvider = entryProvider {
             entry<TemplatePickerKey> {
