@@ -158,7 +158,7 @@ fun TimeDebtScreen(state: TimeDebtUiState, onAction: (DebtDay) -> Unit) {
         return
     }
 
-    ScreenColumn {
+    ScreenColumn(menuScreen = true) {
         AppCard(Modifier.testTag("debt_hero").fillMaxWidth()) {
             Text(
                 text = "This week",

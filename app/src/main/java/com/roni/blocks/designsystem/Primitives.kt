@@ -8,10 +8,13 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -31,12 +34,21 @@ import androidx.compose.ui.unit.dp
 
 /** Full-width, gutter-padded scrolling column every screen body is built from. */
 @Composable
-fun ScreenColumn(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+fun ScreenColumn(
+    modifier: Modifier = Modifier,
+    menuScreen: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val bottomInset = if (menuScreen) {
+        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + Spacing.l
+    } else {
+        Spacing.l
+    }
     Column(
         modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = Spacing.l, vertical = Spacing.l),
+            .padding(start = Spacing.l, top = Spacing.s, end = Spacing.l, bottom = bottomInset),
         verticalArrangement = Arrangement.spacedBy(Spacing.l),
         content = content,
     )

@@ -55,7 +55,9 @@ fun ScreenScaffold(
     AppBackground {
         Scaffold(
             containerColor = Color.Transparent,
-            contentWindowInsets = WindowInsets.safeDrawing,
+            // Zero here on purpose: the top bar owns the status bar and the navigation bar owns
+            // the gesture bar. Applying either again is what pushed screens down twice.
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = topBar,
             bottomBar = { bottomBar?.invoke() },
         ) { inner ->

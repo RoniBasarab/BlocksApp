@@ -6,10 +6,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -112,7 +115,12 @@ fun HistoryScreen(state: HistoryUiState, onAction: (HistoryDay) -> Unit) {
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(Spacing.l),
+        contentPadding = PaddingValues(
+            start = Spacing.l,
+            top = Spacing.s,
+            end = Spacing.l,
+            bottom = Spacing.l + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+        ),
         verticalArrangement = Arrangement.spacedBy(Spacing.m),
     ) {
         state.weeks.forEach { week ->
@@ -369,7 +377,8 @@ fun HistoryDetailRoute(date: String?, onBack: () -> Unit, viewModel: HistoryDeta
                     hourLabels = CalendarMapper.hourLabels().toPersistentList(),
                     minuteOfDay = { 23 * 60 },
                     scrollState = rememberScrollState(),
-                    bottomPadding = Spacing.l,
+                    bottomPadding = Spacing.l +
+                        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
                     onBlockClick = {},
                 )
             }
