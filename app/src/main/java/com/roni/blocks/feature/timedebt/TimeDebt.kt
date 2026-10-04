@@ -84,6 +84,14 @@ data class TimeDebtUiState(
 )
 
 @HiltViewModel
+/**
+ * Totals the minutes the day overran across a fixed two-week window. Rules: the window is always the
+ * last 14 days ending today, so the figure stays comparable instead of stretching with missing
+ * history; debt is summed from stored segments only, never recomputed from the current template; no
+ * records publishes `hasDebt = false` rather than a misleading zero.
+ *
+ * Talks to: [HistoryManager], [Clock].
+ */
 class TimeDebtViewModel @Inject constructor(
     private val history: HistoryManager,
     private val clock: Clock,

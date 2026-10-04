@@ -44,6 +44,16 @@ import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.nullable
 
+/**
+ * The single writer of the day's state: it applies events, persists the result, and pushes the
+ * consequences (alarm, notification, history) so none of those can drift from the state.
+ *
+ * Rules: restore runs once behind a mutex and a failed restore still counts as restored, so a bad
+ * prefs file can never strand the app on the splash; every mutation ends in `sideEffects()`.
+ *
+ * Talks to: [DayStateMachine], [ScheduleEngine], [TemplateManager], [HistoryManager],
+ * [AlarmScheduler], [NotificationModelMapper], [NotificationPort], [PrefsStorage], [Clock].
+ */
 @Singleton
 class DayOrchestrator @Inject constructor(
     private val prefs: PrefsStorage,

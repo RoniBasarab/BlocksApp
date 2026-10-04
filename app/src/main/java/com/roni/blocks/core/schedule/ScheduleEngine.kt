@@ -40,6 +40,14 @@ data class ResolvedBlock(
 )
 
 @Singleton
+/**
+ * Turns a template plus a date into the concrete blocks and segments the rest of the app plans
+ * against. Rules: block times are resolved in the app time zone, never the device's; `planStartsAt`
+ * is non-null only after a template swap, and then blocks already over are dropped rather than
+ * recorded as missed; nothing here writes anything down.
+ *
+ * Talks to: [Template], [ResolvedBlock], [Segment] from the model, [Clock], [TimeZone].
+ */
 class ScheduleEngine @Inject constructor(
     private val clock: Clock,
     private val zone: TimeZone,

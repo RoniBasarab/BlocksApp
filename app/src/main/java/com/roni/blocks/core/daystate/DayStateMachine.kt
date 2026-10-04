@@ -3,6 +3,13 @@ package com.roni.blocks.core.daystate
 import com.roni.blocks.core.model.TemplateId
 import kotlin.time.Instant
 
+/**
+ * Every legal day-state change, as one pure function: the only clock it knows is the [now] it is
+ * handed. Rules: an event that does not apply returns null rather than throwing, so callers decide
+ * whether ignoring it is safe; `Ended` and `Off` accept nothing but a new `StartDay`.
+ *
+ * Talks to: [DayState], [DayEvent]. No IO, no coroutines, no Android.
+ */
 object DayStateMachine {
     fun transition(state: DayState, event: DayEvent, now: Instant): DayState? = when (state) {
         DayState.NotStarted -> fromNotStarted(event)

@@ -111,6 +111,13 @@ sealed interface InsightsAction {
 private const val DAYS_IN_WEEK = 7
 
 @HiltViewModel
+/**
+ * Compares the last complete week with the one before it. Rules: only whole weeks are compared, so
+ * the current week is excluded — it is still moving and would make every figure jump; no history
+ * publishes `hasData = false` and the screen explains itself instead of showing zeroes.
+ *
+ * Talks to: [HistoryManager], [Clock].
+ */
 class InsightsViewModel @Inject constructor(
     private val history: HistoryManager,
     private val clock: Clock,

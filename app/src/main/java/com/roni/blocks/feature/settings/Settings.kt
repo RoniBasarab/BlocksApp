@@ -156,6 +156,15 @@ private fun formatShift(minutes: Int): String = "+%dh %02dm".format(minutes / 60
 private enum class ConfirmDialogSpec { RESET_TODAY, CLEAR_HISTORY }
 
 @HiltViewModel
+/**
+ * Backs the Settings screen. Rules: every action has to report back, through a snackbar or by
+ * handing the user to a system screen, never silently; system rows show what Android actually
+ * reports via [SystemStatuses] rather than a cached guess; destructive actions keep what the spec
+ * promises, so clearing history still leaves today intact.
+ *
+ * Talks to: [DayOrchestrator], [HistoryManager], [DemoDataGenerator], [SystemStatuses],
+ * [NotificationPort], [DebugTimeController].
+ */
 class SettingsViewModel @Inject constructor(
     private val logger: AppLogger,
     private val history: HistoryManager,

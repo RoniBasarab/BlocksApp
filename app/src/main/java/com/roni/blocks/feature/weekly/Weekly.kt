@@ -104,6 +104,14 @@ sealed interface WeeklyAction {
 }
 
 @HiltViewModel
+/**
+ * Shows one week of scheduled versus done time, and moves between weeks. Rules: the selection
+ * starts on the current week and steps a whole week at a time, so no partial week is ever compared;
+ * every figure comes from [HistoryManager.aggregateWeek], the same builder the day-end flush uses,
+ * so Weekly and Insights cannot disagree; an empty week is shown as empty, not as zero effort.
+ *
+ * Talks to: [HistoryManager], [Clock].
+ */
 class WeeklyViewModel @Inject constructor(
     private val history: HistoryManager,
     private val clock: Clock,

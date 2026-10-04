@@ -117,6 +117,14 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 
 @HiltViewModel
+/**
+ * Feeds the Home screen: the block in progress, what the day actually did, and the actions behind
+ * its buttons. Rules: the published state holds plain values only, never Android or Compose types,
+ * so it stays diffable and testable; day changes are requested from [DayOrchestrator], never applied
+ * here; the debug clock label is published only in debug builds.
+ *
+ * Talks to: [DayOrchestrator], [HistoryManager], [TemplateManager], [Ticker], [DebugTimeController].
+ */
 class HomeViewModel @Inject constructor(
 private val day: DayOrchestrator,
       private val templates: TemplateManager,

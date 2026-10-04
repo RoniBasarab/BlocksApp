@@ -15,15 +15,12 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 
 /**
- * Moves the app's clock so a whole evening can be walked through in seconds instead of waited for.
+ * Moves the app's clock so a whole evening can be walked through in seconds. Rules: a jump catches
+ * the day up to where the clock now is, applying and recording the transitions it skipped; it lives
+ * in `src/main` because Home and Settings both show the shifted time, but every caller sits behind
+ * `BuildConfig.DEBUG`.
  *
- * A jump catches the day up to where the clock now is, so transitions the skipped hours made true
- * are applied and recorded; only an alarm that arrives with no movement behind it is ignored.
- *
- * It lives in `src/main` because Settings and Home both have to show the shifted time, but only the
- * debug build can reach it: every caller sits behind `BuildConfig.DEBUG`.
- *
- * Talks to: [DebugClock] for the offset, [DayOrchestrator] to re-evaluate the day.
+ * Talks to: [DebugClock] for the offset, [DayOrchestrator] to replay the day.
  */
 @Singleton
 class DebugTimeController @Inject constructor(

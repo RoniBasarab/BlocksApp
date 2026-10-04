@@ -113,6 +113,14 @@ sealed interface PickerAction {
 }
 
 @HiltViewModel
+/**
+ * Lists the templates and previews what picking one would do to the rest of today. Rules: the
+ * preview has to follow the clock, so state is republished when the hour changes rather than only on
+ * open; applying a pick goes through [DayOrchestrator] so the day re-plans from now instead of the
+ * template silently replacing history.
+ *
+ * Talks to: [DayOrchestrator], [TemplateManager], [Ticker].
+ */
 class TemplatePickerViewModel @Inject constructor(
     private val day: DayOrchestrator,
     private val templates: TemplateManager,

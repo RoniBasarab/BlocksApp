@@ -191,6 +191,14 @@ private fun HistoryDayRow(day: HistoryDay, onClick: () -> Unit) {
 }
 
 @HiltViewModel
+/**
+ * Groups every recorded day into weeks for the History list. Rules: "no days yet" is a normal state
+ * that publishes `hasData = false` rather than an error; week boundaries come from
+ * [HistoryManager.weekStart], so this list cannot disagree with Weekly; each day's headline is
+ * derived here from its own flags and segments, never stored twice.
+ *
+ * Talks to: [HistoryManager], [Clock].
+ */
 class HistoryViewModel @Inject constructor(
     private val history: HistoryManager,
     private val clock: Clock,
@@ -272,6 +280,13 @@ class HistoryViewModel @Inject constructor(
 }
 
 @HiltViewModel
+/**
+ * Loads one stored day for the detail screen. Rules: a date that no longer parses, or a record that
+ * is gone, publishes null instead of throwing, so the screen can just close; the blocks come from
+ * [ActualDayMapper], the same mapping Home uses, so a day looks the same in both places.
+ *
+ * Talks to: [HistoryManager], [ActualDayMapper], [TimeFormatter].
+ */
 class HistoryDetailViewModel @Inject constructor(
     private val history: HistoryManager,
     private val timeFormatter: TimeFormatter,

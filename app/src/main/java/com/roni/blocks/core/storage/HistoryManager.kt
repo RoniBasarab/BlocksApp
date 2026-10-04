@@ -29,6 +29,14 @@ data class WeekAggregate(
 )
 
 @Singleton
+/**
+ * The only reader and writer of stored days, time debt and week aggregates. Rules: writing a day
+ * prunes old ones, so pruning must stay inside the write path; weeks start on Sunday and every
+ * weekly figure goes through [aggregateWeek], so the day-end flush and demo seeding cannot drift
+ * apart; clearing history keeps today.
+ *
+ * Talks to: [PrefsStorage], [DayRecord], [DebtRecord].
+ */
 class HistoryManager @Inject constructor(
     private val prefs: PrefsStorage,
 ) {

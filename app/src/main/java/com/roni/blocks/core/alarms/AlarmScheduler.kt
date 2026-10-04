@@ -12,6 +12,14 @@ import javax.inject.Singleton
 import kotlin.time.Instant
 
 @Singleton
+/**
+ * Owns the single exact alarm that wakes the app when the current block ends. Rules: it must be
+ * exact and allow-while-idle, or Doze swallows the block transition; the [PendingIntent] is reused
+ * so scheduling replaces the previous alarm instead of stacking a second one; app instants are
+ * converted to system time through [SystemTimeMapper], never by hand.
+ *
+ * Talks to: [AlarmManager], [SystemTimeMapper], [AlarmReceiver].
+ */
 class AlarmScheduler @Inject constructor(
     @ApplicationContext private val context: Context,
     private val systemTime: SystemTimeMapper,

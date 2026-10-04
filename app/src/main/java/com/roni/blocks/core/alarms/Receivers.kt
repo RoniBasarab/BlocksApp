@@ -12,6 +12,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
+/**
+ * The alarm that ends the current block. Rules: claim `goAsync` before returning and bound the work
+ * with a timeout, or Android kills the process mid-transition; call [DayOrchestrator.onAlarm], not
+ * `onTimeChanged`, so a late alarm still applies the transition it was scheduled for.
+ *
+ * Talks to: [DayOrchestrator], [AppLogger], the application scope.
+ */
 @AndroidEntryPoint
 class AlarmReceiver : BroadcastReceiver() {
     @Inject lateinit var orchestrator: DayOrchestrator
@@ -35,6 +42,13 @@ class AlarmReceiver : BroadcastReceiver() {
     }
 }
 
+/**
+ * Re-evaluates the day after the system changes something underneath us: boot, app replaced, clock
+ * or time zone moved. Rules: same shape as [AlarmReceiver] — claim `goAsync`, bound the work with a
+ * timeout — and it must never write state itself, only ask [DayOrchestrator] to re-evaluate.
+ *
+ * Talks to: [DayOrchestrator], [AppLogger], the application scope.
+ */
 @AndroidEntryPoint
 class SystemEventsReceiver : BroadcastReceiver() {
     @Inject lateinit var orchestrator: DayOrchestrator

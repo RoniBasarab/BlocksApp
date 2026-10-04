@@ -25,6 +25,13 @@ data class DayBook(
     val planStartsAt: Instant? = null,
 )
 
+/**
+ * Builds the ordered segment list History renders, and rebuilds it after a process death.
+ * Rules: `rehydrate` must bring the block index back with the segments, or the day restarts at its
+ * first block; segment kinds are a persisted contract, so renaming one invalidates stored history.
+ *
+ * Talks to: [ScheduleEngine], [Template], [Segment], [DayBook].
+ */
 object SegmentBook {
     /**
      * Rebuilds a book from persisted segments after a process death. The index has to come back
