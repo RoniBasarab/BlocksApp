@@ -1,6 +1,6 @@
 # Daily Block Scheduler — Architecture Decisions
 
-Version: v1.0.0 (architecture) · Companion to `schedule-spec.md`
+Describes app version **1.5.0** (the target of `Task-6.md`) · Companion to `schedule-spec.md`
 
 Each section states the decision, then why. Rejected alternatives are collected in §17.
 
@@ -76,7 +76,6 @@ sealed interface DayState {
     data object NotStarted : DayState
     data class Running(val template: TemplateId, val blockIndex: Int) : DayState
     data class Paused(val running: Running, val since: Instant) : DayState
-    data class Interrupted(val running: Running, val since: Instant) : DayState
     data object KidTime : DayState
     data class Evening(val blockIndex: Int) : DayState
     data object Ended : DayState
@@ -86,16 +85,15 @@ sealed interface DayState {
 sealed interface DayEvent {
     data class StartDay(val template: TemplateId) : DayEvent
     data object TakeOffDay : DayEvent
-    data object Next : DayEvent
-    data object EndBlockEarly : DayEvent
+    data class Next(val expectedBlockId: String) : DayEvent   // "Next slot": any time; stale ids ignored
     data object Pause : DayEvent
-    data object Interrupt : DayEvent
-    data class Resume(val mode: ResumeMode) : DayEvent   // RESUME_WHERE_I_WAS / JUMP_TO_NOW
+    data object Resume : DayEvent
     data object KidTimeStarted : DayEvent
     data object KidAsleep : DayEvent
     data class EveningChoice(val choice: EveningChoice) : DayEvent
-    data object EndDay : DayEvent
+    data class EndDay(val reason: EndReason) : DayEvent   // NORMAL, EMERGENCY
 }
+// Legacy: a persisted `Interrupted` state restores as `Running` on the same block (Task-5 §2).
 ```
 
 Split into two small pieces:
@@ -107,7 +105,7 @@ Split into two small pieces:
 
 **Silence guarantee:** `AppNotifier` refuses to post unless the current `DayState` allows it (nothing in `Ended`, `Off`, or before the 9:00 prompt). The rule lives in one function, not scattered across callers.
 
-**Persistence:** saved synchronously (`commit()` on `Dispatchers.IO`) before side effects run. An alarm may fire after the process was killed; the receiver restores the true state from prefs before acting.
+**Persistence:** saved synchronously (`commit()` on `Dispatchers.IO`) before side effects run. An alarm or a notification action may arrive after Android killed the process, so every entry point (`Application.onCreate`, `send()`, each receiver, the UI gate) first calls `ensureRestored()`: single-flight, a bounded replay of missed transitions, `isRestored` set in a `finally`, errors logged and the safest state kept. The splash waits for `isRestored` at most 3 seconds (`Task-6.md` Slice 1).
 
 ---
 
@@ -142,10 +140,11 @@ class HomeViewModel @Inject constructor(
     val effects: SharedFlow<HomeEffect> = _effects.asSharedFlow()
 
     fun onAction(action: HomeAction) = when (action) {
-        HomeAction.Next -> day.send(DayEvent.Next)
+        is HomeAction.Next -> day.send(DayEvent.Next(expectedBlockId = action.blockId))
         HomeAction.Pause -> day.send(DayEvent.Pause)
+        HomeAction.Emergency -> day.send(DayEvent.EndDay(EndReason.EMERGENCY))
         HomeAction.SwapTemplate -> emit(HomeEffect.OpenTemplatePicker)
-        // ...
+        // ... (action names are illustrative)
     }
 }
 ```
@@ -183,6 +182,7 @@ All managers are `@Singleton`, grouped by responsibility:
 | `AppNotifier` | Channels, posting, the silence gate |
 | `Ticker` | Minute-aligned tick flow; seconds flow on demand |
 | `Logger` | Log wrapper + rolling file |
+| `DebugTimeController` | Debug builds only: shifts the debug clock and re-evaluates the day (Task-6) |
 
 `Clock` and `TimeZone` are provided by a Hilt module (`Clock.System`, `TimeZone.currentSystemDefault()`), replaced by fakes in tests.
 
@@ -234,6 +234,7 @@ class PrefsStorage {
 }
 
 @Serializable data class BlockSpec(
+    val id: String,                     // stable, unique across templates, e.g. "mon_thu.gym" (Task-5)
     val type: BlockType,
     val start: LocalTime,
     val end: LocalTime,
@@ -250,8 +251,9 @@ class PrefsStorage {
     val actualStart: Instant, val actualEnd: Instant?,
 )
 
-@Serializable data class DayRecord(val date: LocalDate, val template: TemplateId?, val segments: List<Segment>, val flags: Set<DayFlag>)
-// DayFlag: OFF_DAY, EVENING_SKIPPED, GYM_MISSED, AUTO_ENDED
+@Serializable data class DayRecord(val date: LocalDate, val template: TemplateId?, val segments: List<Segment>, val flags: Set<DayFlag>, val plannedBlocks: List<BlockSpec>? = null, val demo: Boolean = false)
+// DayFlag: OFF_DAY, EVENING_SKIPPED, GYM_MISSED, AUTO_ENDED, EMERGENCY_STOP, TEMPLATE_SWAPPED. `demo` marks debug-generated records (Task-5).
+// The `day` prefs also hold `planStartsAt: Instant? = null`, set by a template swap (Task-6).
 ```
 
 **Why templates use `LocalTime` and runtime uses `Instant`:** a template is "9:30 every day"; what happened is a point in time. Leak = `now - plannedEnd`, computed on `Instant`s, never on wall-clock strings.
@@ -263,10 +265,13 @@ class PrefsStorage {
 All rules from the schedule spec live in `ScheduleEngine` as pure functions:
 
 - **Overrun:** next block keeps its planned end; its effective start = actual end of the previous one. Fully eaten → `CONSUMED` segment.
-- **Early end:** under-time recorded + a `SYNTHETIC_FREE` segment until the planned end.
-- **Pause:** recorded as a `PAUSE` segment; the current block's effective end = planned end + total paused time, and the next block keeps its planned end, so the pause comes out of the following block. Leak = now − effective end.
-- **Interrupt:** freezes the day; `Resume(RESUME_WHERE_I_WAS)` shifts remaining planned times, `Resume(JUMP_TO_NOW)` marks skipped blocks `INTERRUPTION`. Not counted as debt.
-- **Pomodoro:** focus/break phases derived from the block's start; phase switches need no user action and never leak.
+- **Next slot early:** on a work block (CV, Coding, Gym) the block closes now (under-time recorded) and a `SYNTHETIC_FREE` segment runs until its planned end, then the next block starts on schedule. On a Free block (planned or synthetic) the next block starts now and keeps its planned end.
+- **Pause:** work blocks only; recorded as a `PAUSE` segment. No end time moves: the pause shortens the current block only and auto-closes at its end. Pause time is tracked separately and is not debt. Leak = now − planned end.
+- **Emergency:** `EndDay(EMERGENCY)` ends the day with flag `EMERGENCY_STOP`; nothing after it counts as planned time or debt.
+- **Pomodoro:** focus/break phases derived from the block's **actual** start (50/10 repeating, last phase cut at the end); phase switches need no user action and never leak.
+- `SYNTHETIC_FREE` auto-ends and never leaks; `INTERRUPTION` now only means device-off downtime.
+- **Future-proofing:** day records store a snapshot of the planned blocks; blocks are identified by id and type, never by position or template id. Templates are planned to become editable in-app.
+- **Swap template** (`DayEvent.SwapTemplate`, from any started state, refused after 22:30): recorded segments stay and the open one closes at now. The new template's blocks ending at or before `planStartsAt` are left out (not consumed), the block containing it starts then, and only segments from `planStartsAt` on are matched to today's timeline. The record's `plannedBlocks` = the old blocks started before the swap + the new ones from it; flag `TEMPLATE_SWAPPED`.
 
 These are the unit-tested core (§15).
 
@@ -359,10 +364,12 @@ Current block: elevated (`graphicsLayer { shadowElevation; scale }`), others sli
 ## 13. Navigation
 
 - Navigation 3: the back stack is a Compose-owned list of `@Serializable` `NavKey`s rendered by `NavDisplay`, with ViewModels scoped per entry.
-- Launch flow: `NotStarted` → **Template picker** (full screen); after `StartDay` / `TakeOffDay` the stack is replaced with **Home**.
+- Launch flow: the start screen is chosen once, after the saved state is restored (the splash stays up until then). `NotStarted` → **Template picker** (full screen); any other state → **Home**. After `StartDay` / `TakeOffDay` the stack is replaced with **Home**. A started day never reopens the picker; only the swap button and Settings → Reset today go back to it.
 - **Bottom bar (3):** Home · Weekly · Insights.
 - **Top-right menu:** History · Time Debt · Settings (pushed onto the stack).
-- Swap template: icon on Home → template picker → `StartDay` with the new template.
+- Swap template: icon on Home → (a confirm dialog if the day has ended; refused after 22:30) → template picker → `SwapTemplate`, then the picker is replaced with Home.
+- **Structure and insets:** the tab screens share one `Scaffold` with the bottom bar; menu screens are their own entries outside it. Every `Scaffold` uses `contentWindowInsets = WindowInsets(0, 0, 0, 0)`. The status bar inset is applied only by each screen's top bar; the navigation bar inset only by `NavigationBar` (tabs) or the scrolling content's bottom padding (menu screens); the template picker pads with `safeDrawing` once.
+- **Transitions:** pushing, popping, the predictive back gesture and switching tabs all use one 250 ms crossfade token.
 
 ---
 
@@ -376,15 +383,16 @@ Current block: elevated (`graphicsLayer { shadowElevation; scale }`), others sli
 
 ## 15. Analytics
 
-- **At flush (day end):** write the `DayRecord`, write time debt, update that week's aggregate (minutes per block type, leak, under-time, pauses, interruptions, flags).
-- **On open (Weekly / Insights):** read aggregates only, never scan raw history. Insights computed on read: per-block average overrun and trend, missed-gym count, evenings skipped, interruption frequency, Chill share of evenings, off days.
+- **At flush (day end):** write the `DayRecord`, write time debt, update that week's aggregate (minutes per block type, leak, under-time, pause time, flags incl. emergency stops).
+- **On open (Weekly / Insights):** read aggregates only, never scan raw history. Insights computed on read: per-block average overrun and trend, missed-gym count, evenings skipped, pause time, Chill share of evenings, off days.
 - Week starts Sunday.
 
 ---
 
 ## 16. Testing and verification
 
-- Unit tests: `DayStateMachine` (every legal/illegal transition), `ScheduleEngine` (leak, shrink, consumed, pause, interrupt both modes, early end, Pomodoro phases, reboot replay), aggregate math. Driven by a fake `Clock`.
+- Unit tests: `DayStateMachine` (every legal/illegal transition), `ScheduleEngine` (leak, shrink, consumed, Next slot early on work vs free blocks, pause, emergency stop, Pomodoro phases from the actual start, reboot replay), aggregate math, and ViewModels driven through `onAction`. Driven by a fake `Clock`.
+- Testing policy (`SUMMARY.md` §15): new tests are logic-level JVM tests that the task names, including one regression test per logic bug. The existing UI expectation and recomposition tests stay green; no new screenshot or geometry tests; Roni runs the device tests.
 - Performance: Macrobenchmark on Home (startup + scrolling + a minute tick), plus Compose compiler stability reports as a build-time sanity check.
 
 ---
@@ -403,16 +411,23 @@ Current block: elevated (`graphicsLayer { shadowElevation; scale }`), others sli
 | `remember` for business state | Lost on config change, invisible to alarms, untestable. |
 | LazyColumn calendar | Wrong tool for a fixed, short, minute-positioned layout. |
 | Tick inside screen state | Would recompose the whole screen every tick. |
+| Change-history comments in code files | Go stale and duplicate git; history lives in commit messages, `NOTES.md` and `CHANGELOG.md` (§20) |
 
 ---
 
 ## 18. Settings
 
-- Version shown bottom corner as `V 1.0.0`, read from `BuildConfig.VERSION_NAME` (`buildConfig = true` in the build file).
-- Planned entries: notification permission status, exact-alarm status, share log file, clear history, "All data stored locally" note.
+- Version label `V {versionName}` bottom-right, read from `BuildConfig.VERSION_NAME` (`buildConfig = true`). Versioning policy: `SUMMARY.md` §14.
+- Entries: notification permission, exact alarms, test notification, alert sound (opens Android's settings for the `day` channel), 24-hour / 12-hour, share log file, reset today, clear history, "All data stays on this device". Every action answers with a snackbar. Debug builds add a Developer section: the debug clock controls and demo data. Behavior: `Task-5.md` Slice 3 and `Task-6.md` Slices 7–8.
 
 ---
 
 ## 19. Visuals
 
 Palette, block colors, calendar range (08:00–23:00) and all screen layouts are defined in `visuals.md`.
+
+## 20. Code map and comments
+
+- `CODEMAP.md` (repo root): one line per source file: what it does, what it talks to. Updated in the same commit as any file that's added, removed or repurposed.
+- Core classes carry a short KDoc header: the responsibility, the 1–3 rules that must stay true, and "Talks to: …".
+- No change history in code comments; see `SUMMARY.md` §16.
