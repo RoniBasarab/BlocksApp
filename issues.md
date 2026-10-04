@@ -20,27 +20,28 @@
    and did not recur across 3 full runs after the Task-6 process-death test stopped leaking
    unscoped coroutines. The fix belongs in the test or in `setHourFormat`, not in Task-6.
 
-4. **`DayOrchestratorRestoreTest.startDestination_isOnlyCorrectOnceRestoreHasRun` fails on the
-   committed baseline, independent of Task-6.** The test seeds `Running(SUN_TUE_WED, 1)` for today,
-   builds one orchestrator on a dispatcher that never runs work, then a second on
-   `Dispatchers.Unconfined`; the second one restores `NotStarted`, so `resolveStartDestination`
-   returns `TEMPLATE_PICKER` instead of `HOME`.
-   Evidence: reproduced with Task-6's work removed entirely — `git stash push -u`, then
-   `:app:testDebugUnitTest --tests "...DayOrchestratorRestoreTest"` gives `4 tests completed,
-   1 failed`, same assertion. It is deterministic, not order-dependent: it still fails when run
-   as the only test in the class. The sibling tests in the same class *were* order-dependent —
-   `legacyInterrupted_restoresAsRunning` passed alone but failed in-class, because
-   `DayOrchestratorRestoreTest` built its orchestrators on `CoroutineScope(SupervisorJob() + ...)`
-   and never cancelled them, so a finished test's coroutine could finish its write after
-   `tearDown` cleared prefs. Tracking and cancelling those scopes fixed that; the surviving failure
-   is this one. Ruled out so far: it is not pollution (fails alone), not the mapper
-   (`resolveStartDestination` is exhaustive, `Running` maps to `HOME`), not a swallowed restore
-   exception (no `blocks.log` entry is written for this class, so the `catch` at
-   `DayOrchestrator.ensureRestored` never fires), and not `PrefsStorage`'s new `io` seam. The
-   remaining suspect is the two-orchestrator shape itself — it is the only test in the suite that
-   builds two, and `restoreFromStorage` writes state back through `persist()` on the way in.
-   Not caused by Task-6, which does not change restore's state logic. The fix belongs in this test
-   or in `DayOrchestrator`'s single-flight restore, not in Task-6.
+4. **`DayOrchestratorRestoreTest` is nondeterministic on this machine: the failing set changes
+   between runs of the same tree.** It is not one fixed failure.
+   Evidence, four full `:app:testDebugUnitTest` runs:
+   - two runs green, `176 tests completed, 0 failed`;
+   - one run `1 failed`: `todaysRunningState_isRestoredAsRunning` (`DayOrchestratorRestoreTest.kt:85`);
+   - one run `3 failed`: `startDestination_isOnlyCorrectOnceRestoreHasRun` (`:103`),
+     `todaysRunningState_isRestoredAsRunning` (`:85`) and `legacyInterrupted_restoresAsRunning`
+     (`:121`).
+   All three failures are `AssertionError`s on the restored state. Because the set varies, the
+   earlier characterisation of this class as deterministic with a single surviving failure no longer
+   holds, and so does the claim that cancelling the per-test scopes settled
+   `legacyInterrupted_restoresAsRunning`; that test failed again in the 3-failure run.
+   Not caused by Task-6's Slice 5 (`Motion.kt`, `AppNav.kt`, `AndroidManifest.xml`): reverting
+   those three files with `git stash push` made the gate *worse* (3 failures instead of 1), so the
+   change under test is exonerated by direct comparison. Task-6 independence for the restore logic
+   itself is recorded in the earlier revision of this item (reproduced with `git stash push -u`).
+   Ruled out: the mapper (`resolveStartDestination` is exhaustive and `Running` maps to `HOME`), a
+   swallowed restore exception (no `blocks.log` entry is written for this class, so the `catch` at
+   `DayOrchestrator.ensureRestored` never fires), and `PrefsStorage`'s `io` seam. The open suspect is
+   restore's own single-flight behaviour under a shared in-memory prefs file, which this class is the
+   only place to exercise. The fix belongs in this test or in `DayOrchestrator`'s single-flight
+   restore, not in Task-6.
 
 Nothing else is open: every slice's compile gate passes on this machine, and the unit gate is green
-except for the two pre-existing failures recorded above.
+except for the restore nondeterminism above, which is recorded here rather than worked around.
