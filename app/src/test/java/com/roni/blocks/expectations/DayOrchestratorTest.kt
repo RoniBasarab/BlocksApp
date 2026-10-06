@@ -9,6 +9,7 @@ import com.roni.blocks.core.daystate.DayState
 import com.roni.blocks.core.daystate.DayEvent
 import com.roni.blocks.core.daystate.EndReason
 import com.roni.blocks.core.logging.AppLogger
+import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
@@ -195,6 +196,73 @@ class DayOrchestratorTest {
         orchestrator.onTimeTravelled()
 
         assertEquals(DayState.KidTime, orchestrator.state.value)
+    }
+
+    @Test
+    fun swapAfterEmergency_restartsFromNow_keepsEarlierSegments() = runBlocking {
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        clock.now = LocalTime(10, 0).at(date, zone)
+        orchestrator.handle(DayEvent.EndDay(EndReason.EMERGENCY))
+        assertEquals(DayState.Ended, orchestrator.state.value)
+        val before: List<Segment> = orchestrator.segments.value
+
+        clock.now = LocalTime(12, 10).at(date, zone)
+        orchestrator.handle(DayEvent.SwapTemplate(TemplateId.MON_THU))
+
+        assertEquals(DayState.Running(TemplateId.MON_THU, 3), orchestrator.state.value)
+        val segments = orchestrator.segments.value
+        assertEquals("segments before the swap must stay exactly as recorded", before, segments.take(before.size))
+        assertEquals(2, segments.size)
+        assertTrue("skipped new-template blocks must not be marked consumed", segments.none { it.kind == SegmentKind.CONSUMED })
+        assertTrue("mon_thu.coding_am must leave no segment", segments.none { it.type == BlockType.Coding })
+        assertTrue("mon_thu.free_pre_gym (11:30-12:00) must leave no segment", segments.none { it.plannedStart == LocalTime(11, 30).at(date, zone) })
+        val open = segments.last { it.actualEnd == null }
+        assertEquals(BlockType.Gym, open.type)
+        assertEquals("the new day starts the gym block right away", LocalTime(12, 10).at(date, zone), open.actualStart)
+        assertEquals("gym still ends at its planned 14:00", LocalTime(14, 0).at(date, zone), requireNotNull(open.plannedEnd))
+
+        clock.now = LocalTime(14, 30).at(date, zone)
+        orchestrator.handle(DayEvent.EndDay(EndReason.NORMAL))
+        val flags = requireNotNull(history.readDay(date)).flags
+        assertTrue("an emergency stop stays part of the day after a swap", DayFlag.EMERGENCY_STOP in flags)
+        assertTrue("a swap is flagged on the final day record", DayFlag.TEMPLATE_SWAPPED in flags)
+    }
+
+    @Test
+    fun swapMidDay_replansFromNow() = runBlocking {
+        clock.now = LocalTime(10, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        val running = orchestrator.segments.value.last { it.actualEnd == null }
+        assertEquals(BlockType.Coding, running.type)
+        assertEquals(LocalTime(9, 30).at(date, zone), requireNotNull(running.plannedStart))
+
+        clock.now = LocalTime(10, 15).at(date, zone)
+        orchestrator.handle(DayEvent.SwapTemplate(TemplateId.FRI_SAT))
+
+        assertEquals(DayState.KidTime, orchestrator.state.value)
+        val closedCoding = orchestrator.segments.value.first { it.type == BlockType.Coding }
+        assertEquals("the swap closes the coding block at the swap time", LocalTime(10, 15).at(date, zone), closedCoding.actualEnd)
+        val open = orchestrator.segments.value.last { it.actualEnd == null }
+        assertEquals(BlockType.KidTime, open.type)
+        assertEquals("fri_sat.kid_time_am starts running from the swap time", LocalTime(10, 15).at(date, zone), open.actualStart)
+        assertEquals(LocalTime(9, 0).at(date, zone), requireNotNull(open.plannedStart))
+        assertEquals(LocalTime(13, 0).at(date, zone), requireNotNull(open.plannedEnd))
+    }
+
+    @Test
+    fun swapAfter2230_isRefused() = runBlocking {
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        clock.now = LocalTime(22, 30).at(date, zone)
+        orchestrator.handle(DayEvent.EndDay(EndReason.NORMAL))
+        assertEquals(DayState.Ended, orchestrator.state.value)
+        val before: List<Segment> = orchestrator.segments.value
+
+        clock.now = LocalTime(22, 40).at(date, zone)
+        orchestrator.handle(DayEvent.SwapTemplate(TemplateId.MON_THU))
+
+        assertEquals(DayState.Ended, orchestrator.state.value)
+        assertEquals("a refused swap must leave the day untouched", before, orchestrator.segments.value)
+        assertTrue(DayFlag.TEMPLATE_SWAPPED !in requireNotNull(history.readDay(date)).flags)
     }
 
     private class MovableClock(var now: Instant) : Clock {

@@ -74,6 +74,8 @@ import com.roni.blocks.core.daystate.isDishesSlot
 import com.roni.blocks.core.daystate.templateId
 import com.roni.blocks.core.debug.RecompositionCounter
 import com.roni.blocks.core.model.BlockType
+import com.roni.blocks.core.model.DayFlag
+import com.roni.blocks.core.model.DayRecord
 import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.Segment
@@ -106,6 +108,7 @@ import javax.inject.Inject
 import kotlin.time.Clock
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -115,6 +118,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+
+private const val ENDED_RECORD_READ_LIMIT = 500
 
 @HiltViewModel
 /**
@@ -139,6 +144,7 @@ private val day: DayOrchestrator,
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state.asStateFlow()
     private var actualDay: ActualDayUi? = null
+    private var endedRecord: DayRecord? = null
 
     private val _suppressedConfirmations = MutableStateFlow<Set<NowButtonId>>(emptySet())
 
@@ -165,12 +171,8 @@ private val day: DayOrchestrator,
     init {
         viewModelScope.launch {
             day.state.collect { state ->
-                actualDay = if (state is DayState.Ended) {
-                    history.readDay(clock.now().toLocalDateTime(zone).date)
-                        ?.let { ActualDayMapper.map(it, timeFormatter) }
-                } else {
-                    null
-                }
+                endedRecord = if (state is DayState.Ended) readEndedRecord() else null
+                actualDay = endedRecord?.let { ActualDayMapper.map(it, timeFormatter) }
                 publish(state)
             }
         }
@@ -246,6 +248,17 @@ private val day: DayOrchestrator,
         if (action.affectsOverlays) publish(day.state.value)
     }
 
+    private suspend fun readEndedRecord(): DayRecord? {
+        var record = history.readDay(clock.now().toLocalDateTime(zone).date)
+        var attempts = 0
+        while (record == null && attempts < ENDED_RECORD_READ_LIMIT) {
+            delay(10)
+            record = history.readDay(clock.now().toLocalDateTime(zone).date)
+            attempts++
+        }
+        return record
+    }
+
     private fun publish(dayState: DayState) {
         val now = clock.now()
         val minute = now.minuteOfDay(zone)
@@ -259,6 +272,7 @@ private val day: DayOrchestrator,
         val effectiveEndMin = open?.plannedEnd?.let { it.minuteOfDay(zone) }
         val leaking = current != null && effectiveEndMin != null && minute > effectiveEndMin
         val nextLabel = blocks.getOrNull(index + 1)
+        val emergencyEnded = dayState is DayState.Ended && endedRecord?.flags?.contains(DayFlag.EMERGENCY_STOP) == true
 
         if (dayState is DayState.Ended || dayState is DayState.Off || dayState is DayState.NotStarted) {
             selectedBlockId = null
@@ -268,8 +282,12 @@ private val day: DayOrchestrator,
         _state.value = HomeState(
             weekdayShort = now.toLocalDateTime(zone).dayOfWeek.name.take(3),
             dayOfMonth = now.toLocalDateTime(zone).day.toString(),
-            title = id?.let { templateDisplay(it).title }.orEmpty(),
-            status = status(blocks, index, leaking, effectiveEndMin, minute),
+            title = if (emergencyEnded) {
+                endedRecord?.template?.let { templateDisplay(it).title }.orEmpty()
+            } else {
+                id?.let { templateDisplay(it).title }.orEmpty()
+            },
+            status = if (emergencyEnded) "Stopped early (emergency)" else status(blocks, index, leaking, effectiveEndMin, minute),
             debugClock = debugClockLabel(minute),
             hourLabels = CalendarMapper.hourLabels(DAY_START_MIN, DAY_END_MIN, timeFormatter.use24.value).toPersistentList(),
             blocks = blocks,

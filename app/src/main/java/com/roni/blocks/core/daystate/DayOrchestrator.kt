@@ -211,6 +211,9 @@ class DayOrchestrator @Inject constructor(
         logger.info("transition ${_state.value} + $event -> $next")
         val fromKid = _state.value is DayState.KidTime
         record(event, now)
+        if (event is DayEvent.EndDay && event.reason == EndReason.EMERGENCY) {
+            book = book.copy(flags = book.flags + DayFlag.EMERGENCY_STOP)
+        }
         _state.value = next
         _segments.value = book.segments
         persist()

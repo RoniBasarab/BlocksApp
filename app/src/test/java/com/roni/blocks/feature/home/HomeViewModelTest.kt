@@ -187,6 +187,18 @@ class HomeViewModelTest {
         assertEquals(firstBlockId, viewModel.state.value.currentBlockId)
     }
 
+    @Test
+    fun homeTitle_afterEmergency_isTheTemplateTitle() = runBlocking {
+        startDayInsideCoding()
+
+        viewModel.onAction(HomeAction.Emergency)
+
+        awaitRunningOrPaused { it == DayState.Ended }
+        withTimeout(5_000) { viewModel.state.first { it.title == "Sunday / Tuesday / Wednesday" } }
+        assertEquals("Sunday / Tuesday / Wednesday", viewModel.state.value.title)
+        assertEquals("Stopped early (emergency)", viewModel.state.value.status)
+    }
+
     private suspend fun startDayInsideCoding() {
         orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
         awaitRunningOrPaused { it.blockIndex() == 0 }
