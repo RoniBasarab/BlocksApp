@@ -20,6 +20,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
@@ -50,7 +51,7 @@ class ActualDayMapperTest {
     @Before
     fun setUp() = runBlocking {
         java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("Asia/Jerusalem"))
-        val prefs = PrefsStorage(context)
+        val prefs = PrefsStorage(context, UnconfinedTestDispatcher())
         formatter = TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))
         history = HistoryManager(prefs)
         history.clear()

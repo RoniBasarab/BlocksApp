@@ -74,8 +74,7 @@ class DayOrchestratorProcessDeathTest {
     @Before
     fun setUp() {
         context.getSharedPreferences(PrefsFile.DAY.name.lowercase(), 0).edit().clear().commit()
-        prefs = PrefsStorage(context)
-        prefs.io = UnconfinedTestDispatcher()
+        prefs = PrefsStorage(context, UnconfinedTestDispatcher())
         File(context.filesDir, "logs/blocks.log").delete()
     }
 

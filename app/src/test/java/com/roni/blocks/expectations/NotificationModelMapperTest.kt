@@ -24,6 +24,7 @@ import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
@@ -44,7 +45,7 @@ class NotificationModelMapperTest {
     private val zone = TimeZone.of("Asia/Jerusalem")
     private val engine = ScheduleEngine(Clock.System, zone)
     private val context = ApplicationProvider.getApplicationContext<Application>()
-    private val prefs = PrefsStorage(context)
+    private val prefs = PrefsStorage(context, UnconfinedTestDispatcher())
     private val timeFormatter = TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))
     private val mapper = NotificationModelMapper(engine, zone, timeFormatter)
 

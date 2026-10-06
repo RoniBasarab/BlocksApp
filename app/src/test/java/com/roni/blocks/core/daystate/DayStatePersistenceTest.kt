@@ -26,8 +26,7 @@ class DayStatePersistenceTest {
     @Before
     fun setUp() {
         dayPrefs().edit().clear().commit()
-        prefs = PrefsStorage(context)
-        prefs.io = UnconfinedTestDispatcher()
+        prefs = PrefsStorage(context, UnconfinedTestDispatcher())
     }
 
     @After

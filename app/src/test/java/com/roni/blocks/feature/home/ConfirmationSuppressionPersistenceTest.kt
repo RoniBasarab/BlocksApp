@@ -4,6 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -24,7 +25,7 @@ class ConfirmationSuppressionPersistenceTest {
             .edit().clear().commit()
     }
 
-    private fun storage() = PrefsStorage(RuntimeEnvironment.getApplication())
+    private fun storage() = PrefsStorage(RuntimeEnvironment.getApplication(), UnconfinedTestDispatcher())
 
     private fun readSuppressed(prefs: PrefsStorage): Set<NowButtonId> = runBlocking {
         val stored = prefs.read(

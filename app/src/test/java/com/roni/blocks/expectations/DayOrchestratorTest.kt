@@ -30,6 +30,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
@@ -65,7 +66,7 @@ class DayOrchestratorTest {
     @Before
     fun setUp() {
         clock = MovableClock(LocalTime(9, 0).at(date, zone))
-        val prefs = PrefsStorage(context)
+        val prefs = PrefsStorage(context, UnconfinedTestDispatcher())
         val logger = AppLogger(context)
         val engine = ScheduleEngine(clock, zone)
         history = HistoryManager(prefs)

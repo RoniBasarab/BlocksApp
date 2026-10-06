@@ -22,6 +22,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.datetime.TimeZone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -43,7 +44,7 @@ class DebugTimeControllerTest {
     @Before
     fun setUp() {
         clock = DebugClock(context).apply { setOffsetMinutes(0) }
-        val prefs = PrefsStorage(context)
+        val prefs = PrefsStorage(context, UnconfinedTestDispatcher())
         val logger = AppLogger(context)
         val engine = ScheduleEngine(clock, zone)
         orchestrator = DayOrchestrator(
