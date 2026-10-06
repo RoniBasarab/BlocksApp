@@ -185,6 +185,18 @@ class DayOrchestratorTest {
         )
     }
 
+    @Test
+    fun timeSet_jumpForward_replaysMissedTransitions() = runBlocking {
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        clock.now = LocalTime(9, 10).at(date, zone)
+        assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 0), orchestrator.state.value)
+
+        clock.now = LocalTime(16, 30).at(date, zone)
+        orchestrator.onTimeTravelled()
+
+        assertEquals(DayState.KidTime, orchestrator.state.value)
+    }
+
     private class MovableClock(var now: Instant) : Clock {
         override fun now(): Instant = now
     }

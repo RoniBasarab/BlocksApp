@@ -142,6 +142,12 @@ class DayOrchestrator @Inject constructor(
 
     suspend fun onAlarm() {
         ensureRestored()
+        applyRollover()
+        if (applyOneMissedTransition()) return
+        sideEffects()
+    }
+
+    private suspend fun applyRollover() {
         val today = today()
         val stored = prefs.read(PrefsFile.DAY, DATE, LocalDateSerializer) ?: today
         val rolled = rollover(_state.value, stored, today)
@@ -151,8 +157,6 @@ class DayOrchestrator @Inject constructor(
             _segments.value = emptyList()
             persist()
         }
-        if (applyOneMissedTransition()) return
-        sideEffects()
     }
 
     /**
@@ -172,6 +176,7 @@ class DayOrchestrator @Inject constructor(
      */
     suspend fun onTimeTravelled() {
         ensureRestored()
+        applyRollover()
         replayMissedTransitions()
         if (_state.value == DayState.Ended || _state.value == DayState.Off) return
         sideEffects()
