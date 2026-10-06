@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.1
+- Unit tests are deterministic: every coroutine the code starts belongs to the test that started it.
+- Settings saves a change before showing it.
+- Fixed: a clock or timezone change now catches up on missed blocks, like a restart.
+
 ## 1.5.0
 - Fixed: the app could stay on the splash screen after Android killed it mid-day, and the notification buttons did nothing then.
 - Swap template works in every state, including after the day ended; it re-plans the rest of today from now.
