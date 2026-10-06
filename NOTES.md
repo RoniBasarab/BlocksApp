@@ -33,6 +33,7 @@
 ## Slice 2c: injecting the io dispatcher
 
 - `PrefsStorage` now takes `@IoDispatcher io: CoroutineDispatcher` instead of hardcoding `Dispatchers.IO`; production injects the existing `@IoDispatcher` binding, tests pass `UnconfinedTestDispatcher()` so every write commits before the assertion. All 15 test files updated mechanically.
+- The pattern: `core/di/CoroutinesModule.kt` declares the `@IoDispatcher` and `@ApplicationScope` qualifiers and binds the io dispatcher plus an app-wide `SupervisorJob` scope; any class that used to pick its own dispatcher or scope now asks for one of these instead.
 - Judgment call: the 3x acceptance's third run failed `DayOrchestratorRestoreTest.legacyInterrupted_restoresAsRunning` (`expected:<Running(template=SUN_TUE_WED, blockIndex=2)> but was:<NotStarted>`) - the flakiness Task-6 already listed. Root cause: Robolectric boots the manifest's `.App`, whose `onCreate` launches `ensureRestored()` on the real `Dispatchers.IO`; that restore uses the real clock (today != the seeded 2026-09-27) and persists `NotStarted` back over the test's seed - the same "coroutine on Dispatchers.IO outlives the test" symptom Task-6 reported. Fixed with `app/src/test/resources/robolectric.properties` (`application=android.app.Application`): unit tests get a plain `Application`, no production graph, no background restore. No test references `com.roni.blocks.App` or an `@AndroidEntryPoint` component, so nothing depended on it. Acceptance restarted from run 1 after this fix.
 
 ## Slice 3: settings saves before it says so
