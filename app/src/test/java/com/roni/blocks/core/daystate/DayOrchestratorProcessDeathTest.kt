@@ -31,7 +31,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
@@ -108,6 +110,36 @@ class DayOrchestratorProcessDeathTest {
             assertEquals(case.name, case.state, orchestrator.state.value)
             assertEquals(case.name, case.segments, orchestrator.segments.value)
         }
+    }
+
+    @Test
+    fun concurrentEntryPoints_restoreOnce_keepSavedDay() = runTest {
+        val segments = planned("sun_tue_wed.coding_am", 9, 30, 11, 30)
+        seed(DayState.Running(TemplateId.SUN_TUE_WED, 1), segments)
+        val orchestrator = orchestrator(at(LocalTime(10, 0)), Dispatchers.Default)
+
+        withContext(Dispatchers.Default) {
+            coroutineScope {
+                launch { orchestrator.ensureRestored() }
+                launch { orchestrator.ensureRestored() }
+                launch { orchestrator.ensureRestored() }
+                launch { orchestrator.send(DayEvent.Pause) }
+            }
+        }
+
+        val paused = withContext(Dispatchers.Default) {
+            withTimeout(5_000) { orchestrator.state.first { it is DayState.Paused } }
+        }
+        assertEquals(DayState.Paused(DayState.Running(TemplateId.SUN_TUE_WED, 1), at(LocalTime(10, 0))), paused)
+        assertTrue("restore must be marked done", orchestrator.isRestored.value)
+
+        val log = File(context.filesDir, "logs/blocks.log").readText()
+        val restores = log.lines().count { it.contains("restored day_state") }
+        assertEquals("restore must run exactly once: $log", 1, restores)
+
+        val stored = prefs.read(PrefsFile.DAY, "today_segments", kotlinx.serialization.builtins.ListSerializer(Segment.serializer()))
+        assertTrue("storage lost today's segments: $stored", stored != null && segments.all { it in stored })
+        assertEquals("storage lost today's date", date, prefs.read(PrefsFile.DAY, "today_date", LocalDateSerializer))
     }
 
     @Test

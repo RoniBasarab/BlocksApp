@@ -114,6 +114,7 @@ class DayOrchestrator @Inject constructor(
             if (_isRestored.value) return
             try {
                 restoreFromStorage()
+                logger.info("restored day_state=${_state.value}")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
