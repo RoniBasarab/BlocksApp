@@ -11,6 +11,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonDecoder
 
 @Serializable
@@ -111,16 +113,27 @@ private data class LegacyInterrupted(
 object DayStateSerializer : KSerializer<DayState> {
     private val delegate: KSerializer<DayState> = DayState.serializer()
 
+    private val arrayJson = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+        useArrayPolymorphism = true
+    }
+
     override val descriptor: SerialDescriptor = delegate.descriptor
 
-    override fun serialize(encoder: Encoder, value: DayState): Unit = delegate.serialize(encoder, value)
+    override fun serialize(encoder: Encoder, value: DayState): Unit =
+        encoder.encodeSerializableValue(delegate, value)
 
     override fun deserialize(decoder: Decoder): DayState {
         // Only a JSON decoder can be re-read; anything else has no legacy form to fall back to.
-        val input = decoder as? JsonDecoder ?: return delegate.deserialize(decoder)
+        val input = decoder as? JsonDecoder ?: return decoder.decodeSerializableValue(delegate)
         val element = input.decodeJsonElement()
-        return runCatching { input.json.decodeFromJsonElement(delegate, element) }
-            .recoverCatching { input.json.decodeFromJsonElement(LegacyInterrupted.serializer(), element).running }
+        val json = if (element is JsonArray) arrayJson else input.json
+        return runCatching { json.decodeFromJsonElement(delegate, element) }
+            .recoverCatching {
+                val payload = (element as? JsonArray)?.getOrNull(1) ?: element
+                json.decodeFromJsonElement(LegacyInterrupted.serializer(), payload).running
+            }
             .getOrElse { cause -> throw SerializationException("unreadable day state", cause) }
     }
 }
