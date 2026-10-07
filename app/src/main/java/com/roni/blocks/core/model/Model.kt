@@ -44,6 +44,13 @@ enum class DayFlag {
     AUTO_ENDED,
     EMERGENCY_STOP,
     TEMPLATE_SWAPPED,
+    PLAN_EDITED,
+}
+
+@Serializable
+enum class MissReason {
+    OVERRUN,
+    LATE_START,
 }
 
 @Serializable
@@ -109,6 +116,8 @@ data class Segment(
     @Serializable(with = InstantSerializer::class) val plannedEnd: Instant? = null,
     @Serializable(with = InstantSerializer::class) val actualStart: Instant,
     @Serializable(with = InstantSerializer::class) val actualEnd: Instant? = null,
+    val blockId: String? = null,
+    val missReason: MissReason? = null,
 )
 
 @Serializable
