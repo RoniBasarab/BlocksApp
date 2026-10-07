@@ -31,8 +31,8 @@ class TimeFormatter @Inject constructor(
     }
 
     suspend fun setUse24(value: Boolean) {
-        _use24.value = value
         prefs.write(PrefsFile.SETTINGS, KEY, value, Boolean.serializer())
+        _use24.value = value
     }
 
     fun hourLabel(minute: Int): String = hourGutter(minute, _use24.value)

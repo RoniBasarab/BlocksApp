@@ -33,6 +33,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
@@ -82,7 +83,7 @@ class SettingsViewModelTest {
         Dispatchers.setMain(Dispatchers.Unconfined)
         clock = MovableClock(LocalTime(10, 0).at(date, zone))
         logger = AppLogger(context)
-        prefs = PrefsStorage(context)
+        prefs = PrefsStorage(context, UnconfinedTestDispatcher())
         history = HistoryManager(prefs)
         timeFormatter = TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))
         port = FakeNotificationPort()

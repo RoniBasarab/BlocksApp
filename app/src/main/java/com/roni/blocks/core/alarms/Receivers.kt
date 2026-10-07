@@ -61,7 +61,7 @@ class SystemEventsReceiver : BroadcastReceiver() {
             try {
                 withTimeout(9_000) {
                     orchestrator.ensureRestored()
-                    orchestrator.onAlarm()
+                    orchestrator.onTimeTravelled()
                 }
             } catch (t: Throwable) {
                 logger.error("SystemEventsReceiver", t)

@@ -32,6 +32,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
@@ -73,7 +74,7 @@ class HomeViewModelTest {
         Dispatchers.setMain(Dispatchers.Unconfined)
         clock = MovableClock(LocalTime(10, 0).at(date, zone))
         val logger = AppLogger(context)
-        prefs = PrefsStorage(context)
+        prefs = PrefsStorage(context, UnconfinedTestDispatcher())
         history = HistoryManager(prefs)
         orchestrator = DayOrchestrator(
             prefs = prefs,
@@ -184,6 +185,18 @@ class HomeViewModelTest {
     fun startedDayHomeTracksFirstBlock() = runBlocking {
         startDayInsideCoding()
         assertEquals(firstBlockId, viewModel.state.value.currentBlockId)
+    }
+
+    @Test
+    fun homeTitle_afterEmergency_isTheTemplateTitle() = runBlocking {
+        startDayInsideCoding()
+
+        viewModel.onAction(HomeAction.Emergency)
+
+        awaitRunningOrPaused { it == DayState.Ended }
+        withTimeout(5_000) { viewModel.state.first { it.title == "Sunday / Tuesday / Wednesday" } }
+        assertEquals("Sunday / Tuesday / Wednesday", viewModel.state.value.title)
+        assertEquals("Stopped early (emergency)", viewModel.state.value.status)
     }
 
     private suspend fun startDayInsideCoding() {

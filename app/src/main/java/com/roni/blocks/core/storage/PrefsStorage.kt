@@ -2,11 +2,11 @@ package com.roni.blocks.core.storage
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.roni.blocks.core.di.IoDispatcher
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -19,9 +19,8 @@ enum class PrefsFile { DAY, SETTINGS, HISTORY }
 @Singleton
 class PrefsStorage @Inject constructor(
     @ApplicationContext private val context: Context,
+    @IoDispatcher internal val io: CoroutineDispatcher,
 ) {
-    // Dagger has no binding for a dispatcher, so tests that need writes to land synchronously swap this.
-    internal var io: CoroutineDispatcher = Dispatchers.IO
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true

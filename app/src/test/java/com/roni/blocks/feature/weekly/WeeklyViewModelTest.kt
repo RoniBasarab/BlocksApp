@@ -16,6 +16,7 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlinx.datetime.LocalDate
@@ -53,7 +54,7 @@ class WeeklyViewModelTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(Dispatchers.Unconfined)
-        val prefs = PrefsStorage(context)
+        val prefs = PrefsStorage(context, UnconfinedTestDispatcher())
         history = HistoryManager(prefs)
         clock = MovableClock(LocalTime(10, 0).at(today, zone))
         runBlocking { history.clear() }

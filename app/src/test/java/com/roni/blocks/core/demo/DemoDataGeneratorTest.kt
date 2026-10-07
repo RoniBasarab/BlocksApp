@@ -10,6 +10,7 @@ import com.roni.blocks.core.time.at
 import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
@@ -42,7 +43,7 @@ class DemoDataGeneratorTest {
 
     @Before
     fun setUp() = runBlocking {
-        val prefs = PrefsStorage(context)
+        val prefs = PrefsStorage(context, UnconfinedTestDispatcher())
         history = HistoryManager(prefs)
         history.clear()
         generator = DemoDataGenerator(

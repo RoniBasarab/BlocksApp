@@ -114,6 +114,7 @@ class DayOrchestrator @Inject constructor(
             if (_isRestored.value) return
             try {
                 restoreFromStorage()
+                logger.info("restored day_state=${_state.value}")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -141,6 +142,12 @@ class DayOrchestrator @Inject constructor(
 
     suspend fun onAlarm() {
         ensureRestored()
+        applyRollover()
+        if (applyOneMissedTransition()) return
+        sideEffects()
+    }
+
+    private suspend fun applyRollover() {
         val today = today()
         val stored = prefs.read(PrefsFile.DAY, DATE, LocalDateSerializer) ?: today
         val rolled = rollover(_state.value, stored, today)
@@ -150,8 +157,6 @@ class DayOrchestrator @Inject constructor(
             _segments.value = emptyList()
             persist()
         }
-        if (applyOneMissedTransition()) return
-        sideEffects()
     }
 
     /**
@@ -171,6 +176,7 @@ class DayOrchestrator @Inject constructor(
      */
     suspend fun onTimeTravelled() {
         ensureRestored()
+        applyRollover()
         replayMissedTransitions()
         if (_state.value == DayState.Ended || _state.value == DayState.Off) return
         sideEffects()
@@ -205,6 +211,9 @@ class DayOrchestrator @Inject constructor(
         logger.info("transition ${_state.value} + $event -> $next")
         val fromKid = _state.value is DayState.KidTime
         record(event, now)
+        if (event is DayEvent.EndDay && event.reason == EndReason.EMERGENCY) {
+            book = book.copy(flags = book.flags + DayFlag.EMERGENCY_STOP)
+        }
         _state.value = next
         _segments.value = book.segments
         persist()

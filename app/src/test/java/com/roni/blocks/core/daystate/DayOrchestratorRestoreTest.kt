@@ -65,8 +65,7 @@ class DayOrchestratorRestoreTest {
     @Before
     fun setUp() {
         context.getSharedPreferences(PrefsFile.DAY.name.lowercase(), 0).edit().clear().commit()
-        prefs = PrefsStorage(context)
-        prefs.io = UnconfinedTestDispatcher()
+        prefs = PrefsStorage(context, UnconfinedTestDispatcher())
     }
 
     @After

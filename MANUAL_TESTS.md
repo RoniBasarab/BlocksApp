@@ -10,7 +10,7 @@ With a phone attached, run them with:
 These four cannot be automated reliably (they depend on the launcher, the reboot flow, the keyguard
 and the system DND state), so Roni runs them by hand.
 
-## Check on the phone (1.5.0)
+## Check on the phone (1.5.1)
 
 1. Pick a template, swipe the app away from recents, open it: Home appears within 3 seconds.
 2. Same, but tap Pause and then Next on the notification instead: both work.

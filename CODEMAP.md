@@ -54,8 +54,9 @@ Rules that hold everywhere:
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `core/di/AppModule.kt` | `ApplicationScope` qualifier and app-wide bindings | Hilt |
+| `core/di/AppModule.kt` | The `CoroutineExceptionHandler` binding | Hilt |
 | `core/di/ClockModule.kt` | Binds `Clock`: debug gets the jumpable clock, release the system clock | ClockModule, SystemTimeMapper |
+| `core/di/CoroutinesModule.kt` | The `@IoDispatcher` and `@ApplicationScope` qualifiers: the two ways production code gets a dispatcher or scope | Hilt |
 | `core/di/NotificationModule.kt` | Binds `NotificationPort` to the real renderer | NotificationRenderer |
 
 ## core/logging
