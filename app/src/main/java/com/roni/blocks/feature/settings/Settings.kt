@@ -37,8 +37,10 @@ import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
@@ -59,6 +61,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -107,6 +110,12 @@ import kotlinx.coroutines.launch
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
+import androidx.compose.runtime.Immutable
+import androidx.compose.foundation.layout.PaddingValues
+import com.roni.blocks.designsystem.AppType
+import com.roni.blocks.designsystem.AppCard
 
 enum class PermissionStatus { ALLOWED, BLOCKED, NOT_SET }
 
@@ -453,37 +462,41 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
 
             if (BuildConfig.DEBUG) {
                 SectionHeader("Developer")
-                SectionCard {
-                    SettingsRow(
-                        icon = Icons.Outlined.Schedule,
-                        title = "Clock",
-                        trailing = {
-                            Text(
-                                state.clockLabel,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = if (state.clockShifted) AppTheme.colors.secondary else AppTheme.colors.textMuted,
-                            )
-                        },
-                    )
-                }
-                ClockChips(shifted = state.clockShifted, onAction = onAction)
-                SectionCard {
-                    SettingsRow(
-                        icon = Icons.Outlined.Bedtime,
-                        title = "Kid asleep now",
-                        trailing = { Chevron() },
-                        enabled = state.inKidTime,
-                        onClick = { onAction(SettingsAction.DebugKidAsleep) },
-                    )
-                    CardDivider()
-                    SettingsRow(
-                        icon = Icons.Outlined.Restaurant,
-                        title = "Skip dishes",
-                        trailing = { Chevron() },
-                        enabled = state.inDishes,
-                        onClick = { onAction(SettingsAction.DebugSkipDishes) },
-                    )
-                }
+                val groups = listOf(
+                    DebugGroupUi(
+                        title = "Jump to",
+                        columns = 2,
+                        buttons = listOf(
+                            DebugButtonUi("09:31", "CV ran over", SettingsAction.DebugClockTo("09:31")),
+                            DebugButtonUi("12:00", "Gym", SettingsAction.DebugClockTo("12:00")),
+                            DebugButtonUi("16:20", "Kid time", SettingsAction.DebugClockTo("16:20")),
+                            DebugButtonUi("20:05", "Evening prompt", SettingsAction.DebugClockTo("20:05")),
+                        ).toImmutableList(),
+                    ),
+                    DebugGroupUi(
+                        title = "Move forward",
+                        columns = 3,
+                        buttons = listOf(
+                            DebugButtonUi("+10 min", null, SettingsAction.DebugClockShift(10)),
+                            DebugButtonUi("+30 min", null, SettingsAction.DebugClockShift(30)),
+                            DebugButtonUi("+1 hour", null, SettingsAction.DebugClockShift(60)),
+                        ).toImmutableList(),
+                    ),
+                    DebugGroupUi(
+                        title = "Evening",
+                        columns = 2,
+                        buttons = listOf(
+                            DebugButtonUi("Kid asleep now", null, SettingsAction.DebugKidAsleep, enabled = state.inKidTime),
+                            DebugButtonUi("Skip dishes", null, SettingsAction.DebugSkipDishes, enabled = state.inDishes),
+                        ).toImmutableList(),
+                    ),
+                ).toImmutableList()
+                DebugClockCard(
+                    time = state.clockLabel,
+                    offset = if (state.clockShifted) "Shifted" else "Real time",
+                    groups = groups,
+                    onAction = onAction,
+                )
                 SectionCard {
                     SettingsRow(
                         icon = Icons.Outlined.Refresh,
@@ -584,6 +597,80 @@ private fun ClockChip(label: String, selected: Boolean = false, onClick: () -> U
         style = MaterialTheme.typography.labelLarge,
         color = AppTheme.colors.secondary,
     )
+}
+
+@Immutable
+data class DebugButtonUi(
+    val top: String,
+    val bottom: String?,
+    val action: SettingsAction,
+    val enabled: Boolean = true,
+)
+
+@Immutable
+data class DebugGroupUi(
+    val title: String,
+    val columns: Int,
+    val buttons: ImmutableList<DebugButtonUi>,
+)
+
+@Composable
+fun DebugClockCard(
+    time: String,
+    offset: String,
+    groups: ImmutableList<DebugGroupUi>,
+    onAction: (SettingsAction) -> Unit,
+) {
+    val c = AppTheme.colors
+    AppCard(
+        Modifier
+            .fillMaxWidth()
+            .testTag("debug_clock_card"),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Debug clock", style = MaterialTheme.typography.labelLarge, color = c.textSecondary)
+                    Text(time, style = MaterialTheme.typography.headlineSmall.merge(AppType.numbers))
+                    Text(offset, style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                }
+                OutlinedButton(onClick = { onAction(SettingsAction.DebugClockRealTime) }) { Text("Real time") }
+            }
+            groups.forEach { g ->
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                    Text(g.title, style = MaterialTheme.typography.labelMedium, color = c.textSecondary)
+                    g.buttons.chunked(g.columns).forEach { row ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                            row.forEach { DebugButton(it, onAction, Modifier.weight(1f)) }
+                            repeat(g.columns - row.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DebugButton(
+    b: DebugButtonUi,
+    onAction: (SettingsAction) -> Unit,
+    modifier: Modifier,
+) {
+    val c = AppTheme.colors
+    FilledTonalButton(
+        onClick = { onAction(b.action) },
+        enabled = b.enabled,
+        modifier = modifier.heightIn(min = 56.dp),
+        shape = AppShapes.card,
+        contentPadding = PaddingValues(horizontal = Spacing.s, vertical = Spacing.xs),
+        colors = ButtonDefaults.filledTonalButtonColors(containerColor = c.surfaceRaised, contentColor = c.textPrimary),
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(b.top, style = MaterialTheme.typography.labelLarge.merge(AppType.numbers), maxLines = 1)
+            b.bottom?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = c.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        }
+    }
 }
 
 @Composable
