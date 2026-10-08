@@ -37,6 +37,7 @@ import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -292,4 +293,32 @@ class DayOrchestratorTest {
 
         override fun sendTestNotification() = Unit
     }
+
+    @Test
+    fun startDay_late_landsOnTheCurrentBlock() = runBlocking {
+        clock.now = LocalTime(10, 40).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        val state = orchestrator.state.value
+        assertTrue(state is DayState.Running)
+        assertEquals(1, (state as DayState.Running).blockIndex)
+        val consumedCv = orchestrator.segments.value.find { it.kind == SegmentKind.CONSUMED && it.type == com.roni.blocks.core.model.BlockType.Cv }
+        assertNotNull(consumedCv)
+        assertEquals(com.roni.blocks.core.model.MissReason.LATE_START, consumedCv!!.missReason)
+        assertEquals("sun_tue_wed.cv", consumedCv.blockId)
+    }
+
+    @Test
+    fun startDay_inKidTime_isKidTime() = runBlocking {
+        clock.now = LocalTime(16, 30).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        assertEquals(DayState.KidTime, orchestrator.state.value)
+    }
+
+    @Test
+    fun startDay_after2230_isRefused() = runBlocking {
+        clock.now = LocalTime(22, 40).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        assertEquals(DayState.NotStarted, orchestrator.state.value)
+    }
+
 }

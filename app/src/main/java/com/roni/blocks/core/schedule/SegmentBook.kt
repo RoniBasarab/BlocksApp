@@ -4,6 +4,7 @@ import com.roni.blocks.core.model.BlockSpec
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.DayFlag
+import com.roni.blocks.core.model.MissReason
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.Template
@@ -58,7 +59,7 @@ object SegmentBook {
         val blocks = resolve(template, date, zone, Duration.ZERO)
         val index = blocks.indexOfFirst { now >= it.plannedStart && now < it.plannedEnd }
             .let { if (it >= 0) it else blocks.indexOfFirst { block -> now < block.plannedEnd }.coerceAtLeast(0) }
-        val consumed = blocks.take(index).map { consumed(it) }
+        val consumed = blocks.take(index).map { consumedLateStart(it) }
         val current = blocks.getOrNull(index) ?: return DayBook(consumed, plannedBlocks = template.blocks)
         return DayBook(consumed + open(current, now), index = index, plannedBlocks = template.blocks)
     }
@@ -183,10 +184,13 @@ object SegmentBook {
         segments.map { if (it.actualEnd == null) it.copy(actualEnd = at) else it }
 
     private fun open(block: ResolvedBlock, at: Instant) =
-        segment(block.spec.type, SegmentKind.PLANNED, block.plannedStart, block.plannedEnd, at, null)
+        segment(block.spec.type, SegmentKind.PLANNED, block.plannedStart, block.plannedEnd, at, null, block.spec.id)
 
     private fun consumed(block: ResolvedBlock) =
-        segment(block.spec.type, SegmentKind.CONSUMED, block.plannedStart, block.plannedEnd, block.plannedStart, block.plannedEnd)
+        segment(block.spec.type, SegmentKind.CONSUMED, block.plannedStart, block.plannedEnd, block.plannedStart, block.plannedEnd, block.spec.id, MissReason.OVERRUN)
+
+    private fun consumedLateStart(block: ResolvedBlock) =
+        segment(block.spec.type, SegmentKind.CONSUMED, block.plannedStart, block.plannedEnd, block.plannedStart, block.plannedEnd, block.spec.id, MissReason.LATE_START)
 
     private fun segment(
         type: BlockType,
@@ -195,5 +199,7 @@ object SegmentBook {
         plannedEnd: Instant?,
         actualStart: Instant,
         actualEnd: Instant?,
-    ) = Segment(type, kind, plannedStart, plannedEnd, actualStart, actualEnd)
+        blockId: String? = null,
+        missReason: MissReason? = null,
+    ) = Segment(type, kind, plannedStart, plannedEnd, actualStart, actualEnd, blockId, missReason)
 }

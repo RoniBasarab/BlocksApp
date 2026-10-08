@@ -67,7 +67,7 @@ class HomeViewModelTest {
     private lateinit var orchestrator: DayOrchestrator
     private lateinit var viewModel: HomeViewModel
 
-    private val firstBlockId = "sun_tue_wed.cv"
+    private val firstBlockId = "sun_tue_wed.coding_am"
 
     @Before
     fun setUp() {

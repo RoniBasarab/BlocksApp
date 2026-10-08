@@ -195,6 +195,14 @@ class DayOrchestrator @Inject constructor(
 
     private suspend fun apply(event: DayEvent) {
         val now = clock.now()
+        if (event is DayEvent.StartDay) {
+            val nowLocal = now.toLocalDateTime(zone).time
+            val tooLate = (nowLocal.hour > 22) || (nowLocal.hour == 22 && nowLocal.minute >= 30)
+            if (tooLate) {
+                logger.info("refusing StartDay after 22:30")
+                return
+            }
+        }
         if (event is DayEvent.SwapTemplate) return applySwap(event, now)
         if (event is DayEvent.Next) {
             val current = _state.value.currentBlockId()
@@ -214,12 +222,23 @@ class DayOrchestrator @Inject constructor(
         if (event is DayEvent.EndDay && event.reason == EndReason.EMERGENCY) {
             book = book.copy(flags = book.flags + DayFlag.EMERGENCY_STOP)
         }
-        _state.value = next
+        _state.value = when {
+            event is DayEvent.StartDay && event.template != TemplateId.OFF -> {
+                val template = templates.get(event.template)
+                val currentBlock = template.blocks.getOrNull(book.index)
+                if (currentBlock?.type == BlockType.KidTime) {
+                    DayState.KidTime
+                } else {
+                    DayState.Running(event.template, book.index.coerceAtLeast(0))
+                }
+            }
+            else -> next
+        }
         _segments.value = book.segments
         persist()
-        if (next == DayState.Ended || next == DayState.Off) {
+        if (_state.value == DayState.Ended || _state.value == DayState.Off) {
             val fromEvent = buildSet {
-                if (next == DayState.Off) add(DayFlag.OFF_DAY)
+                if (_state.value == DayState.Off) add(DayFlag.OFF_DAY)
                 if (event is DayEvent.EndDay) {
                     if (fromKid) add(DayFlag.EVENING_SKIPPED)
                     if (event.reason == EndReason.EMERGENCY) add(DayFlag.EMERGENCY_STOP)
