@@ -10,7 +10,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.HourglassBottom
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.Menu
@@ -52,7 +51,6 @@ fun AppTopBar(
     scrolled: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
     onHistory: () -> Unit = {},
-    onDebt: () -> Unit = {},
     onSettings: () -> Unit = {},
     showMenu: Boolean = true,
     onExplain: (() -> Unit)? = null,
@@ -66,7 +64,6 @@ fun AppTopBar(
                 AppMenuButton { destination ->
                     when (destination) {
                         MenuDestination.History -> onHistory()
-                        MenuDestination.TimeDebt -> onDebt()
                         MenuDestination.Settings -> onSettings()
                     }
                 }
@@ -82,7 +79,6 @@ fun AppTopBar(
 
 enum class MenuDestination(val label: String, val icon: ImageVector) {
     History("History", Icons.Outlined.History),
-    TimeDebt("Time Debt", Icons.Outlined.HourglassBottom),
     Settings("Settings", Icons.Outlined.Settings),
 }
 
@@ -132,7 +128,7 @@ fun TabTopBar(
 }
 
 private val ExplainerTerms = listOf(
-    "Ran over (time debt)" to "Time a block kept going after its planned end, until you tapped Next.",
+    "Ran over" to "Time a block kept going after its planned end, until you tapped Next.",
     "Plan followed" to "Time you actually spent in CV, Coding and Gym, out of the time planned for them. Paused time doesn't count.",
     "Pause time" to "Short breaks you took inside a block with Pause.",
     "Evenings skipped" to "Days the evening never started because Kid asleep wasn't tapped before 22:30.",

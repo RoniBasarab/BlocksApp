@@ -112,9 +112,6 @@ class DemoDataGeneratorTest {
     private suspend fun snapshot(): String {
         val days = history.days()
         val records = days.joinToString { formatRecord(it) }
-        val debts = buildList {
-            for (day in days) add((history.readDebt(day.date)?.leakMinutes ?: -1).toString())
-        }.joinToString()
         val weekStarts = days.map { history.weekStart(it.date) }.distinct()
         val weeks = buildList {
             for (week in weekStarts) {
@@ -122,7 +119,7 @@ class DemoDataGeneratorTest {
                 add(aggregate?.let { "${it.leakMinutes}:${it.pauseMinutes}:${it.interruptionMinutes}" } ?: "none")
             }
         }.joinToString()
-        return "$records|$debts|$weeks"
+        return "$records|$weeks"
     }
 
     private fun formatRecord(record: com.roni.blocks.core.model.DayRecord): String =

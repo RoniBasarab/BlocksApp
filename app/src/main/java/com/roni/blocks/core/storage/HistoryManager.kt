@@ -3,7 +3,6 @@ package com.roni.blocks.core.storage
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
-import com.roni.blocks.core.model.DebtRecord
 import com.roni.blocks.core.model.LocalDateSerializer
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
@@ -30,12 +29,12 @@ data class WeekAggregate(
 
 @Singleton
 /**
- * The only reader and writer of stored days, time debt and week aggregates. Rules: writing a day
+ * The only reader and writer of stored days and week aggregates. Rules: writing a day
  * prunes old ones, so pruning must stay inside the write path; weeks start on Sunday and every
  * weekly figure goes through [aggregateWeek], so the day-end flush and demo seeding cannot drift
  * apart; clearing history keeps today.
  *
- * Talks to: [PrefsStorage], [DayRecord], [DebtRecord].
+ * Talks to: [PrefsStorage], [DayRecord].
  */
 class HistoryManager @Inject constructor(
     private val prefs: PrefsStorage,
@@ -47,13 +46,6 @@ class HistoryManager @Inject constructor(
 
     suspend fun readDay(date: LocalDate): DayRecord? =
         prefs.read(PrefsFile.HISTORY, dayKey(date), DayRecord.serializer())
-
-    suspend fun writeDebt(record: DebtRecord) {
-        prefs.write(PrefsFile.HISTORY, debtKey(record.date), record, DebtRecord.serializer())
-    }
-
-    suspend fun readDebt(date: LocalDate): DebtRecord? =
-        prefs.read(PrefsFile.HISTORY, debtKey(date), DebtRecord.serializer())
 
     suspend fun writeWeek(aggregate: WeekAggregate) {
         prefs.write(PrefsFile.HISTORY, weekKey(aggregate.weekStart), aggregate, WeekAggregate.serializer())
@@ -68,7 +60,7 @@ class HistoryManager @Inject constructor(
         .sortedByDescending { it.date }
 
     suspend fun clear(keepToday: LocalDate? = null) {
-        val kept = setOfNotNull(keepToday?.let { dayKey(it) }, keepToday?.let { debtKey(it) }, keepToday?.let { weekKey(it) })
+        val kept = setOfNotNull(keepToday?.let { dayKey(it) }, keepToday?.let { weekKey(it) })
         prefs.keys(PrefsFile.HISTORY).filter { it !in kept }.forEach { prefs.remove(PrefsFile.HISTORY, it) }
     }
 
@@ -82,7 +74,6 @@ class HistoryManager @Inject constructor(
     fun aggregateWeek(
         weekStart: LocalDate,
         days: List<DayRecord>,
-        debts: Map<LocalDate, DebtRecord> = emptyMap(),
     ): WeekAggregate {
         val minutesByType = mutableMapOf<String, Int>()
         var leakMinutes = 0
@@ -92,7 +83,7 @@ class HistoryManager @Inject constructor(
         val flags = mutableSetOf<DayFlag>()
         days.forEach { day ->
             flags += day.flags
-            debts[day.date]?.let { leakMinutes += it.leakMinutes } ?: run { leakMinutes += debtMinutes(day.segments) }
+            leakMinutes += debtMinutes(day.segments)
             day.segments.forEach { segment ->
                 when (segment.kind) {
                     SegmentKind.PLANNED -> segment.actualEnd?.let { actualEnd ->
@@ -125,7 +116,6 @@ class HistoryManager @Inject constructor(
         prefs.keys(PrefsFile.HISTORY).filter { it.startsWith("record_") }.forEach { key ->
             prefs.read(PrefsFile.HISTORY, key, DayRecord.serializer())?.takeIf { it.demo }?.let { record ->
                 prefs.remove(PrefsFile.HISTORY, key)
-                prefs.remove(PrefsFile.HISTORY, debtKey(record.date))
                 removedDates += record.date
             }
         }
@@ -145,7 +135,6 @@ class HistoryManager @Inject constructor(
     }
 
     private fun dayKey(date: LocalDate) = "record_$date"
-    private fun debtKey(date: LocalDate) = "debt_$date"
     private fun weekKey(date: LocalDate) = "agg_week_$date"
 }
 

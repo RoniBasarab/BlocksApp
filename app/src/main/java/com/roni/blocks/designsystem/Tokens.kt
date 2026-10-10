@@ -46,7 +46,6 @@ object Metrics {
     val nowCardAboveBar = 8.dp
     val stripHeight = 8.dp
     val chart = 200.dp
-    val debtChart = 160.dp
     val tile = 96.dp
     val row = 56.dp
     val dividerStart = 64.dp

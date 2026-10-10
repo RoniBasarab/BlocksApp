@@ -24,7 +24,6 @@ import com.roni.blocks.feature.history.HistoryScreen
 import com.roni.blocks.feature.insights.InsightsScreen
 import com.roni.blocks.feature.settings.SettingsScreen
 import com.roni.blocks.feature.templatepicker.TemplatePickerScreen
-import com.roni.blocks.feature.timedebt.TimeDebtScreen
 import com.roni.blocks.feature.weekly.WeeklyScreen
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -99,10 +98,6 @@ class UiExpectationsTest {
     @Test
     fun history_empty_isCentered() =
         checkEmptyState("No history yet") { HistoryScreen(FakeStates.historyEmpty(), {}) }
-
-    @Test
-    fun timeDebt_empty_isCentered() =
-        checkEmptyState("No time debt yet") { TimeDebtScreen(FakeStates.timeDebtEmpty(), {}) }
 
     @Test
     fun weekly_layout() {

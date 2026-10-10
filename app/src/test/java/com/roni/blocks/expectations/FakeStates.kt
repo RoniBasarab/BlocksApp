@@ -27,8 +27,6 @@ import com.roni.blocks.feature.settings.PermissionStatus
 import com.roni.blocks.feature.settings.SettingsUiState
 import com.roni.blocks.feature.templatepicker.PickerCard
 import com.roni.blocks.feature.templatepicker.PickerUiState
-import com.roni.blocks.feature.timedebt.DebtDay
-import com.roni.blocks.feature.timedebt.TimeDebtUiState
 import com.roni.blocks.feature.weekly.PlanProgressUi
 import com.roni.blocks.feature.weekly.WeeklyStat
 import com.roni.blocks.feature.weekly.WeeklyUiState
@@ -272,19 +270,6 @@ object FakeStates {
                     ),
                 ),
             ),
-        ),
-    )
-
-    fun timeDebtEmpty(): TimeDebtUiState = TimeDebtUiState(hasDebt = false)
-
-    fun timeDebtWithDebt(): TimeDebtUiState = TimeDebtUiState(
-        hasDebt = true,
-        totalMinutes = 95,
-        days = listOf(
-            DebtDay("Mon", 25),
-            DebtDay("Tue", 0),
-            DebtDay("Wed", 40),
-            DebtDay("Thu", 30),
         ),
     )
 

@@ -9,13 +9,11 @@ import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
-import com.roni.blocks.core.model.DebtRecord
 import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.schedule.SegmentBook
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.TemplateManager
-import com.roni.blocks.core.storage.debtMinutes
 import com.roni.blocks.core.time.at
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -32,7 +30,7 @@ import kotlinx.datetime.minus
 import kotlinx.datetime.toLocalDateTime
 
 /**
- * Debug-only filler for History, Weekly, Insights and Time Debt. A day is never hand-written:
+ * Debug-only filler for History, Weekly and Insights. A day is never hand-written:
  * its events are replayed through the pure [DayStateMachine]/[SegmentBook] rules, at the times
  * a plausible user would have tapped, so demo days behave exactly like real ones.
  */
@@ -66,7 +64,6 @@ open class DemoDataGenerator @Inject constructor(
                 }
             }
             history.writeDay(replayed.record)
-            replayed.debt?.let { history.writeDebt(it) }
             seeded += date
         }
         seeded.map { history.weekStart(it) }.distinct().forEach { week ->
@@ -88,10 +85,8 @@ open class DemoDataGenerator @Inject constructor(
         }
     }
 
-    private fun offDay(date: LocalDate): Replayed = Replayed(
-        record = DayRecord(date, template = null, segments = emptyList(), flags = setOf(DayFlag.OFF_DAY), demo = true),
-        debt = null,
-    )
+    private fun offDay(date: LocalDate): Replayed =
+        Replayed(DayRecord(date, template = null, segments = emptyList(), flags = setOf(DayFlag.OFF_DAY), demo = true))
 
     private suspend fun replayDay(
         date: LocalDate,
@@ -192,8 +187,7 @@ open class DemoDataGenerator @Inject constructor(
             plannedBlocks = book.plannedBlocks.ifEmpty { null },
             demo = true,
         )
-        val debt = DebtRecord(date, debtMinutes(book.segments), 0)
-        return Replayed(record, debt)
+        return Replayed(record)
     }
 
     private fun varianceFor(type: BlockType, rng: Random): Long = when (type) {
@@ -230,12 +224,11 @@ open class DemoDataGenerator @Inject constructor(
         else -> -1
     }
 
-    private data class Replayed(val record: DayRecord, val debt: DebtRecord?)
+    private data class Replayed(val record: DayRecord)
 
     private suspend fun rebuildAggregates(week: LocalDate) {
         val weekDays = history.days().filter { history.weekStart(it.date) == week }
-        val debts = weekDays.mapNotNull { day -> history.readDebt(day.date)?.let { day.date to it } }.toMap()
-        history.writeWeek(history.aggregateWeek(week, weekDays, debts))
+        history.writeWeek(history.aggregateWeek(week, weekDays))
     }
 }
 

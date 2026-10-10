@@ -130,13 +130,6 @@ data class DayRecord(
     val demo: Boolean = false,
 )
 
-@Serializable
-data class DebtRecord(
-    @Serializable(with = LocalDateSerializer::class) val date: LocalDate,
-    val leakMinutes: Int,
-    val pauseMinutes: Int,
-)
-
 object LocalTimeSerializer : KSerializer<LocalTime> {
     override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("LocalTime", PrimitiveKind.STRING)
 

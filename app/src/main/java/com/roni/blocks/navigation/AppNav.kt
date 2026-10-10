@@ -14,7 +14,6 @@ import com.roni.blocks.feature.home.HomeRoute
 import com.roni.blocks.feature.insights.InsightsRoute
 import com.roni.blocks.feature.settings.SettingsRoute
 import com.roni.blocks.feature.templatepicker.TemplatePickerRoute
-import com.roni.blocks.feature.timedebt.TimeDebtRoute
 import com.roni.blocks.feature.weekly.WeeklyRoute
 import kotlinx.serialization.Serializable
 
@@ -23,7 +22,6 @@ import kotlinx.serialization.Serializable
 @Serializable data object WeeklyKey : NavKey
 @Serializable data object InsightsKey : NavKey
 @Serializable data object HistoryKey : NavKey
-@Serializable data object TimeDebtKey : NavKey
 @Serializable data object SettingsKey : NavKey
 @Serializable data class HistoryDayKey(val date: String) : NavKey
 
@@ -76,7 +74,6 @@ fun AppRoot(start: StartDestination, modifier: Modifier = Modifier) {
             entry<InsightsKey> { InsightsRoute(onTab = ::openTab, onMenu = { backStack.add(it) }) }
             entry<HistoryKey> { HistoryRoute(onBack = { backStack.removeAt(backStack.lastIndex) }, onDay = { backStack.add(HistoryDayKey(it)) }) }
             entry<HistoryDayKey> { key -> HistoryDetailRoute(date = key.date, onBack = { backStack.removeAt(backStack.lastIndex) }) }
-            entry<TimeDebtKey> { TimeDebtRoute(onBack = { backStack.removeAt(backStack.lastIndex) }) }
             entry<SettingsKey> {
                 SettingsRoute(
                     onBack = { backStack.removeAt(backStack.lastIndex) },

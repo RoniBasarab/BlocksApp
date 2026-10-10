@@ -83,7 +83,6 @@ sealed interface HomeAction {
     data object DismissBlockSheet : HomeAction
     data class PickEvening(val choice: Choice) : HomeAction
     data object History : HomeAction
-    data object TimeDebt : HomeAction
     data object Settings : HomeAction
 
     val affectsOverlays: Boolean

@@ -62,7 +62,6 @@ import com.roni.blocks.feature.weekly.formatHm
 import com.roni.blocks.feature.weekly.tabKey
 import com.roni.blocks.navigation.HistoryKey
 import com.roni.blocks.navigation.SettingsKey
-import com.roni.blocks.navigation.TimeDebtKey
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlin.math.roundToInt
@@ -615,7 +614,6 @@ fun InsightsRoute(onTab: (NavKey) -> Unit, onMenu: (NavKey) -> Unit, viewModel: 
             AppTopBar(
                 title = { Text("Insights", style = MaterialTheme.typography.titleLarge) },
                 onHistory = { onMenu(HistoryKey) },
-                onDebt = { onMenu(TimeDebtKey) },
                 onSettings = { onMenu(SettingsKey) },
                 onExplain = { explain = true },
             )

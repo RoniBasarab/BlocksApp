@@ -23,7 +23,6 @@ import com.roni.blocks.feature.home.NowCard
 import com.roni.blocks.feature.home.NowCardUi
 import com.roni.blocks.feature.insights.InsightsScreen
 import com.roni.blocks.feature.settings.SettingsScreen
-import com.roni.blocks.feature.timedebt.TimeDebtScreen
 import com.roni.blocks.feature.templatepicker.PickerCard
 import com.roni.blocks.feature.templatepicker.PickerUiState
 import com.roni.blocks.feature.templatepicker.TemplatePickerScreen
@@ -148,18 +147,6 @@ class ScreenshotsTest {
     fun history_empty() {
         settle { HistoryScreen(FakeStates.historyEmpty()) {} }
         capture("history_empty.png")
-    }
-
-    @Test
-    fun time_debt() {
-        settle { TimeDebtScreen(FakeStates.timeDebtWithDebt()) {} }
-        capture("time_debt.png")
-    }
-
-    @Test
-    fun time_debt_empty() {
-        settle { TimeDebtScreen(FakeStates.timeDebtEmpty()) {} }
-        capture("time_debt_empty.png")
     }
 
     @Test

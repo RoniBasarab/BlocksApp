@@ -67,7 +67,6 @@ import com.roni.blocks.navigation.HistoryKey
 import com.roni.blocks.navigation.HomeKey
 import com.roni.blocks.navigation.InsightsKey
 import com.roni.blocks.navigation.SettingsKey
-import com.roni.blocks.navigation.TimeDebtKey
 import com.roni.blocks.navigation.WeeklyKey
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -491,7 +490,6 @@ fun WeeklyRoute(onTab: (NavKey) -> Unit, onMenu: (NavKey) -> Unit, viewModel: We
             AppTopBar(
                 title = { Text("Weekly", style = MaterialTheme.typography.titleLarge) },
                 onHistory = { onMenu(HistoryKey) },
-                onDebt = { onMenu(TimeDebtKey) },
                 onSettings = { onMenu(SettingsKey) },
                 onExplain = { explain = true },
             )

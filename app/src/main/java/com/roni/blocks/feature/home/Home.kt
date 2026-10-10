@@ -19,7 +19,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.HourglassBottom
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Nightlight
 import androidx.compose.material.icons.outlined.Pause
@@ -102,7 +101,6 @@ import com.roni.blocks.designsystem.templateDisplay
 import com.roni.blocks.feature.weekly.tabKey
 import com.roni.blocks.navigation.HistoryKey
 import com.roni.blocks.navigation.SettingsKey
-import com.roni.blocks.navigation.TimeDebtKey
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlin.time.Clock
@@ -241,7 +239,6 @@ private val day: DayOrchestrator,
             HomeAction.DismissBlockSheet -> selectedBlockId = null
             HomeAction.SwapTemplate,
             HomeAction.History,
-            HomeAction.TimeDebt,
             HomeAction.Settings,
             -> Unit
         }
@@ -554,7 +551,6 @@ fun HomeRoute(
                 when (action) {
                     HomeAction.SwapTemplate -> onSwap()
                     HomeAction.History -> onMenu(HistoryKey)
-                    HomeAction.TimeDebt -> onMenu(TimeDebtKey)
                     HomeAction.Settings -> onMenu(SettingsKey)
                     else -> viewModel.onAction(action)
                 }
@@ -719,7 +715,6 @@ private fun AppDropdownMenu(
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
         MenuRow(Icons.Outlined.History, "History") { onAction(HomeAction.History) }
-        MenuRow(Icons.Outlined.HourglassBottom, "Time Debt") { onAction(HomeAction.TimeDebt) }
         MenuRow(Icons.Outlined.Settings, "Settings") { onAction(HomeAction.Settings) }
     }
 }

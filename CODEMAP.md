@@ -142,6 +142,5 @@ Rules that hold everywhere:
 | `feature/history/History.kt` | History list and day detail, plus both ViewModels | HistoryManager, ActualDayMapper |
 | `feature/weekly/Weekly.kt` | Weekly screen: planned vs done, week navigation | HistoryManager |
 | `feature/insights/Insights.kt` | Insights screen: last complete week vs the one before | HistoryManager |
-| `feature/timedebt/TimeDebt.kt` | Time Debt over a fixed 14-day window | HistoryManager |
 | `feature/templatepicker/TemplatePicker.kt` | Template picker with a live preview of the rest of today | DayOrchestrator, TemplateManager |
 | `feature/settings/Settings.kt` | Settings screen, `SettingsViewModel`, developer controls | DayOrchestrator, DemoDataGenerator, SystemStatuses, DebugTimeController |

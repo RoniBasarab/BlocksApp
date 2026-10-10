@@ -7,7 +7,6 @@ import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
-import com.roni.blocks.core.model.DebtRecord
 import com.roni.blocks.core.model.InstantSerializer
 import com.roni.blocks.core.model.LocalDateSerializer
 import com.roni.blocks.core.model.Segment
@@ -21,7 +20,6 @@ import com.roni.blocks.core.schedule.ScheduleEngine
 import com.roni.blocks.core.schedule.SegmentBook
 import com.roni.blocks.core.schedule.timelineAt
 import com.roni.blocks.core.storage.HistoryManager
-import com.roni.blocks.core.storage.debtMinutes
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
@@ -300,7 +298,6 @@ class DayOrchestrator @Inject constructor(
         val template = _state.value.templateId() ?: prefs.read(PrefsFile.DAY, TEMPLATE, TemplateId.serializer())
         val record = DayRecord(today, template, _segments.value, flags, book.plannedBlocks.ifEmpty { null })
         history.writeDay(record)
-        history.writeDebt(DebtRecord(today, debtMinutes(_segments.value), 0))
         rebuildWeek(today)
         notificationRenderer.render(null, transition = true)
         alarms.cancel()
@@ -314,10 +311,7 @@ class DayOrchestrator @Inject constructor(
     private suspend fun rebuildWeek(date: LocalDate) {
         val week = history.weekStart(date)
         val weekDays = history.days().filter { history.weekStart(it.date) == week }
-        val debts = weekDays.mapNotNull { day ->
-            history.readDebt(day.date)?.let { debt -> day.date to debt }
-        }.toMap()
-        history.writeWeek(history.aggregateWeek(week, weekDays, debts))
+        history.writeWeek(history.aggregateWeek(week, weekDays))
     }
 
     private suspend fun endDayIfDue(): Boolean {
