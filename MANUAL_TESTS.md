@@ -10,23 +10,33 @@ With a phone attached, run them with:
 These four cannot be automated reliably (they depend on the launcher, the reboot flow, the keyguard
 and the system DND state), so Roni runs them by hand.
 
-## Check on the phone (1.5.1)
+**Check on the phone (2.0.0).** Use the debug app for steps that move the clock (Settings → Developer → debug clock).
 
-1. Pick a template, swipe the app away from recents, open it: Home appears within 3 seconds.
-2. Same, but tap Pause and then Next on the notification instead: both work.
-3. Emergency: the title stays, the status says "Stopped early (emergency)", and the calendar shows
-   what happened today.
-4. After the day ends, tap swap: the dialog, then the picker, then tracking restarts from now.
-5. Swap mid-day: the new template takes over from now.
-6. History and Weekly fill the screen, with no big gap under the top bar.
-7. History's week headers line up with the cards.
-8. A day in History: no overlapping blocks, pauses hatched, skipped blocks listed in the summary.
-9. Swipe back from Settings: it fades.
-10. Load demo data: a spinner, then "Demo data loaded: 28 days".
-11. Settings → Alert sound opens Android's sound settings for the app.
-12. Debug build: Developer → "20:05 · Evening prompt" → "Kid asleep now" → "Skip dishes" → the
-    evening choice sheet appears on Home.
-13. Weekly, Insights and Time Debt: every number has a short explanation, and ⓘ explains the terms.
+*Starting the day*
+1. Debug app: Developer → Jump to 09:31 → +1 hour (10:31), then Settings → Reset today and pick Sunday / Tuesday / Wednesday: Home starts on Coding, not on CV.
+2. Swipe the app away from recents and open it again: Home appears within 3 seconds, with today's plan.
+3. Same, but use the notification's Pause, then Next: both work.
+
+*Editing*
+4. Tap the current Coding block: only its bottom handle shows. Drag it down 30 minutes: the free time after it shrinks, and the notification's countdown moves to the new end.
+5. On a Mon/Thu, drag Gym's bottom edge down to 17:00: the free time after it disappears, the afternoon Coding slides to 17:00–18:00, and kid time stays at 19:00.
+6. Tap a Free block and choose Coding: it becomes Coding with break bands. Drag its edges: the trimmed parts turn into free time.
+7. Change a later Coding block to Free: it merges with the free time around it.
+8. Swipe the app away after editing and open it again: the edits are still there.
+9. Swap the template mid-day: the new template takes over from now.
+
+*During and after the day*
+10. The current Coding block shows its focus and break parts, with how much is left.
+11. Emergency: Home shows today's recap ending with "Day stopped (emergency)", and the title stays.
+12. After the day ends, tap swap: the dialog, then the picker, then tracking restarts from now.
+
+*Screens*
+13. History → a day: a list in plain words ("Ran over 47m", "Paused 15m", "Done early", "Missed"), nothing unlabeled, and no gap under the top bar.
+14. The History list's chips say "Ran over 18m", and the week headers line up with the cards.
+15. Weekly: each type shows "Xh of Yh" with a bar, and there's no legend.
+16. The menu has History and Settings; Time Debt is gone. Swiping back from Settings fades.
+17. Settings: the debug clock card is tidy with nothing overlapping. Alert sound opens Android's sound settings. Load demo data shows a spinner, then "Demo data loaded: 28 days".
+18. Debug: Jump to 20:05 → Kid asleep now → Skip dishes: the evening choice sheet appears on Home.
 
 ## Setup for every test
 
@@ -39,8 +49,8 @@ and the system DND state), so Roni runs them by hand.
 - All steps below assume the **Sun/Tue/Wed** template, which is
   `cv 09:00–09:30`, `coding 09:30–11:30` (pomodoro 50/10), `free 11:30–14:00`,
   `coding 14:00–15:30` (pomodoro 50/10), `free 15:30–16:20`, `kidTime 16:20–22:30`.
-  CV has no pomodoro, so **any time after 09:30 is the leak state**
-  (`CV ran over`, action `Start Coding`).
+  CV has no pomodoro, so **any time after 09:30 is the ran-over state**
+  (`CV ran over`, action `Next: Coding`).
 - Start a day: clear the app's data so no day is running, launch the app, and pick
   `Sunday / Tuesday / Wednesday` on the picker.
 - Move the clock with the debug time-travel receiver:
@@ -90,23 +100,16 @@ wakes the screen.
 - [ ] Start the day, travel to `10:10`, then travel forward to `11:30` so the Coding block ends.
 
 **Expected:** **no sound** when the block ends, but the notification still updates rather than going
-stale — the title should become `Coding ran over` with the `Start Free` action.
+stale — the title should become `Coding ran over` with the `Next: Free` action.
 
 ---
-
-## Known conflict that will affect D6 (automated, listed here for context)
-
-`NotificationRenderer` sets `FLAG_ONGOING_EVENT`, which stock Android treats as non-dismissible.
-`Task-4.md:88` mandates that flag while `Task-4.md:647` asks for a swipe-to-dismiss. If
-`d6_swipeAway_staysGoneUntilTheNextTransition` fails on a real phone, that contradiction is the
-cause, not the dismissal logic.
 
 ## Manual check - Emergency ends the day, the notification disappears
 - [ ] Start the day and travel to 09:40.
 - [ ] Tap Emergency, then the red Stop today.
-- [ ] The day ends (Day done card), the notification is gone, no new alerts fire.
+- [ ] The day ends (Home shows today's recap), the notification is gone, no new alerts fire.
 
 ## Manual check - Demo data fills the past
 - [ ] Settings -> Developer -> Load demo data (4 weeks).
-- [ ] Open History, Weekly, Insights and Time Debt: non-empty, rendered from the seeded days.
+- [ ] Open History, Weekly and Insights: non-empty, rendered from the seeded days.
 - [ ] Clear demo data: the past days disappear again.

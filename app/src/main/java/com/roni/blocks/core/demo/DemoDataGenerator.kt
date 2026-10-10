@@ -9,9 +9,16 @@ import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
+import com.roni.blocks.core.model.Template
 import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.model.isWork
+import com.roni.blocks.core.schedule.CurrentBlock
+import com.roni.blocks.core.schedule.Edge
+import com.roni.blocks.core.schedule.PlanEdit
+import com.roni.blocks.core.schedule.PlanEditor
 import com.roni.blocks.core.schedule.SegmentBook
+import com.roni.blocks.core.schedule.toBlockSpecs
+import com.roni.blocks.core.schedule.toPlanBlocks
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.TemplateManager
 import com.roni.blocks.core.time.at
@@ -50,6 +57,10 @@ open class DemoDataGenerator @Inject constructor(
         val offIndex = rng.nextInt(dayCount)
         var emergencyIndex = rng.nextInt(dayCount)
         if (emergencyIndex == offIndex) emergencyIndex = (emergencyIndex + 7) % dayCount
+        val used = mutableSetOf(offIndex, emergencyIndex)
+        val lateStartIndex = sunTueWedIndex(today, dayCount, used)
+        if (lateStartIndex != null) used += lateStartIndex
+        val editedIndex = sunTueWedIndex(today, dayCount, used)
         var gymDaysSeen = 0
         val seeded = mutableListOf<LocalDate>()
 
@@ -58,6 +69,8 @@ open class DemoDataGenerator @Inject constructor(
             val replayed = when {
                 index == offIndex -> offDay(date)
                 index == emergencyIndex -> replayDay(date, emergency = true, gymMissed = false, rng = rng)
+                index == lateStartIndex -> replayDay(date, emergency = false, gymMissed = false, rng = rng, startAt = LocalTime(10, 40))
+                index == editedIndex -> replayDay(date, emergency = false, gymMissed = false, rng = rng, extendCodingAmTo = LocalTime(12, 0))
                 else -> {
                     val gymMissed = isGymDay(date) && (++gymDaysSeen % 8 == 0)
                     replayDay(date, emergency = false, gymMissed = gymMissed, rng = rng)
@@ -93,12 +106,16 @@ open class DemoDataGenerator @Inject constructor(
         emergency: Boolean,
         gymMissed: Boolean,
         rng: Random,
+        startAt: LocalTime = LocalTime(9, 0),
+        extendCodingAmTo: LocalTime? = null,
     ): Replayed {
         val templateId = templateFor(date.dayOfWeek)
-        val template = templates.get(templateId)
+        val loaded = templates.get(templateId)
+        val edited = extendCodingAmTo?.let { editedTemplate(loaded, it) }
+        val template = edited ?: loaded
         var state: DayState = DayState.NotStarted
-        var book = SegmentBook.startDay(template, date, zone, LocalTime(9, 0).at(date, zone))
-        state = DayStateMachine.transition(state, DayEvent.StartDay(templateId), LocalTime(9, 0).at(date, zone))!!
+        var book = SegmentBook.startDay(template, date, zone, startAt.at(date, zone))
+        state = DayStateMachine.transition(state, DayEvent.StartDay(templateId), startAt.at(date, zone))!!
 
         val kidIndex = template.blocks.indexOfFirst { it.type == BlockType.KidTime }
         val kidStart = template.blocks[kidIndex].start.at(date, zone)
@@ -183,11 +200,27 @@ open class DemoDataGenerator @Inject constructor(
             date = date,
             template = templateId,
             segments = book.segments,
-            flags = book.flags + extraFlags,
+            flags = book.flags + extraFlags + (if (edited != null) setOf(DayFlag.PLAN_EDITED) else emptySet()),
             plannedBlocks = template.blocks.ifEmpty { null },
             demo = true,
         )
         return Replayed(record)
+    }
+
+    /**
+     * The plan a 10:00 edit of `coding_am` would produce, built through [PlanEditor] so the demo day
+     * behaves exactly like a hand-edited one. Falls back to the template when the edit is refused.
+     */
+    private fun editedTemplate(template: Template, codingAmEnd: LocalTime): Template? {
+        val plan = template.blocks.toPlanBlocks()
+        val coding = plan.firstOrNull { it.id.endsWith(".coding_am") } ?: return null
+        val edited = PlanEditor.apply(
+            plan,
+            PlanEdit.Resize(coding.id, Edge.BOTTOM, codingAmEnd.hour * 60 + codingAmEnd.minute),
+            nowMin = 10 * 60,
+            current = CurrentBlock(coding.id, endEditable = true),
+        ) ?: return null
+        return template.copy(blocks = edited.toBlockSpecs(template.blocks))
     }
 
     private fun varianceFor(type: BlockType, rng: Random): Long = when (type) {
@@ -214,6 +247,12 @@ open class DemoDataGenerator @Inject constructor(
         DayOfWeek.MONDAY, DayOfWeek.THURSDAY -> TemplateId.MON_THU
         DayOfWeek.FRIDAY, DayOfWeek.SATURDAY -> TemplateId.FRI_SAT
     }
+
+    /** The first not-yet-used day index whose weekday runs the Sun/Tue/Wed template. */
+    private fun sunTueWedIndex(today: LocalDate, dayCount: Int, used: Set<Int>): Int? =
+        (0 until dayCount).firstOrNull { i ->
+            i !in used && templateFor(today.minus(i + 1, DateTimeUnit.DAY).dayOfWeek) == TemplateId.SUN_TUE_WED
+        }
 
     private fun isGymDay(date: LocalDate): Boolean = date.dayOfWeek == DayOfWeek.MONDAY || date.dayOfWeek == DayOfWeek.THURSDAY
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.0.0
+- Edit today: drag a block's top or bottom edge to change its times; the blocks after it move along, free time absorbs the change, and kid time stays put.
+- Change a block's type, for example turn free time into Coding. Changes apply to today only.
+- Picking a template late starts on the block the clock is in; earlier blocks count as missed.
+- Coding blocks show their focus and break parts, with the time left.
+- History's day view is now a recap in plain words; Home shows it after the day ends.
+- Weekly shows plan vs actual per type as progress bars.
+- Time Debt removed; its numbers live on Weekly, Insights and History.
+- Developer clock controls redesigned.
+- Stored data: today's plan is saved on its own; older saves migrate automatically.
+
 ## 1.5.1
 - Unit tests are deterministic: every coroutine the code starts belongs to the test that started it.
 - Settings saves a change before showing it.

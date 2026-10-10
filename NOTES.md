@@ -4,8 +4,8 @@
 - `NotificationModelMapper` names every block by its real stable `BlockSpec.id`; buttons posted before the update count as stale and are ignored (Task-5.md:97 - fine by design).
 - Debt is `PLANNED` overruns only; pause time is logged as `PAUSE` segments and shown as Pause time, never debt. `debtMinutes` moved to a top-level function in `HistoryManager.kt` because it is pure and needed by JVM tests.
 - `TimelineQueries.effectiveEnd` returns the open block's planned end unchanged: a pause shortens a block, it never moves an end (Task-5.md:84).
-- `DayRecord.plannedBlocks` snapshots the template at StartDay; old records without one fall back to the current template (Task-5.md:98).
-- `BlockSpec` persists nowhere except templates.json (bundled asset, no migration needed, per Task-5.md:97).
+- `DayRecord.plannedBlocks` is now the day's plan (the template, reshaped by a swap or an edit), not a fixed StartDay snapshot; old records without one fall back to the current template (Task-5.md:98, Task-7 Slice 7).
+- `BlockSpec` no longer persists only in templates.json: it is also saved in the `today_plan` pref and in every `DayRecord.plannedBlocks`, so any new `BlockSpec` field needs a default value (Task-5.md:97, Task-7 Slice 7).
 - The compose-side next-button label rule: a work block offers "Next: Free" (finishing early -> the rest becomes free); a free block offers "Next: {next block name}" for planned and synthetic free alike. Pomodoro breaks are still Pause territory (Task-5.md table, Slice 9).
 - `NowButtonId.EMERGENCY` renders as its own centered TextButton (`now_emergency`) instead of living in the side-by-side row, so Pause · Next stay equal-width 48dp buttons (Task-5 layout).
 - Emergency confirmation is always shown ("Stop today", red); only Pause supports "Don't ask again".
@@ -129,4 +129,16 @@
 - Removed the dead block-sheet code the tap selection made unreachable: `BlockSheetUi`, `blockSheet()`, `BlockDetailSheet`, `SheetRow` gone; `blockSheetDrags` stays (used by `EveningChoiceSheet`). Dropped the now-unused `BlockDetailSheet` call and a now-unused `Segment` import in Home.kt.
 - One comment-hook hit: the `edit` field docstring in `HomeUi.kt` was removed (self-explanatory field, siblings undocumented).
 - No new tests (spec line 862; Slice 8 pins the rules). Suite stays 211 tests, all green. No phone connected, so no screenshots were taken.
+
+## Task-7 Slice 10: Demo data, docs and release 2.0.0
+
+- **Demo data (28 days, count unchanged):** `seed` now also picks a late-start day and an edited day, both on a Sun/Tue/Wed weekday so the gym-missed counter is untouched. The late start replays the day from `10:40` (so the CV block records as missed with `MissReason.LATE_START`, exactly like a real late start). The edited day is built through the **same pure pieces**: `editedTemplate` converts the template to `PlanBlock`s, runs `PlanEditor.apply` (a `coding_am` bottom-edge resize to 12:00 with `nowMin = 10:00` and the current block `endEditable`), and converts back with `toBlockSpecs`; the day then replays against that plan. `DayFlag.PLAN_EDITED` is added only when `PlanEditor` actually returned a plan (not merely when the edit was requested), so a refused edit can't produce a mislabelled record. `DemoDataGeneratorTest` unchanged, 5/5 green.
+- **Deviation:** the spec says "a Sun/Tue/Wed late start"; it does not name the edited day's template, and both generated special days are Sun/Tue/Wed (rather than sending the edited day to Mon/Thu) so neither special day is a gym day and the `gymDaysSeen` cadence is exactly as before.
+- **CODEMAP.md:** added `core/schedule/PlanEditor.kt` and `core/schedule/PlanConversion.kt` rows (the latter deferred here from Slice 8.2). The `DayRecap.kt` row already existed, so it was left as is; the Time Debt and `ActualDayMapper.kt` rows were already gone. Updated the rows whose job changed: orchestrator (owns the plan + plan edits), `HistoryManager` (no "time debt", version-driven observe), `Model.kt` (`BlockSpec`/`TodayPlan` in, `DebtRecord` out), `TimelineQueries.kt` (reads the published plan; `pomodoroPhases`), Home (previews plan edits + edit card), History (day-detail recap), Weekly (planned vs actual bars), Settings (redesigned developer clock).
+- **MANUAL_TESTS.md:** dropped the "Known conflict that will affect D6" section (Android 14+ lets an ongoing notice be swiped away, so there is no conflict); "Start Coding"/"Start Free" -> "Next: Coding"/"Next: Free" and "leak state" -> "ran-over state"; Demo-data check drops Time Debt; Emergency check "(Day done card)" -> "(Home shows today's recap)"; the 1.5.1 list was replaced with the 17-step "Check on the phone (2.0.0)" list.
+- **issues.md:** still one open item (connected device tests unrun - no hardware attached), now worded against the 2.0.0 checklist.
+- **Release:** `versionName` 1.5.1 -> 2.0.0, `versionCode` 10501 -> 20000; the 2.0.0 CHANGELOG entry added verbatim from Task-7.md.
+- **Name adaptations from the file's sketches** (for the final report): `PomodoroPhase` became `PomodoroSlot` (collision, Slice 6); the edit-card type tag is `edit_type_<data-object name>` (`Cv`/`Coding`/`Gym`/`Free`) because `BlockType` is a sealed interface with no `.name`; `PlanConversion.kt` is a separate file rather than part of the "verified" `PlanEditor.kt`; the block-sheet UI (`BlockSheetUi`/`BlockDetailSheet`) was deleted rather than kept.
+- No phone connected: nothing was checked on-device, and no screenshots were taken.
+
 
