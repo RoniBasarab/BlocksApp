@@ -141,7 +141,7 @@ private val day: DayOrchestrator,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state.asStateFlow()
-    private var actualDay: ActualDayUi? = null
+    private var recap: DayRecapUi? = null
     private var endedRecord: DayRecord? = null
 
     private val _suppressedConfirmations = MutableStateFlow<Set<NowButtonId>>(emptySet())
@@ -170,7 +170,7 @@ private val day: DayOrchestrator,
         viewModelScope.launch {
             day.state.collect { state ->
                 endedRecord = if (state is DayState.Ended) readEndedRecord() else null
-                actualDay = endedRecord?.let { ActualDayMapper.map(it, timeFormatter) }
+                recap = endedRecord?.let { DayRecapMapper.map(it, timeFormatter.use24.value) }
                 publish(state)
             }
         }
@@ -290,7 +290,7 @@ private val day: DayOrchestrator,
             blocks = blocks,
             currentBlockId = current?.id,
             leakFromMin = if (leaking) effectiveEndMin else null,
-            actualDay = actualDay,
+            recap = recap,
             nowCard = nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel),
             eveningChoicePending = dayState.isDishesSlot,
             eveningSheetOpen = eveningSheetOpen,
@@ -594,13 +594,11 @@ fun HomeScreen(
                 showDivider = { scroll.value > 0 },
                 onAction = onAction,
             )
-            val actual = state.actualDay
-            if (actual != null) {
-                ActualDayCanvas(
-                    day = actual,
-                    hourLabels = state.hourLabels,
-                    scrollState = scroll,
-                    bottomPadding = NowCardReservedHeight,
+            val recap = state.recap
+            if (recap != null) {
+                RecapList(
+                    s = recap,
+                    bottomPadding = Spacing.l,
                     modifier = Modifier.weight(1f).testTag("home_calendar"),
                 )
             } else {
@@ -617,7 +615,7 @@ fun HomeScreen(
                 )
             }
         }
-        state.nowCard?.let { ui ->
+        if (state.recap == null) state.nowCard?.let { ui ->
             NowCard(
                 ui = ui,
                 countdownText = countdownText,

@@ -52,14 +52,12 @@ import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.TextSecondary
 import com.roni.blocks.designsystem.blockColors
 import com.roni.blocks.designsystem.templateDisplay
-import com.roni.blocks.feature.home.ActualDayCanvas
-import com.roni.blocks.feature.home.ActualDayMapper
-import com.roni.blocks.feature.home.ActualDayUi
-import com.roni.blocks.feature.home.CalendarMapper
+import com.roni.blocks.feature.home.DayRecapMapper
+import com.roni.blocks.feature.home.DayRecapUi
+import com.roni.blocks.feature.home.RecapList
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlin.time.Clock
-import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -71,7 +69,6 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.minus
 import kotlinx.datetime.plus
 import kotlinx.datetime.toLocalDateTime
-import androidx.compose.foundation.rememberScrollState
 
 data class HistoryChip(val text: String, val color: Color)
 
@@ -95,7 +92,7 @@ data class HistoryUiState(
 
 data class HistoryDetailUi(
     val title: String,
-    val day: ActualDayUi,
+    val recap: DayRecapUi,
 )
 
 /** Content only; the top bar lives in [HistoryRoute]. */
@@ -250,7 +247,7 @@ class HistoryViewModel @Inject constructor(
             text = when {
                 off -> "Off day"
                 DayFlag.EMERGENCY_STOP in record.flags -> "Emergency"
-                leak > 0 -> "+${leak}m"
+                leak > 0 -> "Ran over ${leak}m"
                 else -> "On time"
             },
             color = when {
@@ -283,9 +280,9 @@ class HistoryViewModel @Inject constructor(
 /**
  * Loads one stored day for the detail screen. Rules: a date that no longer parses, or a record that
  * is gone, publishes null instead of throwing, so the screen can just close; the blocks come from
- * [ActualDayMapper], the same mapping Home uses, so a day looks the same in both places.
+ * [DayRecapMapper], the same mapping Home uses, so a day looks the same in both places.
  *
- * Talks to: [HistoryManager], [ActualDayMapper], [TimeFormatter].
+ * Talks to: [HistoryManager], [DayRecapMapper], [TimeFormatter].
  */
 class HistoryDetailViewModel @Inject constructor(
     private val history: HistoryManager,
@@ -305,7 +302,7 @@ class HistoryDetailViewModel @Inject constructor(
             }
             _state.value = HistoryDetailUi(
                 title = "${weekdayFull(record.date.dayOfWeek)} ${record.date.dayOfMonth} ${monthName(record.date.monthNumber)}",
-                day = ActualDayMapper.map(record, timeFormatter),
+                recap = DayRecapMapper.map(record, timeFormatter.use24.value),
             )
         }
     }
@@ -338,21 +335,11 @@ fun HistoryDetailRoute(date: String?, onBack: () -> Unit, viewModel: HistoryDeta
         },
     ) { padding ->
         detail?.let { d ->
-            Column(Modifier.fillMaxSize().padding(padding)) {
-                Text(
-                    text = d.day.summary,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = AppTheme.colors.textSecondary,
-                    modifier = Modifier.padding(horizontal = Spacing.l, vertical = Spacing.m),
-                )
-                ActualDayCanvas(
-                    day = d.day,
-                    hourLabels = CalendarMapper.hourLabels().toPersistentList(),
-                    scrollState = rememberScrollState(),
-                    bottomPadding = Spacing.l +
-                        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
-                )
-            }
+            RecapList(
+                s = d.recap,
+                bottomPadding = Spacing.l + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+                modifier = Modifier.fillMaxSize().padding(padding),
+            )
         }
     }
 }

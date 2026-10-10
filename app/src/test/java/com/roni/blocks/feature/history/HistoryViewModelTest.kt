@@ -134,7 +134,7 @@ class HistoryViewModelTest {
         val viewModel = build()
 
         val day = viewModel.state.value.weeks.single().days.single()
-        assertEquals("+18m", day.chip.text)
+        assertEquals("Ran over 18m", day.chip.text)
         assertEquals(com.roni.blocks.designsystem.Leak, day.chip.color)
     }
 

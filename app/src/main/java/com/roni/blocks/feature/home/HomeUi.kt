@@ -63,7 +63,7 @@ data class HomeState(
     val blocks: ImmutableList<CalendarBlockUi> = persistentListOf(),
     val currentBlockId: String? = null,
     val leakFromMin: Int? = null,
-    val actualDay: ActualDayUi? = null,
+    val recap: DayRecapUi? = null,
     val nowCard: NowCardUi? = null,
     val eveningChoicePending: Boolean = false,
     val eveningSheetOpen: Boolean = false,

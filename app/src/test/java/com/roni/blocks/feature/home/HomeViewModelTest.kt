@@ -194,7 +194,7 @@ class HomeViewModelTest {
         viewModel.onAction(HomeAction.Emergency)
 
         awaitRunningOrPaused { it == DayState.Ended }
-        withTimeout(5_000) { viewModel.state.first { it.title == "Sunday / Tuesday / Wednesday" } }
+        withTimeout(5_000) { viewModel.state.first { it.status == "Stopped early (emergency)" } }
         assertEquals("Sunday / Tuesday / Wednesday", viewModel.state.value.title)
         assertEquals("Stopped early (emergency)", viewModel.state.value.status)
     }

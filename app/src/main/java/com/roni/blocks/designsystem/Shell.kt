@@ -133,7 +133,7 @@ private val ExplainerTerms = listOf(
     "Pause time" to "Short breaks you took inside a block with Pause.",
     "Evenings skipped" to "Days the evening never started because Kid asleep wasn't tapped before 22:30.",
     "Off days" to "Days you picked the Off template.",
-    "Skipped blocks" to "Blocks that never happened because an earlier block ran past their end.",
+    "Missed blocks" to "Planned blocks that never happened: the day started after them, or an earlier block ran past their end.",
 )
 
 @Composable

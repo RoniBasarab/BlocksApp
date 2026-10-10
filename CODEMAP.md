@@ -136,10 +136,10 @@ Rules that hold everywhere:
 | `feature/home/HomeUi.kt` | `HomeState` and the calendar/block UI models | Compose, designsystem |
 | `feature/home/HomeSheets.kt` | Bottom sheets: evening choice, template swap | DayOrchestrator, TemplateManager |
 | `feature/home/NowCardDialogs.kt` | The now-card's dialog states and confirmations | DayOrchestrator |
-| `feature/home/ActualDayMapper.kt` | A stored day → the blocks it actually looked like | HistoryManager, TimeFormatter |
+| `feature/home/DayRecap.kt` | A finished day as a readable recap: summary card and one row per block | designsystem, Compose |
 | `feature/home/CalendarMapper.kt` | Pure model→view mapping for the calendar; no clock, no context | DayCalendar |
 | `feature/home/DayCalendar.kt` | The Home calendar grid and its hour geometry | designsystem |
-| `feature/history/History.kt` | History list and day detail, plus both ViewModels | HistoryManager, ActualDayMapper |
+| `feature/history/History.kt` | History list and day detail, plus both ViewModels | HistoryManager, DayRecapMapper |
 | `feature/weekly/Weekly.kt` | Weekly screen: planned vs done, week navigation | HistoryManager |
 | `feature/insights/Insights.kt` | Insights screen: last complete week vs the one before | HistoryManager |
 | `feature/templatepicker/TemplatePicker.kt` | Template picker with a live preview of the rest of today | DayOrchestrator, TemplateManager |
