@@ -23,7 +23,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -87,6 +89,24 @@ class DebugTimeControllerTest {
             "the clock should now be past the dishes window",
             clock.now() >= requireNotNull(dishes.plannedEnd),
         )
+    }
+
+    @Test
+    fun testDay_startsTheTemplateAtTheChosenTime() = runBlocking {
+        assertTrue(controller.testDay(TemplateId.SUN_TUE_WED, "10:40"))
+
+        val state = orchestrator.state.value
+        assertTrue("expected Running, was $state", state is DayState.Running)
+        val running = state as DayState.Running
+        assertEquals(TemplateId.SUN_TUE_WED, running.template)
+        assertEquals(
+            "sun_tue_wed.coding_am",
+            orchestrator.todayPlan.value?.blocks?.get(running.blockIndex)?.id,
+        )
+
+        val now = clock.now()
+        val target = LocalTime(10, 40).at(now.toLocalDateTime(zone).date, zone)
+        assertTrue("clock should be within a minute of 10:40", kotlin.math.abs((now - target).inWholeSeconds) <= 60)
     }
 
     private object SilentNotificationPort : NotificationPort {

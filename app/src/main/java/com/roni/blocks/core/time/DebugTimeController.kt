@@ -4,6 +4,7 @@ import com.roni.blocks.core.daystate.DayEvent
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.daystate.isDishesSlot
 import com.roni.blocks.core.logging.AppLogger
+import com.roni.blocks.core.model.TemplateId
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.time.Clock
@@ -67,6 +68,14 @@ class DebugTimeController @Inject constructor(
     suspend fun skipDishes(): Boolean {
         if (!orchestrator.state.value.isDishesSlot) return false
         shiftBy(DISHES_MINUTES)
+        return true
+    }
+
+    /** Debug: today restarts on [template] as if it had been picked at [hhmm]. */
+    suspend fun testDay(template: TemplateId, hhmm: String): Boolean {
+        if (!setTo(hhmm)) return false
+        orchestrator.resetToday()
+        orchestrator.handle(DayEvent.StartDay(template))
         return true
     }
 

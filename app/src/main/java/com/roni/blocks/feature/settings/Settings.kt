@@ -6,18 +6,19 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Alarm
 import androidx.compose.material.icons.outlined.Bedtime
+import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Email
@@ -36,7 +38,6 @@ import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -61,8 +62,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -77,6 +80,7 @@ import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.daystate.DayState
 import com.roni.blocks.core.daystate.isDishesSlot
 import com.roni.blocks.core.logging.AppLogger
+import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.notifications.NotificationPort
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.system.SystemStatuses
@@ -96,6 +100,7 @@ import com.roni.blocks.designsystem.SettingsRow
 import com.roni.blocks.designsystem.Spacing
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlin.math.abs
 import kotlin.time.Clock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
@@ -110,8 +115,6 @@ import kotlinx.coroutines.launch
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
-import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.toImmutableList
 import androidx.compose.runtime.Immutable
 import androidx.compose.foundation.layout.PaddingValues
 import com.roni.blocks.designsystem.AppType
@@ -141,6 +144,8 @@ sealed interface SettingsAction {
     data object ClearHistory : SettingsAction
     data object LoadDemoData : SettingsAction
     data object ClearDemoData : SettingsAction
+    data object OpenDevTools : SettingsAction
+    data class StartTestDay(val template: TemplateId, val hhmm: String) : SettingsAction
     data class DebugClockTo(val hhmm: String) : SettingsAction
     data class DebugClockShift(val minutes: Int) : SettingsAction
     data object DebugClockRealTime : SettingsAction
@@ -151,6 +156,7 @@ sealed interface SettingsAction {
 /** One-shot outcomes the screen surfaces in its snackbar. */
 sealed interface SettingsEffect {
     data class ShowMessage(val text: String) : SettingsEffect
+    data object StartedTestDay : SettingsEffect
 }
 
 private data class DebugClockUi(
@@ -160,7 +166,13 @@ private data class DebugClockUi(
     val inDishes: Boolean,
 )
 
-private fun formatShift(minutes: Int): String = "+%dh %02dm".format(minutes / 60, minutes % 60)
+private fun formatShift(minutes: Int): String {
+    val sign = if (minutes < 0) "−" else "+"
+    val magnitude = abs(minutes)
+    val h = magnitude / 60
+    val m = magnitude % 60
+    return if (h == 0) "$sign${m}m" else "$sign${h}h ${"%02d".format(m)}m"
+}
 
 private enum class ConfirmDialogSpec { RESET_TODAY, CLEAR_HISTORY }
 
@@ -325,6 +337,16 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun startTestDay(template: TemplateId, hhmm: String) {
+        viewModelScope.launch {
+            if (debugTime.testDay(template, hhmm)) {
+                _effects.trySend(SettingsEffect.StartedTestDay)
+            } else {
+                showMessage("Couldn't start the test day")
+            }
+        }
+    }
+
     private fun appClockLabel(): String =
         TimeFormatter.label(clock.now().minuteOfDay(zone), timeFormatter.use24.value)
 
@@ -462,54 +484,12 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
 
             if (BuildConfig.DEBUG) {
                 SectionHeader("Developer")
-                val groups = listOf(
-                    DebugGroupUi(
-                        title = "Jump to",
-                        columns = 2,
-                        buttons = listOf(
-                            DebugButtonUi("09:31", "CV ran over", SettingsAction.DebugClockTo("09:31")),
-                            DebugButtonUi("12:00", "Gym", SettingsAction.DebugClockTo("12:00")),
-                            DebugButtonUi("16:20", "Kid time", SettingsAction.DebugClockTo("16:20")),
-                            DebugButtonUi("20:05", "Evening prompt", SettingsAction.DebugClockTo("20:05")),
-                        ).toImmutableList(),
-                    ),
-                    DebugGroupUi(
-                        title = "Move forward",
-                        columns = 3,
-                        buttons = listOf(
-                            DebugButtonUi("+10 min", null, SettingsAction.DebugClockShift(10)),
-                            DebugButtonUi("+30 min", null, SettingsAction.DebugClockShift(30)),
-                            DebugButtonUi("+1 hour", null, SettingsAction.DebugClockShift(60)),
-                        ).toImmutableList(),
-                    ),
-                    DebugGroupUi(
-                        title = "Evening",
-                        columns = 2,
-                        buttons = listOf(
-                            DebugButtonUi("Kid asleep now", null, SettingsAction.DebugKidAsleep, enabled = state.inKidTime),
-                            DebugButtonUi("Skip dishes", null, SettingsAction.DebugSkipDishes, enabled = state.inDishes),
-                        ).toImmutableList(),
-                    ),
-                ).toImmutableList()
-                DebugClockCard(
-                    time = state.clockLabel,
-                    offset = if (state.clockShifted) "Shifted" else "Real time",
-                    groups = groups,
-                    onAction = onAction,
-                )
                 SectionCard {
                     SettingsRow(
-                        icon = Icons.Outlined.Refresh,
-                        title = "Load demo data (4 weeks)",
-                        trailing = { DemoBusyTrailing(state.demoBusy) },
-                        onClick = { onAction(SettingsAction.LoadDemoData) },
-                    )
-                    CardDivider()
-                    SettingsRow(
-                        icon = Icons.Outlined.Delete,
-                        title = "Clear demo data",
-                        trailing = { DemoBusyTrailing(state.demoBusy) },
-                        onClick = { onAction(SettingsAction.ClearDemoData) },
+                        icon = Icons.Outlined.Build,
+                        title = "Developer tools",
+                        trailing = { Chevron() },
+                        onClick = { onAction(SettingsAction.OpenDevTools) },
                     )
                 }
             }
@@ -549,44 +529,7 @@ private fun StatusTrailing(status: PermissionStatus) {
 }
 
 @Composable
-private fun DemoBusyTrailing(busy: Boolean) {
-    if (!busy) {
-        Chevron()
-        return
-    }
-    CircularProgressIndicator(
-        modifier = Modifier.size(20.dp).testTag("demo_progress"),
-        strokeWidth = 2.dp,
-        color = AppTheme.colors.textSecondary,
-    )
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ClockChips(shifted: Boolean, onAction: (SettingsAction) -> Unit) {
-    FlowRow(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = Spacing.l),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
-        verticalArrangement = Arrangement.spacedBy(Spacing.s),
-    ) {
-        listOf(
-            "09:31" to "09:31 · CV ran over",
-            "12:00" to "12:00 · Gym",
-            "16:20" to "16:20 · Kid time",
-            "20:05" to "20:05 · Evening prompt",
-        ).forEach { (hhmm, label) ->
-            ClockChip(label) { onAction(SettingsAction.DebugClockTo(hhmm)) }
-        }
-        ClockChip("+10 min") { onAction(SettingsAction.DebugClockShift(10)) }
-        ClockChip("+30 min") { onAction(SettingsAction.DebugClockShift(30)) }
-        ClockChip("Real time", selected = !shifted) { onAction(SettingsAction.DebugClockRealTime) }
-    }
-}
-
-@Composable
-private fun ClockChip(label: String, selected: Boolean = false, onClick: () -> Unit) {
+private fun DebugChip(label: String, selected: Boolean = false, onClick: () -> Unit) {
     Text(
         label,
         Modifier
@@ -607,47 +550,107 @@ data class DebugButtonUi(
     val enabled: Boolean = true,
 )
 
-@Immutable
-data class DebugGroupUi(
-    val title: String,
-    val columns: Int,
-    val buttons: ImmutableList<DebugButtonUi>,
-)
-
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun DebugClockCard(
-    time: String,
-    offset: String,
-    groups: ImmutableList<DebugGroupUi>,
+private fun DeveloperToolsDialog(
+    state: SettingsUiState,
     onAction: (SettingsAction) -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    val c = AppTheme.colors
-    AppCard(
-        Modifier
-            .fillMaxWidth()
-            .testTag("debug_clock_card"),
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Debug clock", style = MaterialTheme.typography.labelLarge, color = c.textSecondary)
-                    Text(time, style = MaterialTheme.typography.headlineSmall.merge(AppType.numbers))
-                    Text(offset, style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+    var template by remember { mutableStateOf(TemplateId.SUN_TUE_WED) }
+    var startMin by remember { mutableStateOf(10 * 60) }
+    val startLabel = "%02d:%02d".format(startMin / 60, startMin % 60)
+    Dialog(onDismissRequest = onDismiss) {
+        AppCard(
+            Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.85f)
+                .testTag("developer_tools_dialog"),
+        ) {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(Spacing.l),
+            ) {
+                Text("Developer tools", style = MaterialTheme.typography.titleLarge)
+                DebugSection("Clock") {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(state.clockLabel, style = MaterialTheme.typography.headlineSmall.merge(AppType.numbers))
+                            Text(
+                                if (state.clockShifted) "Shifted" else "Real time",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = AppTheme.colors.textSecondary,
+                            )
+                        }
+                        OutlinedButton(onClick = { onAction(SettingsAction.DebugClockRealTime) }) { Text("Real time") }
+                    }
                 }
-                OutlinedButton(onClick = { onAction(SettingsAction.DebugClockRealTime) }) { Text("Real time") }
-            }
-            groups.forEach { g ->
-                Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
-                    Text(g.title, style = MaterialTheme.typography.labelMedium, color = c.textSecondary)
-                    g.buttons.chunked(g.columns).forEach { row ->
+                DebugSection("Move time") {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                        DebugButton(DebugButtonUi("−1 hour", null, SettingsAction.DebugClockShift(-60)), onAction, Modifier.weight(1f))
+                        DebugButton(DebugButtonUi("−30 min", null, SettingsAction.DebugClockShift(-30)), onAction, Modifier.weight(1f))
+                        DebugButton(DebugButtonUi("−10 min", null, SettingsAction.DebugClockShift(-10)), onAction, Modifier.weight(1f))
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                        DebugButton(DebugButtonUi("+10 min", null, SettingsAction.DebugClockShift(10)), onAction, Modifier.weight(1f))
+                        DebugButton(DebugButtonUi("+30 min", null, SettingsAction.DebugClockShift(30)), onAction, Modifier.weight(1f))
+                        DebugButton(DebugButtonUi("+1 hour", null, SettingsAction.DebugClockShift(60)), onAction, Modifier.weight(1f))
+                    }
+                }
+                DebugSection("Jump to") {
+                    listOf(
+                        DebugButtonUi("09:31", "CV ran over", SettingsAction.DebugClockTo("09:31")),
+                        DebugButtonUi("12:00", "Gym", SettingsAction.DebugClockTo("12:00")),
+                        DebugButtonUi("16:20", "Kid time", SettingsAction.DebugClockTo("16:20")),
+                        DebugButtonUi("20:05", "Evening prompt", SettingsAction.DebugClockTo("20:05")),
+                    ).chunked(2).forEach { row ->
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
                             row.forEach { DebugButton(it, onAction, Modifier.weight(1f)) }
-                            repeat(g.columns - row.size) { Spacer(Modifier.weight(1f)) }
+                            repeat(2 - row.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
                 }
+                DebugSection("Test a day") {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.s),
+                    ) {
+                        DebugChip("Mon/Thu", template == TemplateId.MON_THU) { template = TemplateId.MON_THU }
+                        DebugChip("Sun/Tue/Wed", template == TemplateId.SUN_TUE_WED) { template = TemplateId.SUN_TUE_WED }
+                        DebugChip("Fri/Sat", template == TemplateId.FRI_SAT) { template = TemplateId.FRI_SAT }
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                        DebugButton("−15", Modifier.weight(1f), onClick = { startMin = (startMin - 15).coerceIn(0, 1439) })
+                        Text(
+                            "Start at $startLabel",
+                            Modifier.weight(2f),
+                            style = MaterialTheme.typography.labelLarge.merge(AppType.numbers),
+                            textAlign = TextAlign.Center,
+                        )
+                        DebugButton("+15", Modifier.weight(1f), onClick = { startMin = (startMin + 15).coerceIn(0, 1439) })
+                    }
+                    DebugButton("Start test day", Modifier.fillMaxWidth(), onClick = { onAction(SettingsAction.StartTestDay(template, startLabel)) })
+                }
+                DebugSection("Evening") {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                        DebugButton(DebugButtonUi("Kid asleep now", null, SettingsAction.DebugKidAsleep, enabled = state.inKidTime), onAction, Modifier.weight(1f))
+                        DebugButton(DebugButtonUi("Skip dishes", null, SettingsAction.DebugSkipDishes, enabled = state.inDishes), onAction, Modifier.weight(1f))
+                    }
+                }
+                DebugSection("Demo data") {
+                    DebugButton(DebugButtonUi("Load demo data (4 weeks)", null, SettingsAction.LoadDemoData, enabled = !state.demoBusy), onAction, Modifier.fillMaxWidth())
+                    DebugButton(DebugButtonUi("Clear demo data", null, SettingsAction.ClearDemoData, enabled = !state.demoBusy), onAction, Modifier.fillMaxWidth())
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun DebugSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
+        Text(title, style = MaterialTheme.typography.labelMedium, color = AppTheme.colors.textSecondary)
+        content()
     }
 }
 
@@ -657,18 +660,29 @@ private fun DebugButton(
     onAction: (SettingsAction) -> Unit,
     modifier: Modifier,
 ) {
+    DebugButton(top = b.top, modifier = modifier, onClick = { onAction(b.action) }, bottom = b.bottom, enabled = b.enabled)
+}
+
+@Composable
+private fun DebugButton(
+    top: String,
+    modifier: Modifier,
+    onClick: () -> Unit,
+    bottom: String? = null,
+    enabled: Boolean = true,
+) {
     val c = AppTheme.colors
     FilledTonalButton(
-        onClick = { onAction(b.action) },
-        enabled = b.enabled,
+        onClick = onClick,
+        enabled = enabled,
         modifier = modifier.heightIn(min = 56.dp),
         shape = AppShapes.card,
         contentPadding = PaddingValues(horizontal = Spacing.s, vertical = Spacing.xs),
         colors = ButtonDefaults.filledTonalButtonColors(containerColor = c.surfaceRaised, contentColor = c.textPrimary),
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(b.top, style = MaterialTheme.typography.labelLarge.merge(AppType.numbers), maxLines = 1)
-            b.bottom?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = c.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            Text(top, style = MaterialTheme.typography.labelLarge.merge(AppType.numbers), maxLines = 1)
+            bottom?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = c.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
     }
 }
@@ -752,17 +766,20 @@ private fun ConfirmDialog(spec: ConfirmDialogSpec, onConfirm: () -> Unit, onDism
 fun SettingsRoute(
     onBack: () -> Unit,
     onResetToday: () -> Unit,
+    onOpenHome: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     var pending by remember { mutableStateOf<ConfirmDialogSpec?>(null) }
+    var devToolsOpen by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(viewModel) {
         viewModel.effects.collect { effect ->
             when (effect) {
                 is SettingsEffect.ShowMessage -> snackbarHostState.showSnackbar(effect.text)
+                SettingsEffect.StartedTestDay -> onOpenHome()
             }
         }
     }
@@ -774,6 +791,31 @@ fun SettingsRoute(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val handleAction: (SettingsAction) -> Unit = { action ->
+        when (action) {
+            is SettingsAction.SetHourFormat -> viewModel.setHourFormat(action.use24Hour)
+            SettingsAction.OpenNotificationSettings -> viewModel.openNotificationSettings(context)
+            SettingsAction.OpenExactAlarmSettings -> viewModel.openExactAlarmSettings(context)
+            SettingsAction.OpenAlertSoundSettings -> viewModel.openAlertSoundSettings(context)
+            SettingsAction.SendTestNotification -> viewModel.sendTestNotification()
+            SettingsAction.ShareLog -> viewModel.shareLog(context)
+            SettingsAction.ResetToday -> pending = ConfirmDialogSpec.RESET_TODAY
+            SettingsAction.ClearHistory -> pending = ConfirmDialogSpec.CLEAR_HISTORY
+            SettingsAction.LoadDemoData -> viewModel.loadDemoData()
+            SettingsAction.ClearDemoData -> viewModel.clearDemoData()
+            SettingsAction.OpenDevTools -> devToolsOpen = true
+            is SettingsAction.StartTestDay -> {
+                devToolsOpen = false
+                viewModel.startTestDay(action.template, action.hhmm)
+            }
+            is SettingsAction.DebugClockTo -> viewModel.debugClockTo(action.hhmm)
+            is SettingsAction.DebugClockShift -> viewModel.debugClockShift(action.minutes)
+            SettingsAction.DebugClockRealTime -> viewModel.debugClockRealTime()
+            SettingsAction.DebugKidAsleep -> viewModel.debugKidAsleep()
+            SettingsAction.DebugSkipDishes -> viewModel.debugSkipDishes()
+        }
     }
 
     ScreenScaffold(
@@ -792,28 +834,7 @@ fun SettingsRoute(
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            SettingsScreen(
-                state = state,
-                onAction = { action ->
-                    when (action) {
-                        is SettingsAction.SetHourFormat -> viewModel.setHourFormat(action.use24Hour)
-                        SettingsAction.OpenNotificationSettings -> viewModel.openNotificationSettings(context)
-                        SettingsAction.OpenExactAlarmSettings -> viewModel.openExactAlarmSettings(context)
-                        SettingsAction.OpenAlertSoundSettings -> viewModel.openAlertSoundSettings(context)
-                        SettingsAction.SendTestNotification -> viewModel.sendTestNotification()
-                        SettingsAction.ShareLog -> viewModel.shareLog(context)
-                        SettingsAction.ResetToday -> pending = ConfirmDialogSpec.RESET_TODAY
-                        SettingsAction.ClearHistory -> pending = ConfirmDialogSpec.CLEAR_HISTORY
-                        SettingsAction.LoadDemoData -> viewModel.loadDemoData()
-                        SettingsAction.ClearDemoData -> viewModel.clearDemoData()
-                        is SettingsAction.DebugClockTo -> viewModel.debugClockTo(action.hhmm)
-                        is SettingsAction.DebugClockShift -> viewModel.debugClockShift(action.minutes)
-                        SettingsAction.DebugClockRealTime -> viewModel.debugClockRealTime()
-                        SettingsAction.DebugKidAsleep -> viewModel.debugKidAsleep()
-                        SettingsAction.DebugSkipDishes -> viewModel.debugSkipDishes()
-                    }
-                },
-            )
+            SettingsScreen(state = state, onAction = handleAction)
         }
         pending?.let { spec ->
             ConfirmDialog(
@@ -829,6 +850,13 @@ fun SettingsRoute(
                     pending = null
                 },
                 onDismiss = { pending = null },
+            )
+        }
+        if (devToolsOpen) {
+            DeveloperToolsDialog(
+                state = state,
+                onAction = handleAction,
+                onDismiss = { devToolsOpen = false },
             )
         }
     }

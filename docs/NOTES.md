@@ -147,4 +147,14 @@
 - `WeeklyUiState.canGoPrevious` is `selected > earliest week of any stored day` (none stored → false); the previous arrow is disabled with it and `onPreviousWeek()` returns early, so the empty-week screen can no longer walk back past the first recorded week.
 - The `!hasData` branch now renders `WeekSelector` above `EmptyState` inside a plain `Column(fillMaxSize())` (not `ScreenColumn`) because `EmptyState` itself calls `fillMaxSize`, and its body copy became "Use the arrows to see other weeks." (the old "Finish a day and it shows up here." was wrong once the arrows stay).
 
+## Slice 4: developer tools in one dialog
+
+- **Moving the clock back does not rewind what the day already recorded** (spec-mandated note): `DebugClockShift`/`DebugClockTo` only move the clock; blocks that already completed are not deleted, and the state machine does not walk back a step, so the run board keeps showing what happened.
+- All six debug groups moved off the Settings list into one `DeveloperToolsDialog`, opened from a single "Developer tools" row. It renders in `SettingsRoute` next to `ConfirmDialog`; "Start test day" closes it, and the ViewModel's `SettingsEffect.StartedTestDay` is turned into `onOpenHome()` at the route (AppNav passes `openTab(HomeKey)`), so you land on the running day.
+- `DebugTimeController.testDay(template, hhmm)` = `setTo(hhmm)` then `resetToday()` then `StartDay(template)`; returns false if the time is outside the kid-day window.
+- `formatShift` now renders negatives with a real minus: `"−1h 30m"`, `"−10m"` (was `"-1h 30m"`); under an hour omits the hours part.
+- Deviation from the file's sketch: the preset chip is `DebugChip` (was `ClockChip`), and the already-dead `ClockChips`/`DemoBusyTrailing` were deleted (orphaned when the demo rows left the list); a raw `DebugButton` overload was added so the ±15 min stepper reuses the same button style.
+- Test: `DebugTimeControllerTest.testDay_startsTheTemplateAtTheChosenTime` (Running on `SUN_TUE_WED`, on `sun_tue_wed.coding_am`, clock within a minute of 10:40). Full suite 197 tests, 1 failed — still the pre-existing `evening_canBeReachedWithoutWaiting`.
+
+
 

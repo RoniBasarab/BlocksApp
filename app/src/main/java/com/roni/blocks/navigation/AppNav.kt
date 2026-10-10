@@ -78,6 +78,7 @@ fun AppRoot(start: StartDestination, modifier: Modifier = Modifier) {
                 SettingsRoute(
                     onBack = { backStack.removeAt(backStack.lastIndex) },
                     onResetToday = { openTab(TemplatePickerKey) },
+                    onOpenHome = { openTab(HomeKey) },
                 )
             }
         },
