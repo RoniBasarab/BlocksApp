@@ -1,5 +1,6 @@
 package com.roni.blocks.expectations
 
+import android.app.AlarmManager
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -20,11 +21,14 @@ import com.roni.blocks.core.notifications.ActionEvent
 import com.roni.blocks.core.notifications.NotificationModel
 import com.roni.blocks.core.notifications.NotificationModelMapper
 import com.roni.blocks.core.notifications.NotificationPort
+import com.roni.blocks.core.schedule.Edge
+import com.roni.blocks.core.schedule.PlanEdit
 import com.roni.blocks.core.schedule.ScheduleEngine
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
+import com.roni.blocks.core.storage.debtMinutes
 import com.roni.blocks.core.time.at
 import com.roni.blocks.core.time.SystemTimeMapper
 import com.roni.blocks.core.time.TimeFormatter
@@ -44,6 +48,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 /**
@@ -70,6 +75,8 @@ class DayOrchestratorTest {
     private lateinit var logger: AppLogger
     private val rendered: java.util.concurrent.CopyOnWriteArrayList<NotificationModel?> =
         java.util.concurrent.CopyOnWriteArrayList()
+    private val transitions: java.util.concurrent.CopyOnWriteArrayList<Boolean> =
+        java.util.concurrent.CopyOnWriteArrayList()
 
     @Before
     fun setUp() {
@@ -79,6 +86,7 @@ class DayOrchestratorTest {
         engine = ScheduleEngine(clock, zone)
         history = HistoryManager(prefs)
         rendered.clear()
+        transitions.clear()
         orchestrator = newOrchestrator()
     }
 
@@ -89,7 +97,7 @@ class DayOrchestratorTest {
         history = history,
         alarms = AlarmScheduler(context, SystemTimeMapper.Identity, logger),
         notificationMapper = NotificationModelMapper(engine, zone, TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))),
-        notificationRenderer = RecordingNotificationPort(rendered),
+        notificationRenderer = RecordingNotificationPort(rendered, transitions),
         clock = clock,
         zone = zone,
         logger = logger,
@@ -295,11 +303,13 @@ class DayOrchestratorTest {
 
     private class RecordingNotificationPort(
         private val sink: java.util.concurrent.CopyOnWriteArrayList<NotificationModel?>,
+        private val transitionSink: java.util.concurrent.CopyOnWriteArrayList<Boolean>,
     ) : NotificationPort {
         override fun ensureChannels() = Unit
 
         override fun render(model: NotificationModel?, transition: Boolean) {
             sink += model
+            transitionSink += transition
         }
 
         override fun onDismissed(key: String) = Unit
@@ -426,5 +436,72 @@ class DayOrchestratorTest {
         assertEquals("the day must still be on the gym block", "mon_thu.gym", plan.blocks[state.blockIndex].id)
         assertTrue("plan_starts_at must be gone", "plan_starts_at" !in prefs.keys(PrefsFile.DAY))
     }
+
+    @Test
+    fun editPlan_keepsTheCurrentBlockRunning_andMovesTheAlarm() = runBlocking {
+        clock.now = LocalTime(12, 30).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.MON_THU))
+        assertEquals(DayState.Running(TemplateId.MON_THU, 3), orchestrator.state.value)
+
+        val edited = orchestrator.editPlan(PlanEdit.Resize("mon_thu.gym", Edge.BOTTOM, 14 * 60 + 30))
+
+        assertTrue("the edit must be allowed", edited)
+        assertEquals(DayState.Running(TemplateId.MON_THU, 3), orchestrator.state.value)
+        val plan = requireNotNull(orchestrator.todayPlan.value)
+        assertTrue("the plan must be marked edited", plan.edited)
+        assertEquals(LocalTime(14, 30), plan.blocks.first { it.id == "mon_thu.gym" }.end)
+        assertTrue(
+            "the alarm must move to the edited end",
+            LocalTime(14, 30).at(date, zone).toEpochMilliseconds() in scheduledAlarms(),
+        )
+    }
+
+    @Test
+    fun editPlan_ranOverIsMeasuredAgainstTheEditedEnd() = runBlocking {
+        clock.now = LocalTime(12, 30).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.MON_THU))
+
+        clock.now = LocalTime(14, 10).at(date, zone)
+        assertTrue(orchestrator.editPlan(PlanEdit.Resize("mon_thu.gym", Edge.BOTTOM, 14 * 60 + 30)))
+
+        clock.now = LocalTime(14, 25).at(date, zone)
+        orchestrator.handle(DayEvent.Next("mon_thu.gym"))
+
+        assertEquals(0, debtMinutes(orchestrator.segments.value))
+    }
+
+    @Test
+    fun editPlan_survivesProcessDeath() = runBlocking {
+        clock.now = LocalTime(12, 30).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.MON_THU))
+        assertTrue(orchestrator.editPlan(PlanEdit.Resize("mon_thu.gym", Edge.BOTTOM, 14 * 60 + 30)))
+
+        val restored = newOrchestrator()
+        restored.ensureRestored()
+
+        val plan = requireNotNull(restored.todayPlan.value)
+        assertEquals(LocalTime(14, 30), plan.blocks.first { it.id == "mon_thu.gym" }.end)
+        assertEquals(DayState.Running(TemplateId.MON_THU, 3), restored.state.value)
+        assertEquals(
+            LocalTime(14, 30).at(date, zone),
+            requireNotNull(restored.segments.value.last { it.actualEnd == null }.plannedEnd),
+        )
+    }
+
+    @Test
+    fun editPlan_isSilent() = runBlocking {
+        clock.now = LocalTime(12, 30).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.MON_THU))
+        rendered.clear()
+        transitions.clear()
+
+        assertTrue(orchestrator.editPlan(PlanEdit.Resize("mon_thu.gym", Edge.BOTTOM, 14 * 60 + 30)))
+
+        assertTrue("the edit must re-render the notification", rendered.isNotEmpty())
+        assertEquals("the edit's re-render must be silent", false, transitions.last())
+    }
+
+    private fun scheduledAlarms(): List<Long> =
+        shadowOf(context.getSystemService(AlarmManager::class.java)).scheduledAlarms.map { it.triggerAtTime }
 
 }

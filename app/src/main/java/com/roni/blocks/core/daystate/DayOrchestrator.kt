@@ -17,10 +17,15 @@ import com.roni.blocks.core.model.TodayPlan
 import com.roni.blocks.core.notifications.ActionEvent
 import com.roni.blocks.core.notifications.NotificationModelMapper
 import com.roni.blocks.core.notifications.NotificationPort
+import com.roni.blocks.core.schedule.CurrentBlock
 import com.roni.blocks.core.schedule.DayBook
+import com.roni.blocks.core.schedule.PlanEdit
+import com.roni.blocks.core.schedule.PlanEditor
 import com.roni.blocks.core.schedule.ScheduleEngine
 import com.roni.blocks.core.schedule.SegmentBook
 import com.roni.blocks.core.schedule.timelineAt
+import com.roni.blocks.core.schedule.toBlockSpecs
+import com.roni.blocks.core.schedule.toPlanBlocks
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
@@ -140,6 +145,70 @@ class DayOrchestrator @Inject constructor(
             return
         }
         apply(event.toDayEvent(expectedBlockId))
+    }
+
+    /**
+     * Applies one edit to today's plan; false when it isn't allowed or changes nothing. It goes
+     * through [ensureRestored] and the same in-memory-then-save path a transition uses, so an alarm
+     * cannot interleave, and it only touches the day in [DayState.Running] or [DayState.Paused].
+     */
+    suspend fun editPlan(edit: PlanEdit): Boolean {
+        ensureRestored()
+        val state = _state.value
+        if (state !is DayState.Running && state !is DayState.Paused) {
+            logger.info("refusing plan edit $edit from $state")
+            return false
+        }
+        val plan = _todayPlan.value
+        val current = currentForEditing()
+        if (plan == null || current == null) {
+            logger.info("refusing plan edit $edit: there is no plan to edit")
+            return false
+        }
+        val nowMin = clock.now().toLocalDateTime(zone).time.let { it.hour * 60 + it.minute }
+        val edited = PlanEditor.apply(plan.blocks.toPlanBlocks(), edit, nowMin, current)
+        if (edited == null) {
+            logger.info("refusing plan edit $edit: not allowed or it changes nothing")
+            return false
+        }
+        val blocks = edited.toBlockSpecs(plan.blocks)
+        val index = blocks.indexOfFirst { it.id == current.id }.coerceAtLeast(0)
+        _todayPlan.value = plan.copy(blocks = blocks, edited = true)
+        _state.value = when (state) {
+            is DayState.Running -> state.copy(blockIndex = index)
+            is DayState.Paused -> state.copy(running = state.running.copy(blockIndex = index))
+            else -> state
+        }
+        // Ran over is measured against the edited plan, so the current block's open planned segment
+        // takes its new end; an edit to a later block can shorten the current free time too.
+        val currentEnd = blocks.firstOrNull { it.id == current.id }?.end?.at(today(), zone)
+        if (currentEnd != null) {
+            book = book.copy(
+                segments = book.segments.map { segment ->
+                    if (segment.kind == SegmentKind.PLANNED && segment.actualEnd == null && segment.blockId == current.id) {
+                        segment.copy(plannedEnd = currentEnd)
+                    } else {
+                        segment
+                    }
+                },
+                index = index,
+            )
+            _segments.value = book.segments
+        }
+        persist()
+        sideEffects()
+        logger.info("edited plan with $edit")
+        return true
+    }
+
+    /**
+     * The block the day is on, for the edit UI. [CurrentBlock.endEditable] is false once Next ended
+     * that block early: its leftover is free time, so only its neighbours can still move its edge.
+     */
+    fun currentForEditing(): CurrentBlock? {
+        val id = _state.value.currentBlockId() ?: return null
+        val open = _segments.value.lastOrNull { it.actualEnd == null }
+        return CurrentBlock(id, endEditable = open == null || open.kind != SegmentKind.SYNTHETIC_FREE)
     }
 
     suspend fun onAlarm() {
