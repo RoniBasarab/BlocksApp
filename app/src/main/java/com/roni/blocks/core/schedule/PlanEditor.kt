@@ -14,6 +14,8 @@ sealed interface PlanEdit {
     val blockId: String
     data class Resize(override val blockId: String, val edge: Edge, val toMin: Int) : PlanEdit
     data class Retype(override val blockId: String, val type: BlockType) : PlanEdit
+    /** Adds a work block of [type] at the start of the free block [blockId] (2.1.0). */
+    data class Insert(override val blockId: String, val type: BlockType) : PlanEdit
 }
 
 /** What a block offers in the UI. */
@@ -32,6 +34,7 @@ object PlanEditor {
     const val SNAP = 5
     const val MIN_WORK = 10
     const val DAY_END = 22 * 60 + 30
+    const val INSERT_MINUTES = 30
 
     fun editMode(plan: List<PlanBlock>, blockId: String, nowMin: Int, current: CurrentBlock?): BlockEdit {
         if (current == null) return BlockEdit.NONE
@@ -50,6 +53,7 @@ object PlanEditor {
         val mode = editMode(plan, edit.blockId, nowMin, current)
         val allowed = when (edit) {
             is PlanEdit.Retype -> mode == BlockEdit.FULL || mode == BlockEdit.TYPE_ONLY
+            is PlanEdit.Insert -> mode == BlockEdit.TYPE_ONLY && edit.type.isWork
             is PlanEdit.Resize -> mode == BlockEdit.FULL || (mode == BlockEdit.END_ONLY && edit.edge == Edge.BOTTOM)
         }
         if (!allowed || current == null) return null
@@ -58,6 +62,7 @@ object PlanEditor {
         val i = blocks.indexOfFirst { it.id == edit.blockId }
         return when (edit) {
             is PlanEdit.Retype -> retype(blocks, i, edit.type)
+            is PlanEdit.Insert -> insert(blocks, i, edit.type, nowMin)
             is PlanEdit.Resize -> when (edit.edge) {
                 Edge.BOTTOM -> moveEnd(blocks, i, snap(edit.toMin), nowMin)
                 Edge.TOP -> moveStart(blocks, i, cur, snap(edit.toMin), nowMin)
@@ -203,6 +208,26 @@ object PlanEditor {
             blocks[i - 1] = prev.copy(endMin = blocks[i].endMin)
             blocks.removeAt(i)
         }
+        return blocks
+    }
+
+    /** A new [type] block takes the first [INSERT_MINUTES] of the free block that can still start; the rest stays free. */
+    private fun insert(blocks: MutableList<PlanBlock>, i: Int, type: BlockType, nowMin: Int): List<PlanBlock>? {
+        val free = blocks[i]
+        val start = maxOf(free.startMin, snapUp(nowMin + SNAP))
+        val end = minOf(start + INSERT_MINUTES, free.endMin)
+        if (end - start < MIN_WORK) return null
+        if (start == free.startMin && end == free.endMin) return retype(blocks, i, type)
+        val newBlock = PlanBlock(newId(blocks), type, start, end) // ids computed before anything is removed, so none repeats
+        val pieces = mutableListOf<PlanBlock>()
+        if (start > free.startMin) pieces += free.copy(endMin = start)
+        pieces += newBlock
+        if (end < free.endMin) {
+            val restId = if (start > free.startMin) newId(blocks + newBlock) else free.id
+            pieces += PlanBlock(restId, BlockType.Free, end, free.endMin)
+        }
+        blocks.removeAt(i)
+        blocks.addAll(i, pieces)
         return blocks
     }
 

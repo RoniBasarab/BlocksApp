@@ -167,4 +167,31 @@ class PlanEditorTest {
         val r = resize(sunTueWed, "sun_tue_wed.coding_am", Edge.BOTTOM, t(12, 3), now = t(10, 0), currentId = "sun_tue_wed.coding_am")!!
         assertEquals("09:30-12:05", r.at("sun_tue_wed.coding_am"))
     }
+
+    @Test
+    fun insert_takesTheFirstHalfHourOfFreeTime() {
+        val r = PlanEditor.apply(sunTueWed, PlanEdit.Insert("sun_tue_wed.free_midday", BlockType.Cv), t(10, 0), CurrentBlock("sun_tue_wed.coding_am", true))!!
+        assertEquals("edit-1", r[2].id)
+        assertEquals(BlockType.Cv, r[2].type)
+        assertEquals("11:30-12:00", r.at("edit-1"))
+        assertEquals("12:00-14:00", r.at("sun_tue_wed.free_midday"))
+        assertEquals(BlockType.Free, r.first { it.id == "sun_tue_wed.free_midday" }.type)
+    }
+
+    @Test
+    fun insert_intoShortFreeTime_takesItAll() {
+        val r = PlanEditor.apply(monThu, PlanEdit.Insert("mon_thu.free_pre_gym", BlockType.Coding), t(9, 40), CurrentBlock("mon_thu.coding_am", true))!!
+        assertEquals("11:30-12:00", r.at("mon_thu.free_pre_gym"))
+        assertEquals(BlockType.Coding, r.first { it.id == "mon_thu.free_pre_gym" }.type)
+        assertEquals(monThu.size, r.size)
+    }
+
+    @Test
+    fun insert_onlyWorkTypesIntoLaterFreeTime() {
+        val now = t(10, 0)
+        val current = CurrentBlock("sun_tue_wed.coding_am", true)
+        assertNull(PlanEditor.apply(sunTueWed, PlanEdit.Insert("sun_tue_wed.free_midday", BlockType.Free), now, current))
+        assertNull(PlanEditor.apply(sunTueWed, PlanEdit.Insert("sun_tue_wed.coding_pm", BlockType.Cv), now, current))
+        assertNull(PlanEditor.apply(sunTueWed, PlanEdit.Insert("sun_tue_wed.free_midday", BlockType.Cv), t(12, 0), CurrentBlock("sun_tue_wed.free_midday", true)))
+    }
 }
