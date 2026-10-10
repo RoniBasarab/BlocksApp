@@ -41,16 +41,14 @@ fun ScheduleEngine.timelineAt(
     zone: TimeZone,
     segments: List<Segment>,
     now: Instant,
-    planStartsAt: Instant? = null,
 ): DayTimeline {
-    val plannedFrom = segments.filter { planStartsAt == null || it.actualStart >= planStartsAt }
     if (template == null) {
-        return DayTimeline(open = openSegment(plannedFrom), pausedMinutes = pausedMinutes(plannedFrom, now))
+        return DayTimeline(open = openSegment(segments), pausedMinutes = pausedMinutes(segments, now))
     }
     return DayTimeline(
-        blocks = planned(template, date, planStartsAt),
-        open = openSegment(plannedFrom),
-        pausedMinutes = pausedMinutes(plannedFrom, now),
+        blocks = planned(template, date),
+        open = openSegment(segments),
+        pausedMinutes = pausedMinutes(segments, now),
     )
 }
 

@@ -10,6 +10,10 @@ import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.model.isWork
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.LocalDate
@@ -39,13 +43,21 @@ data class WeekAggregate(
 class HistoryManager @Inject constructor(
     private val prefs: PrefsStorage,
 ) {
+    /** Bumped after every committed write so [observeDay] re-reads the day. */
+    private val version = MutableStateFlow(0L)
+
     suspend fun writeDay(record: DayRecord) {
         prefs.write(PrefsFile.HISTORY, dayKey(record.date), record, DayRecord.serializer())
         prune(record.date)
+        version.value++
     }
 
     suspend fun readDay(date: LocalDate): DayRecord? =
         prefs.read(PrefsFile.HISTORY, dayKey(date), DayRecord.serializer())
+
+    /** Re-reads [date] after every write; emits the same record again only when it changed. */
+    fun observeDay(date: LocalDate): Flow<DayRecord?> =
+        version.map { readDay(date) }.distinctUntilChanged()
 
     suspend fun writeWeek(aggregate: WeekAggregate) {
         prefs.write(PrefsFile.HISTORY, weekKey(aggregate.weekStart), aggregate, WeekAggregate.serializer())

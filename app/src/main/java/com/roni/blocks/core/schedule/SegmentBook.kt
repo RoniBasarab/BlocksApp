@@ -16,14 +16,13 @@ import kotlin.time.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 
 data class DayBook(
     val segments: List<Segment> = emptyList(),
     val shift: Duration = Duration.ZERO,
     val index: Int = 0,
     val flags: Set<DayFlag> = emptySet(),
-    val plannedBlocks: List<BlockSpec> = emptyList(),
-    val planStartsAt: Instant? = null,
 )
 
 /**
@@ -60,30 +59,59 @@ object SegmentBook {
         val index = blocks.indexOfFirst { now >= it.plannedStart && now < it.plannedEnd }
             .let { if (it >= 0) it else blocks.indexOfFirst { block -> now < block.plannedEnd }.coerceAtLeast(0) }
         val consumed = blocks.take(index).map { consumedLateStart(it) }
-        val current = blocks.getOrNull(index) ?: return DayBook(consumed, plannedBlocks = template.blocks)
-        return DayBook(consumed + open(current, now), index = index, plannedBlocks = template.blocks)
+        val current = blocks.getOrNull(index) ?: return DayBook(consumed)
+        return DayBook(consumed + open(current, now), index = index)
     }
 
     /**
-     * Re-plans the rest of today around [template] from [now]. Segments already recorded stay
-     * exactly as they are, and blocks of the new template that had ended by [now] are left out
-     * rather than marked consumed: this day never intended to include them, so counting them as
-     * missed work would invent history that did not happen.
+     * Re-plans the segments around [plan] from [now]: the open segment is closed and the block
+     * containing [now] is opened. Segments already recorded stay exactly as they are.
      */
-    fun swapTemplate(book: DayBook, template: Template, date: LocalDate, zone: TimeZone, now: Instant): DayBook {
-        val blocks = resolve(template, date, zone, Duration.ZERO)
+    fun swapTemplate(book: DayBook, plan: Template, date: LocalDate, zone: TimeZone, now: Instant): DayBook {
+        val blocks = resolve(plan, date, zone, Duration.ZERO)
         val index = blocks.indexOfFirst { now >= it.plannedStart && now < it.plannedEnd }
             .let { if (it >= 0) it else blocks.indexOfFirst { block -> now < block.plannedEnd }.coerceAtLeast(0) }
-        val kept = book.plannedBlocks.filter { it.start.at(date, zone) < now }
         val current = blocks.getOrNull(index)
-        return DayBook(
+        return book.copy(
             segments = closeOpen(book.segments, now) + listOfNotNull(current?.let { open(it, now) }),
             shift = Duration.ZERO,
             index = index,
             flags = (book.flags - DayFlag.OFF_DAY) + DayFlag.TEMPLATE_SWAPPED,
-            plannedBlocks = kept + blocks.drop(index).map { it.spec },
-            planStartsAt = now,
         )
+    }
+
+    /**
+     * Builds the plan after a swap to [template] from [now]. The old blocks are kept up to
+     * [cutoff], the last one cut there; the new template's blocks then start from [now], dropping
+     * every block that had already ended. A taken block whose id is already kept gets a
+     * `<id>@<startMin>` suffix so ids stay unique (a swap to the same template).
+     */
+    fun swapPlan(
+        oldBlocks: List<BlockSpec>,
+        template: Template,
+        date: LocalDate,
+        zone: TimeZone,
+        now: Instant,
+        cutoff: Instant,
+    ): List<BlockSpec> {
+        val kept = oldBlocks.filter { it.start.at(date, zone) < cutoff }
+        val past = if (kept.isEmpty()) {
+            kept
+        } else {
+            val cut = cutoff.toLocalDateTime(zone).time
+            kept.dropLast(1) + kept.last().copy(end = LocalTime(cut.hour, cut.minute))
+        }
+        val containing = template.blocks.indexOfFirst { now >= it.start.at(date, zone) && now < it.end.at(date, zone) }
+        val from = if (containing >= 0) containing else template.blocks.indexOfFirst { block -> now < block.end.at(date, zone) }
+        if (from < 0) return past
+        val nowLocal = now.toLocalDateTime(zone).time
+        val start = LocalTime(nowLocal.hour, nowLocal.minute)
+        val taken = template.blocks.drop(from).mapIndexed { i, spec ->
+            val block = if (i == 0 && containing >= 0) spec.copy(start = start) else spec
+            val startMin = block.start.hour * 60 + block.start.minute
+            if (past.any { it.id == block.id }) block.copy(id = "${block.id}@$startMin") else block
+        }
+        return past + taken
     }
 
     fun next(book: DayBook, template: Template, date: LocalDate, zone: TimeZone, now: Instant): DayBook {

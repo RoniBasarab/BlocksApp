@@ -7,10 +7,12 @@ import com.roni.blocks.core.alarms.AlarmScheduler
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.daystate.DayState
 import com.roni.blocks.core.daystate.DayEvent
+import com.roni.blocks.core.daystate.DayStateSerializer
 import com.roni.blocks.core.daystate.EndReason
 import com.roni.blocks.core.logging.AppLogger
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.DayFlag
+import com.roni.blocks.core.model.InstantSerializer
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.TemplateId
@@ -20,6 +22,7 @@ import com.roni.blocks.core.notifications.NotificationModelMapper
 import com.roni.blocks.core.notifications.NotificationPort
 import com.roni.blocks.core.schedule.ScheduleEngine
 import com.roni.blocks.core.storage.HistoryManager
+import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
 import com.roni.blocks.core.time.at
@@ -62,31 +65,36 @@ class DayOrchestratorTest {
     private lateinit var clock: MovableClock
     private lateinit var orchestrator: DayOrchestrator
     private lateinit var history: HistoryManager
+    private lateinit var prefs: PrefsStorage
+    private lateinit var engine: ScheduleEngine
+    private lateinit var logger: AppLogger
     private val rendered: java.util.concurrent.CopyOnWriteArrayList<NotificationModel?> =
         java.util.concurrent.CopyOnWriteArrayList()
 
     @Before
     fun setUp() {
         clock = MovableClock(LocalTime(9, 0).at(date, zone))
-        val prefs = PrefsStorage(context, UnconfinedTestDispatcher())
-        val logger = AppLogger(context)
-        val engine = ScheduleEngine(clock, zone)
+        prefs = PrefsStorage(context, UnconfinedTestDispatcher())
+        logger = AppLogger(context)
+        engine = ScheduleEngine(clock, zone)
         history = HistoryManager(prefs)
         rendered.clear()
-        orchestrator = DayOrchestrator(
-            prefs = prefs,
-            engine = engine,
-            templates = TemplateManager(context),
-            history = history,
-            alarms = AlarmScheduler(context, SystemTimeMapper.Identity, logger),
-            notificationMapper = NotificationModelMapper(engine, zone, TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))),
-            notificationRenderer = RecordingNotificationPort(rendered),
-            clock = clock,
-            zone = zone,
-            logger = logger,
-            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
-        )
+        orchestrator = newOrchestrator()
     }
+
+    private fun newOrchestrator(): DayOrchestrator = DayOrchestrator(
+        prefs = prefs,
+        engine = engine,
+        templates = TemplateManager(context),
+        history = history,
+        alarms = AlarmScheduler(context, SystemTimeMapper.Identity, logger),
+        notificationMapper = NotificationModelMapper(engine, zone, TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))),
+        notificationRenderer = RecordingNotificationPort(rendered),
+        clock = clock,
+        zone = zone,
+        logger = logger,
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+    )
 
     private val firstBlockId = "sun_tue_wed.cv"
 
@@ -215,7 +223,7 @@ class DayOrchestratorTest {
         clock.now = LocalTime(12, 10).at(date, zone)
         orchestrator.handle(DayEvent.SwapTemplate(TemplateId.MON_THU))
 
-        assertEquals(DayState.Running(TemplateId.MON_THU, 3), orchestrator.state.value)
+        assertEquals(DayState.Running(TemplateId.MON_THU, 2), orchestrator.state.value)
         val segments = orchestrator.segments.value
         assertEquals("segments before the swap must stay exactly as recorded", before, segments.take(before.size))
         assertEquals(2, segments.size)
@@ -251,7 +259,7 @@ class DayOrchestratorTest {
         val open = orchestrator.segments.value.last { it.actualEnd == null }
         assertEquals(BlockType.KidTime, open.type)
         assertEquals("fri_sat.kid_time_am starts running from the swap time", LocalTime(10, 15).at(date, zone), open.actualStart)
-        assertEquals(LocalTime(9, 0).at(date, zone), requireNotNull(open.plannedStart))
+        assertEquals("the swapped-in block starts from the swap time too", LocalTime(10, 15).at(date, zone), requireNotNull(open.plannedStart))
         assertEquals(LocalTime(13, 0).at(date, zone), requireNotNull(open.plannedEnd))
     }
 
@@ -324,6 +332,99 @@ class DayOrchestratorTest {
         clock.now = LocalTime(22, 40).at(date, zone)
         orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
         assertEquals(DayState.NotStarted, orchestrator.state.value)
+    }
+
+    @Test
+    fun todayPlan_startsAsTheTemplate() = runBlocking {
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+
+        val plan = requireNotNull(orchestrator.todayPlan.value)
+        val template = TemplateManager(context).get(TemplateId.SUN_TUE_WED)
+        assertEquals(TemplateId.SUN_TUE_WED, plan.templateId)
+        assertEquals(template.blocks.map { it.id }, plan.blocks.map { it.id })
+        assertEquals(false, plan.edited)
+    }
+
+    @Test
+    fun todayPlan_swapKeepsThePast_andTakesTheNewTemplateFromNow() = runBlocking {
+        clock.now = LocalTime(9, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        clock.now = LocalTime(9, 30).at(date, zone)
+        orchestrator.handle(DayEvent.Next("sun_tue_wed.cv"))
+        clock.now = LocalTime(11, 30).at(date, zone)
+        orchestrator.handle(DayEvent.Next("sun_tue_wed.coding_am"))
+
+        clock.now = LocalTime(12, 10).at(date, zone)
+        orchestrator.handle(DayEvent.SwapTemplate(TemplateId.MON_THU))
+
+        val plan = requireNotNull(orchestrator.todayPlan.value)
+        assertEquals(TemplateId.MON_THU, plan.templateId)
+        assertEquals(
+            listOf(
+                "sun_tue_wed.cv",
+                "sun_tue_wed.coding_am",
+                "sun_tue_wed.free_midday",
+                "mon_thu.gym",
+                "mon_thu.free_post_gym",
+                "mon_thu.coding_pm",
+                "mon_thu.free_pm",
+                "mon_thu.kid_time",
+            ),
+            plan.blocks.map { it.id },
+        )
+        assertEquals("the last kept block is cut at the swap time", LocalTime(12, 10), plan.blocks[2].end)
+        assertEquals("the block containing now restarts at the swap time", LocalTime(12, 10), plan.blocks[3].start)
+        assertEquals(DayState.Running(TemplateId.MON_THU, 3), orchestrator.state.value)
+    }
+
+    @Test
+    fun todayPlan_swapToTheSameTemplate_keepsIdsUnique() = runBlocking {
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        clock.now = LocalTime(9, 30).at(date, zone)
+        orchestrator.handle(DayEvent.Next("sun_tue_wed.cv"))
+        clock.now = LocalTime(10, 0).at(date, zone)
+        orchestrator.handle(DayEvent.EndDay(EndReason.EMERGENCY))
+
+        clock.now = LocalTime(10, 30).at(date, zone)
+        orchestrator.handle(DayEvent.SwapTemplate(TemplateId.SUN_TUE_WED))
+
+        val plan = requireNotNull(orchestrator.todayPlan.value)
+        assertEquals(
+            listOf(
+                "sun_tue_wed.cv",
+                "sun_tue_wed.coding_am",
+                "sun_tue_wed.coding_am@630",
+                "sun_tue_wed.free_midday",
+                "sun_tue_wed.coding_pm",
+                "sun_tue_wed.free_pm",
+                "sun_tue_wed.kid_time",
+            ),
+            plan.blocks.map { it.id },
+        )
+        assertEquals("no block id may appear twice", plan.blocks.size, plan.blocks.map { it.id }.distinct().size)
+        assertEquals(LocalTime(10, 30), plan.blocks[2].start)
+        assertEquals(LocalTime(11, 30), plan.blocks[2].end)
+        assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 2), orchestrator.state.value)
+    }
+
+    @Test
+    fun todayPlan_migratesAnOldSave() = runBlocking {
+        clock.now = LocalTime(9, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        clock.now = LocalTime(12, 10).at(date, zone)
+        orchestrator.handle(DayEvent.SwapTemplate(TemplateId.MON_THU))
+        prefs.remove(PrefsFile.DAY, "today_plan")
+        prefs.write(PrefsFile.DAY, "plan_starts_at", LocalTime(12, 10).at(date, zone), InstantSerializer)
+        prefs.write(PrefsFile.DAY, "day_state", DayState.Running(TemplateId.MON_THU, 3), DayStateSerializer)
+
+        val restored = newOrchestrator()
+        restored.ensureRestored()
+
+        val plan = requireNotNull(restored.todayPlan.value)
+        assertEquals(TemplateId.MON_THU, plan.templateId)
+        val state = restored.state.value as DayState.Running
+        assertEquals("the day must still be on the gym block", "mon_thu.gym", plan.blocks[state.blockIndex].id)
+        assertTrue("plan_starts_at must be gone", "plan_starts_at" !in prefs.keys(PrefsFile.DAY))
     }
 
 }

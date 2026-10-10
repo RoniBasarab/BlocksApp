@@ -108,6 +108,14 @@ data class Template(
     val blocks: List<BlockSpec>,
 )
 
+/** Today's blocks, copied from a template then changed by a swap or an edit. [blocks] is sorted by start and ids stay unique. */
+@Serializable
+data class TodayPlan(
+    val templateId: TemplateId,
+    val blocks: List<BlockSpec>,
+    val edited: Boolean = false,
+)
+
 @Serializable
 data class Segment(
     val type: BlockType,

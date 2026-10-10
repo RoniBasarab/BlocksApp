@@ -79,6 +79,7 @@ import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
+import com.roni.blocks.core.model.Template
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
@@ -106,7 +107,6 @@ import javax.inject.Inject
 import kotlin.time.Clock
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -116,8 +116,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
-
-private const val ENDED_RECORD_READ_LIMIT = 500
 
 @HiltViewModel
 /**
@@ -168,10 +166,13 @@ private val day: DayOrchestrator,
 
     init {
         viewModelScope.launch {
-            day.state.collect { state ->
-                endedRecord = if (state is DayState.Ended) readEndedRecord() else null
+            day.state.collect { state -> publish(state) }
+        }
+        viewModelScope.launch {
+            history.observeDay(clock.now().toLocalDateTime(zone).date).collect { record ->
+                endedRecord = record?.takeIf { it.date == clock.now().toLocalDateTime(zone).date }
                 recap = endedRecord?.let { DayRecapMapper.map(it, timeFormatter.use24.value) }
-                publish(state)
+                publish(day.state.value)
             }
         }
         // Leaking is a boundary, not a per-minute value: only re-publish when it flips.
@@ -245,22 +246,13 @@ private val day: DayOrchestrator,
         if (action.affectsOverlays) publish(day.state.value)
     }
 
-    private suspend fun readEndedRecord(): DayRecord? {
-        var record = history.readDay(clock.now().toLocalDateTime(zone).date)
-        var attempts = 0
-        while (record == null && attempts < ENDED_RECORD_READ_LIMIT) {
-            delay(10)
-            record = history.readDay(clock.now().toLocalDateTime(zone).date)
-            attempts++
-        }
-        return record
-    }
-
     private fun publish(dayState: DayState) {
         val now = clock.now()
         val minute = now.minuteOfDay(zone)
         val id = dayState.templateId()
-        val template = id?.let { runCatching { templates.get(it) }.getOrNull() }
+        val template = day.todayPlan.value?.let { plan ->
+            runCatching { templates.get(plan.templateId) }.getOrNull()?.let { Template(it.id, it.name, plan.blocks) }
+        } ?: id?.let { runCatching { templates.get(it) }.getOrNull() }
         val index = currentIndex(dayState)
         val segments = day.segments.value
         val open = segments.lastOrNull { it.kind == SegmentKind.PLANNED && it.actualEnd == null }
@@ -286,11 +278,9 @@ private val day: DayOrchestrator,
         _state.value = HomeState(
             weekdayShort = now.toLocalDateTime(zone).dayOfWeek.name.take(3),
             dayOfMonth = now.toLocalDateTime(zone).day.toString(),
-            title = if (emergencyEnded) {
-                endedRecord?.template?.let { templateDisplay(it).title }.orEmpty()
-            } else {
-                id?.let { templateDisplay(it).title }.orEmpty()
-            },
+            title = day.todayPlan.value?.templateId?.let { templateDisplay(it).title }
+                ?: endedRecord?.template?.let { templateDisplay(it).title }
+                ?: id?.let { templateDisplay(it).title }.orEmpty(),
             status = if (emergencyEnded) "Stopped early (emergency)" else status(blocks, index, leaking, effectiveEndMin, minute),
             debugClock = debugClockLabel(minute),
             hourLabels = CalendarMapper.hourLabels(DAY_START_MIN, DAY_END_MIN, timeFormatter.use24.value).toPersistentList(),

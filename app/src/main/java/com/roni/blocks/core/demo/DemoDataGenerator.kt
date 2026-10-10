@@ -184,7 +184,7 @@ open class DemoDataGenerator @Inject constructor(
             template = templateId,
             segments = book.segments,
             flags = book.flags + extraFlags,
-            plannedBlocks = book.plannedBlocks.ifEmpty { null },
+            plannedBlocks = template.blocks.ifEmpty { null },
             demo = true,
         )
         return Replayed(record)

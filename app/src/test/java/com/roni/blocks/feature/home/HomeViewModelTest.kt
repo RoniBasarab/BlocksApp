@@ -92,7 +92,7 @@ class HomeViewModelTest {
         viewModel = HomeViewModel(
             day = orchestrator,
             templates = TemplateManager(context),
-            history = HistoryManager(prefs),
+            history = history,
             ticker = Ticker(clock, zone),
             clock = clock,
             zone = zone,
