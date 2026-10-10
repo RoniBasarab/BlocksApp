@@ -172,11 +172,11 @@ class HomeViewModelTest {
         startDayInsideCoding()
 
         clock.now = LocalTime(10, 5).at(date, zone)
-        awaitRunningOrPaused { it.blockIndex() == 0 }
+        awaitRunningOrPaused { it.blockIndex() == 1 }
 
         assertEquals(
             orchestrator.state.value,
-            DayState.Running(TemplateId.SUN_TUE_WED, 0),
+            DayState.Running(TemplateId.SUN_TUE_WED, 1),
         )
         assertTrue(history.readDay(date) == null)
     }
@@ -201,7 +201,7 @@ class HomeViewModelTest {
 
     private suspend fun startDayInsideCoding() {
         orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
-        awaitRunningOrPaused { it.blockIndex() == 0 }
+        awaitRunningOrPaused { it.blockIndex() == 1 }
         withTimeout(5_000) { viewModel.state.first { it.currentBlockId == firstBlockId } }
     }
 

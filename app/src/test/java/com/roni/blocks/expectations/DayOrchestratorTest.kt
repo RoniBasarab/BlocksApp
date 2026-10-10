@@ -95,6 +95,11 @@ class DayOrchestratorTest {
         orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
         assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 0), orchestrator.state.value)
 
+        // Finishing CV early turns the rest of its slot into free; the day stays in the CV slot.
+        orchestrator.handleNotificationAction(ActionEvent.START_NEXT, firstBlockId)
+        assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 0), orchestrator.state.value)
+
+        // A second tap leaves the CV slot and moves on to the next block.
         orchestrator.handleNotificationAction(ActionEvent.START_NEXT, firstBlockId)
         assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 1), orchestrator.state.value)
 

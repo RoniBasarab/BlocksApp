@@ -232,6 +232,7 @@ class DayOrchestrator @Inject constructor(
                     DayState.Running(event.template, book.index.coerceAtLeast(0))
                 }
             }
+            event is DayEvent.Next && next is DayState.Running -> next.copy(blockIndex = book.index.coerceAtLeast(0))
             else -> next
         }
         _segments.value = book.segments
