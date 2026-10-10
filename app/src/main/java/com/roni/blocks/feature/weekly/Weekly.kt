@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -99,6 +100,7 @@ data class WeeklyUiState(
     val hasData: Boolean,
     val weekLabel: String = "",
     val canGoNext: Boolean = false,
+    val canGoPrevious: Boolean = false,
     val plannedFraction: Float = 0f,
     val plannedSummary: String = "",
     val missedSummary: String? = null,
@@ -136,6 +138,7 @@ class WeeklyViewModel @Inject constructor(
     }
 
     fun onPreviousWeek() {
+        if (!_state.value.canGoPrevious) return
         _selectedWeek.value = _selectedWeek.value.plus(-7, kotlinx.datetime.DateTimeUnit.DAY)
         viewModelScope.launch { reload() }
     }
@@ -148,12 +151,16 @@ class WeeklyViewModel @Inject constructor(
 
     private suspend fun reload() {
         val selected = _selectedWeek.value
-        val days = history.days().filter { history.weekStart(it.date) == selected }
+        val allDays = history.days()
+        val earliestWeek = allDays.minOfOrNull { history.weekStart(it.date) }
+        val canGoPrevious = earliestWeek != null && selected > earliestWeek
+        val days = allDays.filter { history.weekStart(it.date) == selected }
         if (days.isEmpty()) {
             _state.value = WeeklyUiState(
                 hasData = false,
                 weekLabel = weekLabel(selected),
                 canGoNext = selected < currentWeek,
+                canGoPrevious = canGoPrevious,
             )
             return
         }
@@ -161,6 +168,7 @@ class WeeklyViewModel @Inject constructor(
             hasData = true,
             weekLabel = weekLabel(selected),
             canGoNext = selected < currentWeek,
+            canGoPrevious = canGoPrevious,
             plannedFraction = plannedFraction(days),
             plannedSummary = plannedSummary(days),
             missedSummary = missedSummary(days),
@@ -314,11 +322,15 @@ private val months = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Au
 @Composable
 fun WeeklyScreen(state: WeeklyUiState, onAction: (WeeklyAction) -> Unit) {
     if (!state.hasData) {
-        EmptyState(
-            icon = Icons.Outlined.BarChart,
-            title = "No data for this week yet",
-            body = "Finish a day and it shows up here.",
-        )
+        Column(Modifier.fillMaxSize()) {
+            WeekSelector(state, onAction)
+            EmptyState(
+                icon = Icons.Outlined.BarChart,
+                title = "No data for this week",
+                body = "Use the arrows to see other weeks.",
+                modifier = Modifier.weight(1f),
+            )
+        }
         return
     }
 
@@ -413,7 +425,7 @@ private fun WeekSelector(state: WeeklyUiState, onAction: (WeeklyAction) -> Unit)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = { onAction(WeeklyAction.PreviousWeek) }) {
+                IconButton(onClick = { onAction(WeeklyAction.PreviousWeek) }, enabled = state.canGoPrevious) {
                     Icon(
                         Icons.AutoMirrored.Outlined.KeyboardArrowLeft,
                         contentDescription = "Previous week",

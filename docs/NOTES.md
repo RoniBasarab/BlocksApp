@@ -142,4 +142,9 @@
 - No phone connected: nothing was checked on-device, and no screenshots were taken.
 - **Slice 1:** removed Roborazzi and the screenshot/layout-only tests. `DebugTimeControllerTest.evening_canBeReachedWithoutWaiting` fails on master too (expected `KidTime`, got `NotStarted`): pre-existing, owned by the evening slices (2/4), not caused by Slice 1.
 
+## Slice 3: weekly keeps its arrows
+
+- `WeeklyUiState.canGoPrevious` is `selected > earliest week of any stored day` (none stored → false); the previous arrow is disabled with it and `onPreviousWeek()` returns early, so the empty-week screen can no longer walk back past the first recorded week.
+- The `!hasData` branch now renders `WeekSelector` above `EmptyState` inside a plain `Column(fillMaxSize())` (not `ScreenColumn`) because `EmptyState` itself calls `fillMaxSize`, and its body copy became "Use the arrows to see other weeks." (the old "Finish a day and it shows up here." was wrong once the arrows stay).
+
 

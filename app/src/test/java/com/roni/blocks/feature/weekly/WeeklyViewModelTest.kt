@@ -201,6 +201,27 @@ class WeeklyViewModelTest {
     }
 
     @Test
+    fun emptyWeek_keepsBothWaysOut() = runBlocking {
+        seedDay(today.minus(7, DateTimeUnit.DAY), workedMin = 60, plannedMin = 100)
+        seedDay(today.minus(21, DateTimeUnit.DAY), workedMin = 60, plannedMin = 100)
+
+        val viewModel = build()
+        viewModel.onPreviousWeek()
+        viewModel.onPreviousWeek()
+
+        val empty = viewModel.state.value
+        assertFalse(empty.hasData)
+        assertTrue(empty.canGoNext)
+        assertTrue(empty.canGoPrevious)
+
+        viewModel.onPreviousWeek()
+
+        val oldest = viewModel.state.value
+        assertTrue(oldest.hasData)
+        assertFalse(oldest.canGoPrevious)
+    }
+
+    @Test
     fun weekly_plannedTime_comesFromTheDaysPlans() = runBlocking {
         DemoDataGenerator(
             templates = TemplateManager(context),
