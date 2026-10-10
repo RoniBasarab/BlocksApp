@@ -81,11 +81,15 @@ import com.roni.blocks.core.daystate.EndReason
 import com.roni.blocks.core.daystate.isDishesSlot
 import com.roni.blocks.core.daystate.templateId
 import com.roni.blocks.core.debug.RecompositionCounter
+import com.roni.blocks.core.model.BlockSpec
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
 import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.model.Choice
+import com.roni.blocks.core.model.EVENING_CHOICE_ID
+import com.roni.blocks.core.model.EVENING_DISHES_ID
+import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.Template
 import com.roni.blocks.core.storage.HistoryManager
@@ -176,6 +180,11 @@ private val day: DayOrchestrator,
     init {
         viewModelScope.launch {
             day.state.collect { state -> publish(state) }
+        }
+        viewModelScope.launch {
+            // The orchestrator sets the state before the segments, so a publish on the state alone
+            // can miss a just-added evening segment.
+            day.segments.collect { publish(day.state.value) }
         }
         viewModelScope.launch {
             history.observeDay(clock.now().toLocalDateTime(zone).date).collect { record ->
@@ -297,11 +306,12 @@ private val day: DayOrchestrator,
         val template = todayPlan?.let { plan ->
             runCatching { templates.get(plan.templateId) }.getOrNull()?.let { Template(it.id, it.name, plan.blocks) }
         } ?: id?.let { runCatching { templates.get(it) }.getOrNull() }
-        val index = currentIndex(dayState)
         val segments = day.segments.value
         val open = segments.lastOrNull { it.kind == SegmentKind.PLANNED && it.actualEnd == null }
         val specs = preview?.let { pv -> todayPlan?.blocks?.let { pv.toBlockSpecs(it) } } ?: template?.blocks
-        val mapped = specs?.let {
+        val daySpecs = specs?.let { withEvening(it, segments) }
+        val index = currentIndex(dayState, daySpecs)
+        val mapped = daySpecs?.let {
             CalendarMapper.toBlocks(
                 it,
                 timeFormatter.use24.value,
@@ -359,10 +369,32 @@ private val day: DayOrchestrator,
         if (before == null) _state.value = _state.value.copy(leakFromMin = null)
     }
 
-    private fun currentIndex(dayState: DayState): Int = when (dayState) {
+    /**
+     * After Kid asleep: kid time ends when it was tapped, then Dishes and the evening choice appear
+     * as blocks on the calendar.
+     */
+    private fun withEvening(specs: List<BlockSpec>, segments: List<Segment>): List<BlockSpec> {
+        val evening = segments.filter { it.kind == SegmentKind.PLANNED && (it.type == BlockType.Dishes || it.type is BlockType.EveningChoice) }
+        if (evening.isEmpty()) return specs
+        val asleepAt = evening.first().actualStart.toLocalDateTime(zone).time
+        val day = specs.map { s -> if (s.type == BlockType.KidTime && s.start < asleepAt && s.end > asleepAt) s.copy(end = asleepAt) else s }
+        val added = evening.map { seg ->
+            BlockSpec(
+                id = if (seg.type == BlockType.Dishes) EVENING_DISHES_ID else EVENING_CHOICE_ID,
+                type = seg.type,
+                start = seg.actualStart.toLocalDateTime(zone).time,
+                end = (seg.actualEnd ?: seg.plannedEnd ?: seg.actualStart).toLocalDateTime(zone).time,
+            )
+        }
+        return (day + added).sortedBy { it.start }
+    }
+
+    private fun currentIndex(dayState: DayState, daySpecs: List<BlockSpec>?): Int = when (dayState) {
         is DayState.Running -> dayState.blockIndex
         is DayState.Paused -> dayState.running.blockIndex
-        is DayState.Evening -> dayState.blockIndex
+        is DayState.Evening -> daySpecs?.indexOfFirst {
+            it.id == if (dayState.isDishesSlot) EVENING_DISHES_ID else EVENING_CHOICE_ID
+        } ?: -1
         else -> -1
     }
 

@@ -9,7 +9,10 @@ import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.daystate.DayState
 import com.roni.blocks.core.daystate.EndReason
 import com.roni.blocks.core.logging.AppLogger
+import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.DayFlag
+import com.roni.blocks.core.model.EVENING_CHOICE_ID
+import com.roni.blocks.core.model.EVENING_DISHES_ID
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.notifications.NotificationModel
@@ -197,6 +200,33 @@ class HomeViewModelTest {
         withTimeout(5_000) { viewModel.state.first { it.status == "Stopped early (emergency)" } }
         assertEquals("Sunday / Tuesday / Wednesday", viewModel.state.value.title)
         assertEquals("Stopped early (emergency)", viewModel.state.value.status)
+    }
+
+    @Test
+    fun evening_showsTheEveningBlocks_notThePlan() = runBlocking {
+        clock.now = LocalTime(21, 12).at(date, zone)
+        orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        withTimeout(5_000) { orchestrator.state.first { it == DayState.KidTime } }
+
+        viewModel.onAction(HomeAction.KidAsleep)
+        withTimeout(5_000) { orchestrator.state.first { it == DayState.Evening(0) } }
+
+        clock.now = LocalTime(21, 32).at(date, zone)
+        viewModel.onAction(HomeAction.PickEvening(Choice.GAME))
+        withTimeout(5_000) { orchestrator.state.first { it == DayState.Evening(1) } }
+
+        clock.now = LocalTime(21, 40).at(date, zone)
+        withTimeout(5_000) { viewModel.state.first { it.currentBlockId == EVENING_CHOICE_ID } }
+
+        val blocks = viewModel.state.value.blocks
+        val dishes = requireNotNull(blocks.firstOrNull { it.id == EVENING_DISHES_ID })
+        assertEquals(21 * 60 + 12, dishes.startMin)
+        assertEquals(21 * 60 + 32, dishes.endMin)
+        val choice = requireNotNull(blocks.firstOrNull { it.id == EVENING_CHOICE_ID })
+        assertEquals(21 * 60 + 32, choice.startMin)
+        assertEquals(22 * 60 + 30, choice.endMin)
+        val kid = requireNotNull(blocks.firstOrNull { it.id == "sun_tue_wed.kid_time" })
+        assertEquals("kid time ends when it was tapped", 21 * 60 + 12, kid.endMin)
     }
 
     private suspend fun startDayInsideCoding() {
