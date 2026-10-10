@@ -85,6 +85,32 @@ fun ScheduleEngine.pomodoroStatus(
     )
 }
 
+/**
+ * One span of a Coding block's Pomodoro cycle, in minutes-of-day: a focus stretch or the break
+ * after it. Unlike the engine's [PomodoroPhase] (which answers "which half are we in right now"),
+ * this is the whole cycle laid out on the clock, for drawing the block. Named `Slot` because
+ * [PomodoroPhase] already lives in this package.
+ */
+data class PomodoroSlot(val number: Int, val isBreak: Boolean, val startMin: Int, val endMin: Int)
+
+/** 50/10 from `fromMin` until `endMin`; the last phase is cut at the end. `number` counts focus phases from 1. */
+fun pomodoroPhases(fromMin: Int, endMin: Int, focus: Int = 50, rest: Int = 10): List<PomodoroSlot> {
+    val phases = mutableListOf<PomodoroSlot>()
+    var t = fromMin
+    var n = 1
+    while (t < endMin) {
+        val focusEnd = minOf(t + focus, endMin)
+        phases += PomodoroSlot(n, isBreak = false, startMin = t, endMin = focusEnd)
+        t = focusEnd
+        if (t >= endMin) break
+        val restEnd = minOf(t + rest, endMin)
+        phases += PomodoroSlot(n, isBreak = true, startMin = t, endMin = restEnd)
+        t = restEnd
+        n++
+    }
+    return phases
+}
+
 private fun openSegment(segments: List<Segment>): Segment? =
     segments.lastOrNull { it.actualEnd == null }
 

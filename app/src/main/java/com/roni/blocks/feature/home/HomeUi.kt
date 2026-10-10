@@ -5,6 +5,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Choice
+import com.roni.blocks.core.schedule.PomodoroSlot
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
@@ -17,6 +18,7 @@ data class CalendarBlockUi(
     val endMin: Int,
     val timeLabel: String,
     val subtitle: String?,
+    val phases: ImmutableList<PomodoroSlot> = persistentListOf(),
 )
 
 enum class ChipTone { NEUTRAL, BREAK, LEAK }

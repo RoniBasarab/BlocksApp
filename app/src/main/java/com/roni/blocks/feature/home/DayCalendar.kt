@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 import com.roni.blocks.core.debug.RecompositionCounter
 import com.roni.blocks.designsystem.AppShapes
@@ -47,7 +48,7 @@ import kotlinx.collections.immutable.ImmutableList
 
 const val DAY_START_MIN = 8 * 60
 const val DAY_END_MIN = 23 * 60
-val HourHeight = 64.dp
+val HourHeight = 80.dp
 val Gutter = 56.dp
 val TopInset = 8.dp
 
@@ -175,6 +176,9 @@ private fun CalendarBlock(
     val palette = c.block(block.type)
     val lifted = lerp(palette.container, Color.White, 0.06f)
     val emphasis by animateFloatAsState(if (isCurrent) 1f else 0f, tween(250), label = "emphasis")
+    val measurer = rememberTextMeasurer()
+    val sand = MaterialTheme.colorScheme.secondary
+    val small = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp)
 
     BoxWithConstraints(
         Modifier
@@ -188,16 +192,42 @@ private fun CalendarBlock(
                 spotShadowColor = palette.accent.copy(alpha = 0.35f)
             }
             .drawBehind { drawRect(lerp(palette.container, lifted, emphasis)) }
-            .then(
-                if (isCurrent) Modifier.drawWithContent {
-                    drawContent()
+            .drawWithContent {
+                drawContent()
+                if (block.phases.isNotEmpty()) {
+                    val pxPerMin = size.height / (block.endMin - block.startMin)
+                    val now = minuteOfDay()
+                    block.phases.forEach { p ->
+                        val top = (p.startMin - block.startMin) * pxPerMin
+                        val bottom = (p.endMin - block.startMin) * pxPerMin
+                        if (p.isBreak) {
+                            drawRect(sand.copy(alpha = 0.16f), Offset(0f, top), Size(size.width, bottom - top))
+                            drawLine(sand.copy(alpha = 0.45f), Offset(0f, top), Offset(size.width, top), 1.dp.toPx())
+                            drawLine(sand.copy(alpha = 0.45f), Offset(0f, bottom), Offset(size.width, bottom), 1.dp.toPx())
+                        }
+                        if (!isCurrent) return@forEach
+                        val text = phaseLabel(p, now) ?: return@forEach
+                        val color = when {
+                            p.isBreak -> sand
+                            now >= p.endMin -> c.textMuted
+                            now >= p.startMin -> c.textPrimary
+                            else -> c.textSecondary
+                        }
+                        val layout = measurer.measure(text, small.copy(color = color))
+                        if (layout.size.height > bottom - top) return@forEach
+                        val x = size.width - 4.dp.toPx() - layout.size.width
+                        val y = if (p.isBreak) top + (bottom - top - layout.size.height) / 2 else top + 4.dp.toPx()
+                        drawText(layout, topLeft = Offset(x, y))
+                    }
+                }
+                if (isCurrent) {
                     val y = (minuteOfDay() - block.startMin) * HourHeight.toPx() / 60f
                     if (y in 0f..size.height) {
                         drawLine(c.leak, Offset(0f, y), Offset(size.width, y), Metrics.nowLine.toPx())
                         drawCircle(c.leak, Metrics.nowDot.toPx(), Offset(Metrics.nowDot.toPx(), y))
                     }
-                } else Modifier,
-            )
+                }
+            }
             .clickable { onClick(block.id) }
             .padding(horizontal = Metrics.blockPadH, vertical = Metrics.blockPadV),
     ) {

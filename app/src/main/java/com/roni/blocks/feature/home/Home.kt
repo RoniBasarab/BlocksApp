@@ -261,11 +261,18 @@ private val day: DayOrchestrator,
         val minute = now.minuteOfDay(zone)
         val id = dayState.templateId()
         val template = id?.let { runCatching { templates.get(it) }.getOrNull() }
-        val blocks = template?.let { CalendarMapper.toBlocks(it, timeFormatter.use24.value) } ?: persistentListOf()
         val index = currentIndex(dayState)
-        val current = blocks.getOrNull(index)
         val segments = day.segments.value
         val open = segments.lastOrNull { it.kind == SegmentKind.PLANNED && it.actualEnd == null }
+        val blocks = template?.let {
+            CalendarMapper.toBlocks(
+                it.blocks,
+                timeFormatter.use24.value,
+                currentIndex = index,
+                actualStartMin = open?.actualStart?.minuteOfDay(zone),
+            )
+        } ?: persistentListOf()
+        val current = blocks.getOrNull(index)
         val effectiveEndMin = open?.plannedEnd?.let { it.minuteOfDay(zone) }
         val leaking = current != null && effectiveEndMin != null && minute > effectiveEndMin
         val nextLabel = blocks.getOrNull(index + 1)

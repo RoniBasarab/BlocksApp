@@ -5,6 +5,8 @@ import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Pomodoro
 import com.roni.blocks.core.model.Template
 import com.roni.blocks.core.model.TemplateId
+import com.roni.blocks.core.schedule.PomodoroSlot
+import com.roni.blocks.core.schedule.pomodoroPhases
 import kotlinx.datetime.LocalTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -66,6 +68,45 @@ class CalendarMapperTest {
         assertEquals(16, labels.size)
         assertEquals("08:00", labels.first())
         assertEquals("23:00", labels.last())
+    }
+
+    @Test
+    fun pomodoroPhases_cutTheLastPhaseAtTheEnd() {
+        assertEquals(
+            listOf(
+                PomodoroSlot(1, isBreak = false, 570, 620),
+                PomodoroSlot(1, isBreak = true, 620, 630),
+                PomodoroSlot(2, isBreak = false, 630, 680),
+                PomodoroSlot(2, isBreak = true, 680, 690),
+            ),
+            pomodoroPhases(9 * 60 + 30, 11 * 60 + 30),
+        )
+        assertEquals(
+            listOf(
+                PomodoroSlot(1, isBreak = false, 840, 890),
+                PomodoroSlot(1, isBreak = true, 890, 900),
+                PomodoroSlot(2, isBreak = false, 900, 930),
+            ),
+            pomodoroPhases(14 * 60, 15 * 60 + 30),
+        )
+        assertEquals(
+            listOf(
+                PomodoroSlot(1, isBreak = false, 580, 630),
+                PomodoroSlot(1, isBreak = true, 630, 640),
+                PomodoroSlot(2, isBreak = false, 640, 690),
+            ),
+            pomodoroPhases(9 * 60 + 40, 11 * 60 + 30),
+        )
+    }
+
+    @Test
+    fun phaseLabel_saysWhatsLeft() {
+        val phases = pomodoroPhases(9 * 60 + 30, 11 * 60 + 30)
+        val at1048 = 10 * 60 + 48
+        assertEquals("Focus 1 ✓", phaseLabel(phases[0], at1048))
+        assertEquals("Focus 2 · 32m left", phaseLabel(phases[2], at1048))
+        assertEquals("Break · 10m", phaseLabel(phases[3], at1048))
+        assertEquals("Break · 6m left", phaseLabel(phases[3], 11 * 60 + 24))
     }
 
     private fun sunTueWed() = Template(
