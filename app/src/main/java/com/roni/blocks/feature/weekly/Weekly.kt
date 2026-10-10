@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,20 +26,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -51,12 +48,15 @@ import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.storage.HistoryManager
+import com.roni.blocks.core.storage.TemplateManager
 import com.roni.blocks.core.storage.debtMinutes
+import com.roni.blocks.core.time.at
 import com.roni.blocks.designsystem.AppBottomBar
 import com.roni.blocks.designsystem.AppCard
 import com.roni.blocks.designsystem.AppTab
 import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.AppTopBar
+import com.roni.blocks.designsystem.AppType
 import com.roni.blocks.designsystem.EmptyState
 import com.roni.blocks.designsystem.ScreenColumn
 import com.roni.blocks.designsystem.ScreenScaffold
@@ -84,7 +84,15 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.plus
 import kotlinx.datetime.toLocalDateTime
 
-data class PairedBar(val label: String, val plannedMin: Int, val actualMin: Int, val accent: Color)
+@Immutable
+data class PlanProgressUi(
+    val type: BlockType,
+    val name: String,            // "Coding"
+    val actual: String,          // "11h 05m"
+    val planned: String,         // "13h"
+    val fraction: Float,         // actual / planned
+    val overText: String?,       // "1h 30m more than planned", only when actual > planned
+)
 
 data class WeeklyStat(val label: String, val value: String, val hint: String)
 
@@ -94,7 +102,8 @@ data class WeeklyUiState(
     val canGoNext: Boolean = false,
     val plannedFraction: Float = 0f,
     val plannedSummary: String = "",
-    val bars: ImmutableList<PairedBar> = persistentListOf(),
+    val missedSummary: String? = null,
+    val rows: ImmutableList<PlanProgressUi> = persistentListOf(),
     val stats: List<WeeklyStat> = emptyList(),
 )
 
@@ -114,6 +123,7 @@ sealed interface WeeklyAction {
  */
 class WeeklyViewModel @Inject constructor(
     private val history: HistoryManager,
+    private val templates: TemplateManager,
     private val clock: Clock,
     private val zone: TimeZone,
 ) : ViewModel() {
@@ -154,7 +164,8 @@ class WeeklyViewModel @Inject constructor(
             canGoNext = selected < currentWeek,
             plannedFraction = plannedFraction(days),
             plannedSummary = plannedSummary(days),
-            bars = bars(days),
+            missedSummary = missedSummary(days),
+            rows = planRows(days),
             stats = stats(days),
         )
     }
@@ -204,42 +215,66 @@ class WeeklyViewModel @Inject constructor(
         segments.filter { it.kind == SegmentKind.PLANNED && it.plannedStart != null && it.plannedEnd != null && it.type.isWork }
             .sumOf { (it.plannedEnd!! - it.plannedStart!!).inWholeMinutes }.toInt()
 
-    private fun bars(days: List<com.roni.blocks.core.model.DayRecord>): ImmutableList<PairedBar> {
+    /**
+     * Planned minutes come from each day's final plan (`plannedBlocks`, falling back to the
+     * template), not from what happened to get recorded: a missed block was still planned time.
+     * Off days lend nothing; on an emergency-stop day only the plan up to the stop counts.
+     * Actual minutes are the time spent in the type's segments; pauses are their own segments,
+     * so excluding them needs no subtraction, and synthetic free counts as Free.
+     */
+    private fun planRows(days: List<com.roni.blocks.core.model.DayRecord>): ImmutableList<PlanProgressUi> {
         val order = listOf(
             "CV" to BlockType.Cv,
             "Coding" to BlockType.Coding,
             "Gym" to BlockType.Gym,
             "Free" to BlockType.Free,
         )
-        return order.mapNotNull { (label, type) ->
-            var planned = 0
-            var actual = 0
-            days.forEach { day ->
-                val emergency = DayFlag.EMERGENCY_STOP in day.flags
-                day.segments.forEach { segment ->
-                    if (segment.type != type) return@forEach
-                    when (segment.kind) {
-                        SegmentKind.PLANNED -> {
-                            segment.actualEnd?.let { actualEnd ->
-                                actual += ((actualEnd - segment.actualStart).inWholeMinutes).toInt().coerceAtLeast(0)
-                            }
-                            if (!emergency) {
-                                val wide = segment.plannedStart?.let { ps -> segment.plannedEnd?.let { pe -> ((pe - ps).inWholeMinutes).toInt() } } ?: 0
-                                planned += wide
-                            }
-                        }
-                        else -> Unit
-                    }
-                }
+        val planned = mutableMapOf<BlockType, Int>()
+        val actual = mutableMapOf<BlockType, Int>()
+        days.forEach { day ->
+            if (DayFlag.OFF_DAY in day.flags) return@forEach
+            val emergencyStop = if (DayFlag.EMERGENCY_STOP in day.flags) {
+                day.segments.mapNotNull { it.actualEnd }.maxOrNull()
+            } else {
+                null
             }
-            if (planned <= 0 && actual <= 0) return@mapNotNull null
-            PairedBar(
-                label = label,
-                plannedMin = planned,
-                actualMin = actual,
-                accent = blockColors(type).accent,
+            val blocks = day.plannedBlocks ?: day.template?.let { templates.get(it).blocks } ?: emptyList()
+            blocks.forEach { block ->
+                val start = block.start.at(day.date, zone)
+                var end = block.end.at(day.date, zone)
+                if (emergencyStop != null && end > emergencyStop) end = emergencyStop
+                planned.merge(block.type, (end - start).inWholeMinutes.toInt().coerceAtLeast(0), Int::plus)
+            }
+            day.segments.forEach { segment ->
+                if (segment.kind != SegmentKind.PLANNED && segment.kind != SegmentKind.SYNTHETIC_FREE) return@forEach
+                val end = segment.actualEnd ?: return@forEach
+                actual.merge(segment.type, (end - segment.actualStart).inWholeMinutes.toInt().coerceAtLeast(0), Int::plus)
+            }
+        }
+        return order.mapNotNull { (label, type) ->
+            val plannedMin = planned[type] ?: 0
+            if (plannedMin <= 0) return@mapNotNull null
+            val actualMin = actual[type] ?: 0
+            PlanProgressUi(
+                type = type,
+                name = label,
+                actual = formatHm(actualMin),
+                planned = formatHm(plannedMin),
+                fraction = actualMin.toFloat() / plannedMin,
+                overText = if (actualMin > plannedMin) "${formatHm(actualMin - plannedMin)} more than planned" else null,
             )
         }.toPersistentList()
+    }
+
+    /** Planned time in blocks that never happened (a late start, or an earlier block ran over). */
+    private fun missedSummary(days: List<com.roni.blocks.core.model.DayRecord>): String? {
+        val missed = days.sumOf { day ->
+            day.segments
+                .filter { it.missReason != null && it.plannedStart != null && it.plannedEnd != null }
+                .sumOf { (it.plannedEnd!! - it.plannedStart!!).inWholeMinutes }
+        }.toInt()
+        if (missed <= 0) return null
+        return "Missed: ${formatHm(missed)} of planned blocks that never happened"
     }
 
     private fun stats(days: List<com.roni.blocks.core.model.DayRecord>): List<WeeklyStat> {
@@ -308,6 +343,13 @@ fun WeeklyScreen(state: WeeklyUiState, onAction: (WeeklyAction) -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = AppTheme.colors.textSecondary,
             )
+            state.missedSummary?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = AppTheme.colors.textSecondary,
+                )
+            }
             Spacer(Modifier.height(Spacing.s))
             Box(
                 Modifier
@@ -331,11 +373,8 @@ fun WeeklyScreen(state: WeeklyUiState, onAction: (WeeklyAction) -> Unit) {
                 color = AppTheme.colors.textPrimary,
             )
             Spacer(Modifier.height(Spacing.s))
-            PairedBarChart(state.bars)
-            Spacer(Modifier.height(Spacing.s))
-            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.l)) {
-                Legend(color = AppTheme.colors.outline, label = "Planned")
-                Legend(color = AppTheme.colors.primary, label = "Actual")
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.l)) {
+                state.rows.forEach { PlanProgressRow(it) }
             }
         }
         StatGrid(state.stats)
@@ -344,10 +383,21 @@ fun WeeklyScreen(state: WeeklyUiState, onAction: (WeeklyAction) -> Unit) {
 }
 
 @Composable
-private fun Legend(color: Color, label: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-        Box(Modifier.height(10.dp).width(10.dp).background(color, RoundedCornerShape(3.dp)))
-        Text(label, style = MaterialTheme.typography.labelSmall, color = AppTheme.colors.textSecondary)
+fun PlanProgressRow(p: PlanProgressUi) {
+    val c = AppTheme.colors
+    val accent = blockColors(p.type).accent
+    Column(Modifier.fillMaxWidth().testTag("plan_progress_row"), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(8.dp).background(accent, CircleShape))
+            Spacer(Modifier.width(Spacing.s))
+            Text(p.name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+            Text(p.actual, style = MaterialTheme.typography.titleSmall.merge(AppType.numbers))
+            Text(" of ${p.planned}", style = MaterialTheme.typography.bodyMedium.merge(AppType.numbers), color = c.textSecondary)
+        }
+        Box(Modifier.fillMaxWidth().height(10.dp).clip(CircleShape).background(accent.copy(alpha = 0.2f))) {
+            Box(Modifier.fillMaxWidth(p.fraction.coerceIn(0f, 1f)).fillMaxHeight().clip(CircleShape).background(accent))
+        }
+        p.overText?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = c.textSecondary) }
     }
 }
 
@@ -386,43 +436,6 @@ private fun WeekSelector(state: WeeklyUiState, onAction: (WeeklyAction) -> Unit)
             }
         }
     }
-}
-
-@Composable
-fun PairedBarChart(bars: ImmutableList<PairedBar>, modifier: Modifier = Modifier) {
-    if (bars.isEmpty()) return
-    val c = AppTheme.colors
-    val measurer = rememberTextMeasurer()
-    val valueStyle = MaterialTheme.typography.labelSmall.copy(color = c.textPrimary)
-    val labelStyle = MaterialTheme.typography.labelSmall.copy(color = c.textSecondary)
-    Spacer(
-        modifier.fillMaxWidth().height(200.dp).drawWithCache {
-            val barW = 18.dp.toPx()
-            val gap = 4.dp.toPx()
-            val r = CornerRadius(6.dp.toPx())
-            val valueH = 18.dp.toPx()
-            val labelH = 22.dp.toPx()
-            val chartH = size.height - valueH - labelH
-            val maxMin = bars.maxOf { maxOf(it.plannedMin, it.actualMin) }.coerceAtLeast(1)
-            val groupW = size.width / bars.size
-            val labels = bars.map { measurer.measure(it.label, labelStyle) }
-            val values = bars.map { measurer.measure(formatHm(it.actualMin), valueStyle) }
-            onDrawBehind {
-                val baseY = valueH + chartH
-                bars.forEachIndexed { i, b ->
-                    val cx = groupW * i + groupW / 2
-                    val pH = chartH * b.plannedMin / maxMin
-                    val aH = chartH * b.actualMin / maxMin
-                    drawRoundRect(b.accent.copy(alpha = 0.35f), Offset(cx - gap / 2 - barW, baseY - pH), Size(barW, pH), r)
-                    drawRoundRect(b.accent, Offset(cx + gap / 2, baseY - aH), Size(barW, aH), r)
-                    val v = values[i]
-                    drawText(v, topLeft = Offset(cx + gap / 2 + barW / 2 - v.size.width / 2, baseY - aH - v.size.height - 2.dp.toPx()))
-                    val l = labels[i]
-                    drawText(l, topLeft = Offset(cx - l.size.width / 2, baseY + 4.dp.toPx()))
-                }
-            }
-        },
-    )
 }
 
 @Composable

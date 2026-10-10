@@ -29,7 +29,7 @@ import com.roni.blocks.feature.templatepicker.PickerCard
 import com.roni.blocks.feature.templatepicker.PickerUiState
 import com.roni.blocks.feature.timedebt.DebtDay
 import com.roni.blocks.feature.timedebt.TimeDebtUiState
-import com.roni.blocks.feature.weekly.PairedBar
+import com.roni.blocks.feature.weekly.PlanProgressUi
 import com.roni.blocks.feature.weekly.WeeklyStat
 import com.roni.blocks.feature.weekly.WeeklyUiState
 import kotlinx.collections.immutable.persistentListOf
@@ -191,11 +191,11 @@ object FakeStates {
             WeeklyStat("Off days", "1", "Days with no schedule"),
             WeeklyStat("Evenings skipped", "2", "Kid asleep never tapped"),
         ),
-        bars = listOf(
-            PairedBar("CV", 150, 140, blockColors(BlockType.Cv).accent),
-            PairedBar("Coding", 700, 560, blockColors(BlockType.Coding).accent),
-            PairedBar("Gym", 260, 120, blockColors(BlockType.Gym).accent),
-            PairedBar("Free", 240, 200, blockColors(BlockType.Free).accent),
+        rows = listOf(
+            PlanProgressUi(BlockType.Cv, "CV", "2h 20m", "2h 30m", 140f / 150f, null),
+            PlanProgressUi(BlockType.Coding, "Coding", "9h 20m", "11h 40m", 560f / 700f, null),
+            PlanProgressUi(BlockType.Gym, "Gym", "2h 00m", "4h 20m", 120f / 260f, null),
+            PlanProgressUi(BlockType.Free, "Free", "3h 20m", "4h 00m", 200f / 240f, null),
         ).toPersistentList(),
     )
 

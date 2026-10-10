@@ -3,6 +3,7 @@ package com.roni.blocks.feature.weekly
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.roni.blocks.core.demo.DemoDataGenerator
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
@@ -10,6 +11,7 @@ import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsStorage
+import com.roni.blocks.core.storage.TemplateManager
 import com.roni.blocks.core.time.at
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
@@ -19,9 +21,11 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.minus
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -67,6 +71,7 @@ class WeeklyViewModelTest {
 
     private fun build(): WeeklyViewModel = WeeklyViewModel(
         history = history,
+        templates = TemplateManager(context),
         clock = clock,
         zone = zone,
     )
@@ -193,6 +198,48 @@ class WeeklyViewModelTest {
         val state = viewModel.state.value
         assertEquals("27 Sep – 3 Oct", state.weekLabel)
         assertFalse(state.canGoNext)
+    }
+
+    @Test
+    fun weekly_plannedTime_comesFromTheDaysPlans() = runBlocking {
+        DemoDataGenerator(
+            templates = TemplateManager(context),
+            history = history,
+            clock = clock,
+            zone = zone,
+        ).seed(weeks = 4, seed = 42)
+
+        val viewModel = build()
+        viewModel.onPreviousWeek()
+
+        val row = viewModel.state.value.rows.first { it.type == BlockType.Coding }
+
+        val weekStart = history.weekStart(today).minus(7, DateTimeUnit.DAY)
+        val expected = history.days()
+            .filter { history.weekStart(it.date) == weekStart }
+            .filter { DayFlag.OFF_DAY !in it.flags }
+            .sumOf { day ->
+                val stop = if (DayFlag.EMERGENCY_STOP in day.flags) {
+                    day.segments.mapNotNull { it.actualEnd }.maxOrNull()
+                } else {
+                    null
+                }
+                (day.plannedBlocks ?: emptyList())
+                    .filter { it.type == BlockType.Coding }
+                    .sumOf { block ->
+                        val start = block.start.at(day.date, zone)
+                        var end = block.end.at(day.date, zone)
+                        if (stop != null && end > stop) end = stop
+                        (end - start).inWholeMinutes.coerceAtLeast(0)
+                    }.toInt()
+            }
+        assertEquals(expected, hmToMinutes(row.planned))
+    }
+
+    private fun hmToMinutes(text: String): Int {
+        val hours = Regex("(\\d+)h").find(text)?.groupValues?.get(1)?.toInt() ?: 0
+        val minutes = Regex("(\\d+)m").find(text)?.groupValues?.get(1)?.toInt() ?: 0
+        return hours * 60 + minutes
     }
 
     private suspend fun seedDay(
