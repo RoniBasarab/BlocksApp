@@ -140,5 +140,6 @@
 - **Release:** `versionName` 1.5.1 -> 2.0.0, `versionCode` 10501 -> 20000; the 2.0.0 CHANGELOG entry added verbatim from Task-7.md.
 - **Name adaptations from the file's sketches** (for the final report): `PomodoroPhase` became `PomodoroSlot` (collision, Slice 6); the edit-card type tag is `edit_type_<data-object name>` (`Cv`/`Coding`/`Gym`/`Free`) because `BlockType` is a sealed interface with no `.name`; `PlanConversion.kt` is a separate file rather than part of the "verified" `PlanEditor.kt`; the block-sheet UI (`BlockSheetUi`/`BlockDetailSheet`) was deleted rather than kept.
 - No phone connected: nothing was checked on-device, and no screenshots were taken.
+- **Slice 1:** removed Roborazzi and the screenshot/layout-only tests. `DebugTimeControllerTest.evening_canBeReachedWithoutWaiting` fails on master too (expected `KidTime`, got `NotStarted`): pre-existing, owned by the evening slices (2/4), not caused by Slice 1.
 
 
