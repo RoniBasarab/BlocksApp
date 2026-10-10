@@ -1,9 +1,14 @@
 package com.roni.blocks.feature.home
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -11,13 +16,20 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
@@ -26,9 +38,12 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -37,14 +52,19 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import kotlin.math.roundToInt
 import com.roni.blocks.core.debug.RecompositionCounter
+import com.roni.blocks.core.schedule.BlockEdit
+import com.roni.blocks.core.schedule.Edge
+import com.roni.blocks.core.schedule.PlanEditor
 import com.roni.blocks.designsystem.AppShapes
 import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.AppType
 import com.roni.blocks.designsystem.BlockCorner
 import com.roni.blocks.designsystem.Metrics
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.coroutines.launch
 
 const val DAY_START_MIN = 8 * 60
 const val DAY_END_MIN = 23 * 60
@@ -62,6 +82,9 @@ fun DayCalendar(
     scrollState: ScrollState,
     bottomPadding: Dp,
     onBlockClick: (String) -> Unit,
+    selectedBlockId: String?,
+    draggingId: String?,
+    onAction: (HomeAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     SideEffect { RecompositionCounter.hit("DayCalendar") }
@@ -80,8 +103,11 @@ fun DayCalendar(
             BlocksLayout(
                 blocks = blocks,
                 currentBlockId = currentBlockId,
+                selectedBlockId = selectedBlockId,
+                draggingId = draggingId,
                 minuteOfDay = minuteOfDay,
                 onBlockClick = onBlockClick,
+                onAction = onAction,
                 modifier = Modifier.fillMaxWidth().height(gridHeight),
             )
             LeakOverlay(
@@ -131,34 +157,100 @@ private fun HourGrid(hourLabels: ImmutableList<String>, modifier: Modifier = Mod
 private fun BlocksLayout(
     blocks: ImmutableList<CalendarBlockUi>,
     currentBlockId: String?,
+    selectedBlockId: String?,
+    draggingId: String?,
     minuteOfDay: () -> Int,
     onBlockClick: (String) -> Unit,
+    onAction: (HomeAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     SideEffect { RecompositionCounter.hit("BlocksLayout") }
+    val anim = remember {
+        mutableStateMapOf<String, Pair<Animatable<Float, AnimationVector1D>, Animatable<Float, AnimationVector1D>>>()
+    }
+    LaunchedEffect(blocks, draggingId) {
+        val spec = spring<Float>(dampingRatio = 0.85f, stiffness = 500f)
+        val ids = blocks.mapTo(HashSet()) { it.id }
+        anim.keys.filter { it !in ids }.forEach { anim.remove(it) }
+        blocks.forEach { b ->
+            val (start, end) = anim.getOrPut(b.id) { Animatable(b.startMin.toFloat()) to Animatable(b.endMin.toFloat()) }
+            if (b.id == draggingId) {
+                start.snapTo(b.startMin.toFloat())
+                end.snapTo(b.endMin.toFloat())
+            } else {
+                launch { start.animateTo(b.startMin.toFloat(), spec) }
+                launch { end.animateTo(b.endMin.toFloat(), spec) }
+            }
+        }
+    }
+    val selected = blocks.firstOrNull { it.id == selectedBlockId }
+    val c = AppTheme.colors
+
     Layout(
         modifier = modifier,
-        content = {
-            blocks.forEach { block ->
-                key(block.id) {
-                    CalendarBlock(block, block.id == currentBlockId, minuteOfDay, onBlockClick)
+        contents = listOf(
+            {
+                blocks.forEach { block ->
+                    key(block.id) {
+                        CalendarBlock(
+                            block = block,
+                            isCurrent = block.id == currentBlockId,
+                            isSelected = block.id == selectedBlockId,
+                            minuteOfDay = minuteOfDay,
+                            onClick = onBlockClick,
+                        )
+                    }
                 }
-            }
-        },
+            },
+            {
+                if (selected != null) {
+                    val accent = c.block(selected.type).accent
+                    when (selected.edit) {
+                        BlockEdit.FULL -> {
+                            EdgeHandle(selected.id, Edge.TOP, selected.startMin, accent, onAction, Modifier.zIndex(2f))
+                            EdgeHandle(selected.id, Edge.BOTTOM, selected.endMin, accent, onAction, Modifier.zIndex(2f))
+                        }
+                        BlockEdit.END_ONLY ->
+                            EdgeHandle(selected.id, Edge.BOTTOM, selected.endMin, accent, onAction, Modifier.zIndex(2f))
+                        else -> Unit
+                    }
+                }
+            },
+        ),
     ) { measurables, constraints ->
         val pxPerMin = HourHeight.toPx() / 60f
         val left = (Gutter + Metrics.calendarGap).roundToPx()
         val width = constraints.maxWidth - left - Metrics.calendarRight.roundToPx()
         val gap = Metrics.calendarGap.toPx()
         val top = TopInset.toPx()
-        val placeables = measurables.mapIndexed { i, m ->
+        val handlePx = 48.dp.roundToPx()
+        val blockPlaceables = measurables[0].mapIndexed { i, m ->
             val b = blocks[i]
-            val h = ((b.endMin - b.startMin) * pxPerMin - 2 * gap).roundToInt().coerceAtLeast(0)
-            m.measure(Constraints.fixed(width, h))
+            val start = anim[b.id]?.first?.value ?: b.startMin.toFloat()
+            val end = anim[b.id]?.second?.value ?: b.endMin.toFloat()
+            val h = ((end - start) * pxPerMin - 2 * gap).roundToInt().coerceAtLeast(0)
+            m.measure(Constraints.fixed(width, h)) to start
         }
+        val handlePlaceables = measurables[1].map { it.measure(Constraints()) }
         layout(constraints.maxWidth, constraints.maxHeight) {
-            placeables.forEachIndexed { i, p ->
-                p.place(left, (top + (blocks[i].startMin - DAY_START_MIN) * pxPerMin + gap).roundToInt())
+            blockPlaceables.forEach { (p, start) ->
+                p.place(left, (top + (start - DAY_START_MIN) * pxPerMin + gap).roundToInt())
+            }
+            if (selected != null && handlePlaceables.isNotEmpty()) {
+                val start = anim[selected.id]?.first?.value ?: selected.startMin.toFloat()
+                val end = anim[selected.id]?.second?.value ?: selected.endMin.toFloat()
+                val topY = top + (start - DAY_START_MIN) * pxPerMin
+                val bottomY = top + (end - DAY_START_MIN) * pxPerMin
+                val rightX = left + width - handlePx
+                when (selected.edit) {
+                    BlockEdit.FULL -> {
+                        handlePlaceables.getOrNull(0)?.place(left, (topY - handlePx / 2f).roundToInt())
+                        handlePlaceables.getOrNull(1)?.place(rightX, (bottomY - handlePx / 2f).roundToInt())
+                    }
+                    BlockEdit.END_ONLY ->
+                        handlePlaceables.getOrNull(0)?.place(rightX, (bottomY - handlePx / 2f).roundToInt())
+                    else -> Unit
+                }
             }
         }
     }
@@ -168,6 +260,7 @@ private fun BlocksLayout(
 private fun CalendarBlock(
     block: CalendarBlockUi,
     isCurrent: Boolean,
+    isSelected: Boolean,
     minuteOfDay: () -> Int,
     onClick: (String) -> Unit,
 ) {
@@ -182,6 +275,7 @@ private fun CalendarBlock(
 
     BoxWithConstraints(
         Modifier
+            .zIndex(if (isSelected) 1f else 0f)
             .graphicsLayer {
                 alpha = 0.6f + 0.4f * emphasis
                 scaleX = 1f + 0.02f * emphasis
@@ -226,6 +320,13 @@ private fun CalendarBlock(
                         drawLine(c.leak, Offset(0f, y), Offset(size.width, y), Metrics.nowLine.toPx())
                         drawCircle(c.leak, Metrics.nowDot.toPx(), Offset(Metrics.nowDot.toPx(), y))
                     }
+                }
+                if (isSelected) {
+                    drawRoundRect(
+                        color = palette.accent,
+                        cornerRadius = CornerRadius(BlockCorner.toPx()),
+                        style = Stroke(2.dp.toPx()),
+                    )
                 }
             }
             .clickable { onClick(block.id) }
@@ -282,4 +383,46 @@ private fun LeakOverlay(leakFromMin: Int?, minuteOfDay: () -> Int, modifier: Mod
             }
         },
     )
+}
+
+@Composable
+private fun EdgeHandle(
+    blockId: String,
+    edge: Edge,
+    edgeMin: Int,
+    accent: Color,
+    onAction: (HomeAction) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val pxPerMin = with(LocalDensity.current) { HourHeight.toPx() / 60f }
+    val currentEdge by rememberUpdatedState(edgeMin)
+    Box(
+        modifier
+            .size(48.dp)
+            .pointerInput(blockId, edge) {
+                var startMin = 0
+                var dragPx = 0f
+                var lastMin = 0
+                detectVerticalDragGestures(
+                    onDragStart = {
+                        startMin = currentEdge
+                        dragPx = 0f
+                        lastMin = startMin
+                    },
+                    onDragEnd = { onAction(HomeAction.DragDone(blockId, edge, lastMin)) },
+                    onDragCancel = { onAction(HomeAction.DragCancelled) },
+                ) { change, dy ->
+                    change.consume()
+                    dragPx += dy
+                    val m = PlanEditor.snap(startMin + (dragPx / pxPerMin).roundToInt())
+                    if (m != lastMin) {
+                        lastMin = m
+                        onAction(HomeAction.DragEdge(blockId, edge, m))
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.size(18.dp).background(AppTheme.colors.surface, CircleShape).padding(2.dp).background(accent, CircleShape))
+    }
 }

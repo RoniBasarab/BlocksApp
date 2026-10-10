@@ -1,5 +1,6 @@
 package com.roni.blocks.feature.home
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,6 +47,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,6 +68,13 @@ import androidx.lifecycle.viewModelScope
 import androidx.navigation3.runtime.NavKey
 import com.roni.blocks.BuildConfig
 import com.roni.blocks.core.daystate.DayEvent
+import com.roni.blocks.core.schedule.BlockEdit
+import com.roni.blocks.core.schedule.Edge
+import com.roni.blocks.core.schedule.PlanBlock
+import com.roni.blocks.core.schedule.PlanEdit
+import com.roni.blocks.core.schedule.PlanEditor
+import com.roni.blocks.core.schedule.toBlockSpecs
+import com.roni.blocks.core.schedule.toPlanBlocks
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.daystate.DayState
 import com.roni.blocks.core.daystate.EndReason
@@ -77,7 +86,6 @@ import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
 import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.model.Choice
-import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.Template
 import com.roni.blocks.core.storage.HistoryManager
@@ -147,7 +155,8 @@ private val day: DayOrchestrator,
     /** Buttons the user chose "Don't ask again" for; survives process death. */
     val suppressedConfirmations: StateFlow<Set<NowButtonId>> = _suppressedConfirmations.asStateFlow()
 
-    private var selectedBlockId: String? = null
+    private var preview: List<PlanBlock>? = null
+    private var draggingId: String? = null
     private var eveningSheetOpen = false
 
     val minuteOfDay: StateFlow<Int> =
@@ -236,34 +245,77 @@ private val day: DayOrchestrator,
                 eveningSheetOpen = false
                 day.send(DayEvent.EveningChoice(action.choice))
             }
-            is HomeAction.BlockClicked -> selectedBlockId = action.id
-            HomeAction.DismissBlockSheet -> selectedBlockId = null
+            is HomeAction.DragEdge -> {
+                draggingId = action.id
+                preview = previewResize(action.id, action.edge, action.toMin)
+            }
+            is HomeAction.DragDone -> commitEdit(PlanEdit.Resize(action.id, action.edge, action.toMin))
+            HomeAction.DragCancelled -> {
+                preview = null
+                draggingId = null
+            }
+            is HomeAction.StepEdge -> stepEdge(action.id, action.edge, action.byMin)
+            is HomeAction.Retype -> commitEdit(PlanEdit.Retype(action.id, action.type))
             HomeAction.SwapTemplate,
             HomeAction.History,
             HomeAction.Settings,
             -> Unit
         }
-        if (action.affectsOverlays) publish(day.state.value)
+        if (action.affectsOverlays || action.affectsCalendar) publish(day.state.value)
+    }
+
+    private fun previewResize(id: String, edge: Edge, toMin: Int): List<PlanBlock>? {
+        val plan = day.todayPlan.value ?: return null
+        return PlanEditor.apply(
+            plan.blocks.toPlanBlocks(),
+            PlanEdit.Resize(id, edge, toMin),
+            clock.now().minuteOfDay(zone),
+            day.currentForEditing(),
+        )
+    }
+
+    private fun commitEdit(edit: PlanEdit) {
+        viewModelScope.launch {
+            day.editPlan(edit)
+            preview = null
+            draggingId = null
+            publish(day.state.value)
+        }
+    }
+
+    private fun stepEdge(id: String, edge: Edge, byMin: Int) {
+        val block = day.todayPlan.value?.blocks?.firstOrNull { it.id == id } ?: return
+        val edgeMin = if (edge == Edge.TOP) block.start.hour * 60 + block.start.minute else block.end.hour * 60 + block.end.minute
+        commitEdit(PlanEdit.Resize(id, edge, edgeMin + byMin))
     }
 
     private fun publish(dayState: DayState) {
         val now = clock.now()
         val minute = now.minuteOfDay(zone)
         val id = dayState.templateId()
-        val template = day.todayPlan.value?.let { plan ->
+        val todayPlan = day.todayPlan.value
+        val template = todayPlan?.let { plan ->
             runCatching { templates.get(plan.templateId) }.getOrNull()?.let { Template(it.id, it.name, plan.blocks) }
         } ?: id?.let { runCatching { templates.get(it) }.getOrNull() }
         val index = currentIndex(dayState)
         val segments = day.segments.value
         val open = segments.lastOrNull { it.kind == SegmentKind.PLANNED && it.actualEnd == null }
-        val blocks = template?.let {
+        val specs = preview?.let { pv -> todayPlan?.blocks?.let { pv.toBlockSpecs(it) } } ?: template?.blocks
+        val mapped = specs?.let {
             CalendarMapper.toBlocks(
-                it.blocks,
+                it,
                 timeFormatter.use24.value,
                 currentIndex = index,
                 actualStartMin = open?.actualStart?.minuteOfDay(zone),
             )
         } ?: persistentListOf()
+        val blocks = if (todayPlan != null) {
+            val planBlocks = preview ?: todayPlan.blocks.toPlanBlocks()
+            val currentForEdit = day.currentForEditing()
+            mapped.map { b -> b.copy(edit = PlanEditor.editMode(planBlocks, b.id, minute, currentForEdit)) }.toPersistentList()
+        } else {
+            mapped
+        }
         val current = blocks.getOrNull(index)
         val effectiveEndMin = open?.plannedEnd?.let { it.minuteOfDay(zone) }
         val leaking = current != null && effectiveEndMin != null && minute > effectiveEndMin
@@ -271,7 +323,8 @@ private val day: DayOrchestrator,
         val emergencyEnded = dayState is DayState.Ended && endedRecord?.flags?.contains(DayFlag.EMERGENCY_STOP) == true
 
         if (dayState is DayState.Ended || dayState is DayState.Off || dayState is DayState.NotStarted) {
-            selectedBlockId = null
+            preview = null
+            draggingId = null
         }
         if (!dayState.isDishesSlot) eveningSheetOpen = false
 
@@ -291,7 +344,7 @@ private val day: DayOrchestrator,
             nowCard = nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel),
             eveningChoicePending = dayState.isDishesSlot,
             eveningSheetOpen = eveningSheetOpen,
-            blockSheet = blockSheet(blocks.firstOrNull { it.id == selectedBlockId }, segments, minute),
+            draggingId = draggingId,
         )
     }
 
@@ -311,42 +364,6 @@ private val day: DayOrchestrator,
         is DayState.Paused -> dayState.running.blockIndex
         is DayState.Evening -> dayState.blockIndex
         else -> -1
-    }
-
-    private fun blockSheet(
-        block: CalendarBlockUi?,
-        segments: List<Segment>,
-        minute: Int,
-    ): BlockSheetUi? {
-        if (block == null) return null
-        val own = segments.filter { it.plannedStart?.minuteOfDay(zone) == block.startMin }
-        val main = own.firstOrNull()
-        val actualStart = main?.actualStart?.minuteOfDay(zone)
-        val actualEnd = main?.actualEnd?.minuteOfDay(zone)
-        val actual = actualStart?.let { start ->
-            "${timeFormatter.label(start)}–${timeFormatter.label(actualEnd ?: minute)}"
-        }
-        val drift = if (actualStart != null && actualEnd != null) {
-            (actualEnd - actualStart) - (block.endMin - block.startMin)
-        } else {
-            null
-        }
-        val pauses = segments.filter {
-            it.kind == SegmentKind.PAUSE && it.plannedStart?.minuteOfDay(zone)?.let { m -> m in block.startMin until block.endMin } == true
-        }
-        val pausedMin = pauses.sumOf { ((it.actualEnd ?: it.actualStart) - it.actualStart).inWholeMinutes }.toInt()
-        return BlockSheetUi(
-            title = block.title,
-            timeLabel = block.timeLabel,
-            planned = block.timeLabel,
-            actual = actual,
-            delta = drift?.let { if (it > 0) "+$it min" else if (it < 0) "−${-it} min" else "on time" },
-            pauses = when {
-                pauses.isEmpty() -> null
-                pauses.size == 1 -> "1 pause · $pausedMin min"
-                else -> "${pauses.size} pauses · $pausedMin min"
-            },
-        )
     }
 
     private fun status(
@@ -570,6 +587,8 @@ fun HomeScreen(
     SideEffect { RecompositionCounter.hit("HomeScreen") }
     val scroll = rememberScrollState()
     val density = LocalDensity.current
+    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+    val selected = state.blocks.firstOrNull { it.id == selectedId }?.takeIf { it.edit != BlockEdit.NONE }
 
     LaunchedEffect(state.currentBlockId) {
         val start = state.blocks.firstOrNull { it.id == state.currentBlockId }?.startMin
@@ -579,6 +598,8 @@ fun HomeScreen(
         }
         scroll.animateScrollTo(target.toInt().coerceAtLeast(0))
     }
+
+    BackHandler(enabled = selected != null) { selectedId = null }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -607,30 +628,41 @@ fun HomeScreen(
                     minuteOfDay = minuteOfDay,
                     scrollState = scroll,
                     bottomPadding = NowCardReservedHeight,
-                    onBlockClick = { onAction(HomeAction.BlockClicked(it)) },
+                    onBlockClick = { clicked -> selectedId = if (selectedId == clicked) null else clicked },
+                    selectedBlockId = selected?.id,
+                    draggingId = state.draggingId,
+                    onAction = onAction,
                     modifier = Modifier.weight(1f).testTag("home_calendar"),
                 )
             }
         }
-        if (state.recap == null) state.nowCard?.let { ui ->
-            NowCard(
-                ui = ui,
-                countdownText = countdownText,
-                progress = progress,
-                onAction = onAction,
-                suppressedConfirmations = suppressedConfirmations,
-                onSuppressConfirmation = onSuppressConfirmation,
-                onAskAgain = onAskAgain,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(horizontal = Spacing.l, vertical = Spacing.s),
-            )
+        if (state.recap == null) {
+            if (selected != null) {
+                EditCard(
+                    block = selected,
+                    onDone = { selectedId = null },
+                    onAction = onAction,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = Spacing.l, vertical = Spacing.s),
+                )
+            } else state.nowCard?.let { ui ->
+                NowCard(
+                    ui = ui,
+                    countdownText = countdownText,
+                    progress = progress,
+                    onAction = onAction,
+                    suppressedConfirmations = suppressedConfirmations,
+                    onSuppressConfirmation = onSuppressConfirmation,
+                    onAskAgain = onAskAgain,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = Spacing.l, vertical = Spacing.s),
+                )
+            }
         }
     }
 
-    state.blockSheet?.let { sheet ->
-        BlockDetailSheet(ui = sheet, onDismiss = { onAction(HomeAction.DismissBlockSheet) })
-    }
     if (state.eveningChoicePending || state.eveningSheetOpen) {
         EveningChoiceSheet(onPick = { onAction(HomeAction.PickEvening(it)) })
     }

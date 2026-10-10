@@ -50,41 +50,6 @@ private fun Modifier.blockSheetDrags(): Modifier = pointerInput(Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BlockDetailSheet(ui: BlockSheetUi, onDismiss: () -> Unit) {
-    val colors = AppTheme.colors
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        shape = AppShapes.sheet,
-        containerColor = colors.surface,
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .blockSheetDrags()
-                .padding(Spacing.l),
-            verticalArrangement = Arrangement.spacedBy(Spacing.s),
-        ) {
-            Text(ui.title, style = MaterialTheme.typography.titleLarge, color = colors.textPrimary)
-            SheetRow("Planned", ui.planned, colors.textPrimary)
-            ui.actual?.let { SheetRow("Actual", it, colors.textPrimary) }
-            ui.delta?.let { SheetRow("Drift", it, colors.textSecondary) }
-            ui.pauses?.let { SheetRow("Pauses", it, colors.textSecondary) }
-        }
-    }
-}
-
-@Composable
-private fun SheetRow(label: String, value: String, valueColor: androidx.compose.ui.graphics.Color) {
-    val colors = AppTheme.colors
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = colors.textSecondary)
-        Text(value, style = MaterialTheme.typography.bodyMedium, color = valueColor)
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
 fun EveningChoiceSheet(onPick: (Choice) -> Unit) {
     val colors = AppTheme.colors
     val choices = listOf(
