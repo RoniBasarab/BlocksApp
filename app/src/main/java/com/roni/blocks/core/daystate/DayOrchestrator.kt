@@ -14,6 +14,7 @@ import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.Template
 import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.model.TodayPlan
+import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.schedule.RecordEdit
 import com.roni.blocks.core.schedule.toRecordRows
 import com.roni.blocks.core.schedule.withRows
@@ -377,6 +378,15 @@ class DayOrchestrator @Inject constructor(
                 logger.info("dropping Next for ${event.expectedBlockId}, current is ${current ?: "-"}")
                 return
             }
+            if (startNextEarly(now)) {
+                reactedAt = now
+                _state.value = DayState.KidTime
+                _segments.value = book.segments
+                persist()
+                logger.info("Next started kid time at $now")
+                sideEffects(transition = true)
+                return
+            }
         }
         val next = DayStateMachine.transition(_state.value, event, now)
         if (next == null) {
@@ -417,6 +427,33 @@ class DayOrchestrator @Inject constructor(
         } else {
             sideEffects(transition = true)
         }
+    }
+
+    /**
+     * "Next starts the next thing now" (2.3.0): pressed from free time, or from a block finished
+     * early, the first real block after it starts now and keeps its length; the free time in between
+     * is skipped. Returns true when the landing block is kid time, which the caller runs as
+     * [DayEvent.KidTimeStarted] instead of Next. A [DayEvent.Next] from a work block that is not over
+     * yet is "Done early" and is left to [SegmentBook.next].
+     */
+    private fun startNextEarly(now: Instant): Boolean {
+        val plan = _todayPlan.value ?: return false
+        val currentId = _state.value.currentBlockId() ?: return false
+        val open = book.segments.lastOrNull { it.actualEnd == null }
+        val doneEarly = open != null && open.kind == SegmentKind.PLANNED && open.type.isWork &&
+            open.plannedEnd != null && now < open.plannedEnd!!
+        if (doneEarly) return false
+        val nowMin = now.toLocalDateTime(zone).let { it.hour * 60 + it.minute }
+        val edited = PlanEditor.startEarly(plan.blocks.toPlanBlocks(), currentId, nowMin) ?: return false
+        _todayPlan.value = plan.copy(blocks = edited.toBlockSpecs(plan.blocks), edited = true)
+        val landing = edited.indexOfFirst { it.startMin == nowMin && it.id != currentId }
+        if (landing < 0) return false
+        if (edited[landing].type == BlockType.KidTime) {
+            book = SegmentBook.enterKidTime(book, currentTemplate() ?: return false, today(), zone)
+            return true
+        }
+        book = book.copy(index = landing - 1)
+        return false
     }
 
     /**

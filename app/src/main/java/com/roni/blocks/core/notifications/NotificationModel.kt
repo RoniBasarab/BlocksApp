@@ -5,11 +5,13 @@ import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.schedule.DayTimeline
+import com.roni.blocks.core.schedule.PlanEditor
 import com.roni.blocks.core.schedule.ResolvedBlock
 import com.roni.blocks.core.schedule.ScheduleEngine
 import com.roni.blocks.core.schedule.effectiveEnd
 import com.roni.blocks.core.schedule.landingBlockForStartNext
 import com.roni.blocks.core.schedule.pomodoroStatus
+import com.roni.blocks.core.schedule.toPlanBlock
 import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.core.time.minuteOfDay
 import javax.inject.Inject
@@ -99,7 +101,7 @@ class NotificationModelMapper @Inject constructor(
         val pomodoro = engine.pomodoroStatus(block, now, zone, open?.actualStart ?: block.plannedStart)
 
         if (open != null && open.kind == com.roni.blocks.core.model.SegmentKind.SYNTHETIC_FREE && open.plannedEnd != null) {
-            val nextName = blocks.getOrNull(state.blockIndex + 1)?.let { blockName(it.spec.type) }.orEmpty()
+            val nextName = nextStopName(blocks, block)
             val text = if (nextName.isNotEmpty()) "until ${hhmm(open.plannedEnd)} · then $nextName" else "until ${hhmm(open.plannedEnd)}"
             return NotificationModel(
                 key = "$id:early",
@@ -136,7 +138,8 @@ class NotificationModelMapper @Inject constructor(
             NotificationActionModel("Done early", ActionEvent.START_NEXT, id),
         )
         val nonWorkActions = buildList {
-            if (nextName.isNotEmpty()) add(NotificationActionModel("Next: $nextName", ActionEvent.START_NEXT, id))
+            val landingNext = nextStopName(blocks, block)
+            if (landingNext.isNotEmpty()) add(NotificationActionModel("Next: $landingNext", ActionEvent.START_NEXT, id))
         }
 
         if (pomodoro != null && pomodoro.onBreak) {
@@ -278,6 +281,10 @@ class NotificationModelMapper @Inject constructor(
             )
         }
     }
+
+    /** The first real block after [block]; the free time in between is skipped ("Next starts it now", 2.3.0). */
+    private fun nextStopName(blocks: List<ResolvedBlock>, block: ResolvedBlock): String =
+        PlanEditor.nextStop(blocks.map { it.spec.toPlanBlock() }, block.spec.id)?.let { blockName(it.type) }.orEmpty()
 
     private fun hhmm(instant: Instant): String = timeFormatter.label(instant.minuteOfDay(zone))
 

@@ -19,6 +19,7 @@ fun List<BlockSpec>.toPlanBlocks(): List<PlanBlock> = map { it.toPlanBlock() }
  */
 fun PlanBlock.toBlockSpec(originals: List<BlockSpec>): BlockSpec {
     val original = originals.firstOrNull { it.id == id }
+        ?: originals.firstOrNull { it.id == id.substringBefore('@') }   // a resumed piece (`<id>@<min>`) keeps its original's flags
     return BlockSpec(
         id = id,
         type = type,

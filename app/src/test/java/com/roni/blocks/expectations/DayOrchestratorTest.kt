@@ -119,13 +119,14 @@ class DayOrchestratorTest {
         orchestrator.handleNotificationAction(ActionEvent.START_NEXT, firstBlockId)
         assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 0), orchestrator.state.value)
 
-        // A second tap leaves the CV slot and moves on to the next block.
+        // A second tap leaves the CV slot: CV never actually ran (it was tapped in its first
+        // minute), so it drops out of the plan and coding_am starts now as the first block.
         orchestrator.handleNotificationAction(ActionEvent.START_NEXT, firstBlockId)
-        assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 1), orchestrator.state.value)
+        assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 0), orchestrator.state.value)
 
         // The same button is tapped again after the day already moved past that block.
         orchestrator.handleNotificationAction(ActionEvent.START_NEXT, firstBlockId)
-        assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 1), orchestrator.state.value)
+        assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 0), orchestrator.state.value)
     }
 
     @Test
@@ -133,7 +134,8 @@ class DayOrchestratorTest {
         orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
         orchestrator.handleNotificationAction(ActionEvent.START_NEXT, firstBlockId)
         orchestrator.handleNotificationAction(ActionEvent.START_NEXT, firstBlockId)
-        assertEquals(1, (orchestrator.state.value as DayState.Running).blockIndex)
+        // CV drops out (it never ran), so coding_am is now the first plan block, started at 9:00.
+        assertEquals(0, (orchestrator.state.value as DayState.Running).blockIndex)
         assertEquals(
             "the second tap must not open anything else",
             1,
@@ -639,6 +641,57 @@ class DayOrchestratorTest {
         assertTrue(
             "no nag at 11:45 should be scheduled",
             scheduled.none { LocalTime(11, 45).at(date, zone).toEpochMilliseconds() == it },
+        )
+    }
+
+    @Test
+    fun next_beforeTheNextBlock_startsItNowWithItsOwnLength() = runBlocking {
+        clock.now = LocalTime(10, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        awaitBlockIndex(1)
+
+        clock.now = LocalTime(10, 1).at(date, zone)
+        orchestrator.handle(DayEvent.Next("sun_tue_wed.coding_am"))
+
+        clock.now = LocalTime(10, 2).at(date, zone)
+        orchestrator.handle(DayEvent.Next("sun_tue_wed.coding_am"))
+
+        assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 2), orchestrator.state.value)
+        val plan = requireNotNull(orchestrator.todayPlan.value)
+        val codingPm = plan.blocks.first { it.id == "sun_tue_wed.coding_pm" }
+        assertEquals(LocalTime(10, 2), codingPm.start)
+        assertEquals(LocalTime(11, 32), codingPm.end)
+        assertTrue("the free time in between must be skipped", plan.blocks.none { it.id == "sun_tue_wed.free_midday" })
+        val open = orchestrator.segments.value.last { it.actualEnd == null }
+        assertEquals(BlockType.Coding, open.type)
+        assertEquals(LocalTime(11, 32).at(date, zone), requireNotNull(open.plannedEnd))
+    }
+
+    @Test
+    fun next_intoKidTime_startsKidTime() = runBlocking {
+        clock.now = LocalTime(10, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        awaitBlockIndex(1)
+
+        clock.now = LocalTime(10, 1).at(date, zone)
+        orchestrator.handle(DayEvent.Next("sun_tue_wed.coding_am"))
+        clock.now = LocalTime(10, 2).at(date, zone)
+        orchestrator.handle(DayEvent.Next("sun_tue_wed.coding_am"))
+        awaitBlockIndex(2)
+
+        clock.now = LocalTime(15, 40).at(date, zone)
+        // Past the edited coding_pm, lands on the planned free block; then Next from free time is kid time.
+        orchestrator.handle(DayEvent.Next("sun_tue_wed.coding_pm"))
+        orchestrator.handle(DayEvent.Next("sun_tue_wed.free_pm"))
+
+        assertEquals(DayState.KidTime, orchestrator.state.value)
+        val open = orchestrator.segments.value.last { it.actualEnd == null }
+        assertEquals(BlockType.KidTime, open.type)
+        assertEquals(LocalTime(15, 40).at(date, zone), requireNotNull(open.plannedStart))
+        assertEquals(
+            "kid time must be the only open segment",
+            1,
+            orchestrator.segments.value.count { it.actualEnd == null },
         )
     }
 

@@ -460,7 +460,9 @@ private val day: DayOrchestrator,
         val current = blocks.getOrNull(index)
         val effectiveEndMin = openAny?.plannedEnd?.let { it.minuteOfDay(zone) }
         val leaking = current != null && effectiveEndMin != null && minute > effectiveEndMin
-        val nextLabel = blocks.getOrNull(index + 1)
+        val nextLabel = if (current != null && daySpecs != null && (doneEarly || !current.type.isWork)) {
+            PlanEditor.nextStop(daySpecs.toPlanBlocks(), current.id)?.let { stop -> blocks.firstOrNull { it.id == stop.id } }
+        } else blocks.getOrNull(index + 1)
         val emergencyEnded = dayState is DayState.Ended && endedRecord?.flags?.contains(DayFlag.EMERGENCY_STOP) == true
 
         if (dayState is DayState.Ended || dayState is DayState.Off || dayState is DayState.NotStarted) {
