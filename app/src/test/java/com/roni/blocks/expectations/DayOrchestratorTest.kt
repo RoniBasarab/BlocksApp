@@ -37,8 +37,10 @@ import kotlin.time.Instant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.withTimeout
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
@@ -77,6 +79,8 @@ class DayOrchestratorTest {
         java.util.concurrent.CopyOnWriteArrayList()
     private val transitions: java.util.concurrent.CopyOnWriteArrayList<Boolean> =
         java.util.concurrent.CopyOnWriteArrayList()
+    private val alerts: java.util.concurrent.CopyOnWriteArrayList<Boolean> =
+        java.util.concurrent.CopyOnWriteArrayList()
 
     @Before
     fun setUp() {
@@ -97,7 +101,7 @@ class DayOrchestratorTest {
         history = history,
         alarms = AlarmScheduler(context, SystemTimeMapper.Identity, logger),
         notificationMapper = NotificationModelMapper(engine, zone, TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))),
-        notificationRenderer = RecordingNotificationPort(rendered, transitions),
+        notificationRenderer = RecordingNotificationPort(rendered, transitions, alerts),
         clock = clock,
         zone = zone,
         logger = logger,
@@ -294,7 +298,7 @@ class DayOrchestratorTest {
     private object SilentNotificationPort : NotificationPort {
         override fun ensureChannels() = Unit
 
-        override fun render(model: NotificationModel?, transition: Boolean) = Unit
+        override fun render(model: NotificationModel?, transition: Boolean, alert: Boolean) = Unit
 
         override fun onDismissed(key: String) = Unit
 
@@ -304,12 +308,14 @@ class DayOrchestratorTest {
     private class RecordingNotificationPort(
         private val sink: java.util.concurrent.CopyOnWriteArrayList<NotificationModel?>,
         private val transitionSink: java.util.concurrent.CopyOnWriteArrayList<Boolean>,
+        private val alertSink: java.util.concurrent.CopyOnWriteArrayList<Boolean>,
     ) : NotificationPort {
         override fun ensureChannels() = Unit
 
-        override fun render(model: NotificationModel?, transition: Boolean) {
+        override fun render(model: NotificationModel?, transition: Boolean, alert: Boolean) {
             sink += model
             transitionSink += transition
+            alertSink += alert
         }
 
         override fun onDismissed(key: String) = Unit
@@ -451,8 +457,8 @@ class DayOrchestratorTest {
         assertTrue("the plan must be marked edited", plan.edited)
         assertEquals(LocalTime(14, 30), plan.blocks.first { it.id == "mon_thu.gym" }.end)
         assertTrue(
-            "the alarm must move to the edited end",
-            LocalTime(14, 30).at(date, zone).toEpochMilliseconds() in scheduledAlarms(),
+            "the alarm must move to the 5-minute warning before the edited end",
+            LocalTime(14, 25).at(date, zone).toEpochMilliseconds() in scheduledAlarms(),
         )
     }
 
@@ -504,4 +510,52 @@ class DayOrchestratorTest {
     private fun scheduledAlarms(): List<Long> =
         shadowOf(context.getSystemService(AlarmManager::class.java)).scheduledAlarms.map { it.triggerAtTime }
 
+    @Test
+    fun alarm_fiveMinutesBeforeTheEnd_alerts() = runBlocking {
+        // Coding 09:30–11:30, Pomodoro 50/10. At 11:25:10 a 5-minute warning should fire (11:30 - 5 min).
+        clock.now = LocalTime(9, 40).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        awaitBlockIndex(1)
+
+        alerts.clear()
+        clock.now = LocalTime(11, 25, 10).at(date, zone)
+        orchestrator.onAlarm()
+
+        assertTrue("the 5-minute warning must alert", alerts.last())
+    }
+
+    @Test
+    fun nags_stopOnceRoniReacts() = runBlocking {
+        clock.now = LocalTime(9, 40).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        awaitBlockIndex(1)
+
+        // 11:35:05 = 5 min after coding_am end (11:30) → first nag.
+        clock.now = LocalTime(11, 35, 5).at(date, zone)
+        orchestrator.onAlarm()
+        assertTrue("first nag alerts", alerts.last())
+
+        // 11:36:00 = Roni comes back, reactedAt is set.
+        clock.now = LocalTime(11, 36).at(date, zone)
+        orchestrator.onAppForeground()
+
+        // 11:40:05 = another nag time, but Roni reacted → no alert, no 11:45 nag.
+        clock.now = LocalTime(11, 40, 5).at(date, zone)
+        alerts.clear()
+        orchestrator.onAlarm()
+
+        assertEquals("reachedAt suppressed the nag", false, alerts.last())
+        val scheduled = scheduledAlarms()
+        // The next alarm should be 20:00 (evening) or 22:30 (end of day), not 11:45.
+        assertTrue(
+            "no nag at 11:45 should be scheduled",
+            scheduled.none { LocalTime(11, 45).at(date, zone).toEpochMilliseconds() == it },
+        )
+    }
+
+    private suspend fun awaitBlockIndex(expected: Int) {
+        kotlinx.coroutines.withTimeout(5_000) {
+            orchestrator.state.first { (it is DayState.Running) && (it.blockIndex == expected) }
+        }
+    }
 }

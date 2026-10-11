@@ -434,7 +434,7 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
                 SettingsRow(
                     icon = Icons.Outlined.MusicNote,
                     title = "Alert sound",
-                    subtitle = "Choose the sound for block changes",
+                    subtitle = "Block changes, the 5-minute warning and reminders",
                     trailing = { Chevron() },
                     onClick = { onAction(SettingsAction.OpenAlertSoundSettings) },
                 )

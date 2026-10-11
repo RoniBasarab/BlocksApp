@@ -112,7 +112,7 @@ class DebugTimeControllerTest {
     private object SilentNotificationPort : NotificationPort {
         override fun ensureChannels() = Unit
 
-        override fun render(model: NotificationModel?, transition: Boolean) = Unit
+        override fun render(model: NotificationModel?, transition: Boolean, alert: Boolean) = Unit
 
         override fun onDismissed(key: String) = Unit
 

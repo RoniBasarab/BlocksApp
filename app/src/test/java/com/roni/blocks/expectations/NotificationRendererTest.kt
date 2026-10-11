@@ -94,6 +94,14 @@ class NotificationRendererTest {
     }
 
     @Test
+    fun alert_makesASound_evenInTheForeground() {
+        // 2.2.0: an alert must play its sound even with the app open.
+        visibility.foreground = true
+        renderer.render(FakeNotificationModels.running, transition = false, alert = true)
+        assertEquals(0, posted().flags and Notification.FLAG_ONLY_ALERT_ONCE)
+    }
+
+    @Test
     fun tappingTheBody_resumesLikeTheLauncher() {
         renderer.render(FakeNotificationModels.running, transition = true)
         val contentIntent = requireNotNull(posted().contentIntent)

@@ -20,8 +20,8 @@ import javax.inject.Singleton
 interface NotificationPort {
     fun ensureChannels()
 
-    /** Null [model] removes the notification. [transition] means the day genuinely moved on. */
-    fun render(model: NotificationModel?, transition: Boolean)
+    /** Null [model] removes the notification. [transition] means the day genuinely moved on; [alert] means an alert is due (always sound). */
+    fun render(model: NotificationModel?, transition: Boolean, alert: Boolean = false)
 
     fun onDismissed(key: String)
 
@@ -56,7 +56,7 @@ class NotificationRenderer @Inject constructor(
         )
     }
 
-    override fun render(model: NotificationModel?, transition: Boolean) {
+    override fun render(model: NotificationModel?, transition: Boolean, alert: Boolean) {
         if (model == null) {
             if (lastChannel != null) manager.cancel(ID)
             lastChannel = null
@@ -66,12 +66,12 @@ class NotificationRenderer @Inject constructor(
         val channelId = if (model.channel == NotificationChannelKind.EVENING) EVENING else DAY
         // Changing channel on a live notification is ignored by the platform, so replace it.
         if (lastChannel != null && lastChannel != channelId) manager.cancel(ID)
-        if (transition) {
+        if (transition || alert) {
             dismissals.forget(model.key)
         } else if (dismissals.isDismissed(model.key)) {
             return
         }
-        manager.notify(ID, build(model, transition, channelId))
+        manager.notify(ID, build(model, transition, alert, channelId))
         lastChannel = channelId
     }
 
@@ -96,7 +96,7 @@ class NotificationRenderer @Inject constructor(
         )
     }
 
-    private fun build(model: NotificationModel, transition: Boolean, channelId: String): Notification {
+    private fun build(model: NotificationModel, transition: Boolean, alert: Boolean, channelId: String): Notification {
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_stat_blocks)
             .setContentTitle(model.title)
@@ -107,9 +107,9 @@ class NotificationRenderer @Inject constructor(
             .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setDeleteIntent(dismissedIntent(model.key))
-            // A refresh must stay quiet. Only a real transition (or an app that is not on screen)
-            // is allowed to make a sound.
-            .setOnlyAlertOnce(!transition || visibility.isForeground)
+            // An alert always makes a sound, even with the app open; a real transition makes a
+  // sound only when the app isn't on screen; a refresh stays quiet (2.2.0).
+            .setOnlyAlertOnce(!(alert || (transition && !visibility.isForeground)))
         val countdownTo = model.countdownTo
         if (countdownTo != null) {
             builder.setWhen(systemTime.systemMillis(countdownTo))

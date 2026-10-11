@@ -93,6 +93,11 @@ class DayOrchestrator @Inject constructor(
     private val _isRestored = MutableStateFlow(false)
     val isRestored: StateFlow<Boolean> = _isRestored.asStateFlow()
     private var book = DayBook()
+    /**
+     * The last instant Roni reacted to anything: a tap, a notification action, the app coming to
+     * the foreground. Used to suppress nagging alerts once Roni has acknowledged the day.
+     */
+    private var reactedAt: Instant? = null
     private val restoreMutex = Mutex()
 
     init {
@@ -221,7 +226,32 @@ class DayOrchestrator @Inject constructor(
         ensureRestored()
         applyRollover()
         if (applyOneMissedTransition()) return
-        sideEffects()
+        val now = clock.now()
+        val template = currentTemplate()
+        val open = _segments.value.lastOrNull { it.actualEnd == null }
+        val anchor = if (open?.kind == SegmentKind.PLANNED) open.actualStart else null
+        val due = if (open != null && _state.value is DayState.Running) {
+            val templateIndex = (_state.value as DayState.Running).blockIndex
+            val pomodoro = template?.blocks?.getOrNull(templateIndex)?.pomodoro
+            val boundaries = if (pomodoro != null && open.kind == SegmentKind.PLANNED) {
+                com.roni.blocks.core.schedule.AlertPlanner.pomodoroBoundaries(
+                    (anchor ?: open.actualStart).epochSeconds,
+                    (open.plannedEnd ?: now).epochSeconds,
+                    pomodoro.focusMinutes,
+                    pomodoro.breakMinutes,
+                )
+            } else emptyList()
+            val endSec = (open.plannedEnd ?: now).epochSeconds
+            val startSec = (anchor ?: open.actualStart).epochSeconds
+            com.roni.blocks.core.schedule.AlertPlanner.due(
+                startSec = startSec,
+                endSec = endSec,
+                boundaries = boundaries,
+                reactedSec = reactedAt?.epochSeconds,
+                nowSec = now.epochSeconds,
+            )
+        } else null
+        sideEffects(alert = due != null)
     }
 
     private suspend fun applyRollover() {
@@ -233,6 +263,7 @@ class DayOrchestrator @Inject constructor(
             book = DayBook()
             _segments.value = emptyList()
             _todayPlan.value = null
+            reactedAt = null
             persist()
         }
     }
@@ -281,6 +312,10 @@ class DayOrchestrator @Inject constructor(
                 logger.info("refusing StartDay after 22:30")
                 return
             }
+        }
+        // User actions count as "Roni reacted": internal transitions (alarms, catch-up) don't.
+        if (event !is DayEvent.KidTimeStarted) {
+            reactedAt = now
         }
         if (event is DayEvent.SwapTemplate) return applySwap(event, now)
         if (event is DayEvent.Next) {
@@ -436,17 +471,19 @@ class DayOrchestrator @Inject constructor(
         return true
     }
 
-    private suspend fun sideEffects(transition: Boolean = false) {
+    private suspend fun sideEffects(transition: Boolean = false, alert: Boolean = false) {
         val now = clock.now()
         val today = today()
         val template = currentTemplate()
         val index = (_state.value as? DayState.Running)?.blockIndex ?: 0
         val anchor = wakeAnchor()
         val wake = engine.nextWakeUp(_state.value, today, now, template, index, anchor)
-        if (wake == null) alarms.cancel() else alarms.schedule(wake)
+        val nextAlert = nextAlertTime(now, template, index, anchor)
+        val alarmAt = listOfNotNull(wake, nextAlert).minOrNull()
+        if (alarmAt == null) alarms.cancel() else alarms.schedule(alarmAt)
         val timeline = engine.timelineAt(template, today, zone, _segments.value, now)
         val model = notificationMapper.from(_state.value, timeline, now)
-        notificationRenderer.render(model, transition)
+        notificationRenderer.render(model, transition, alert)
         widgetUpdater.update(model)
     }
 
@@ -459,6 +496,40 @@ class DayOrchestrator @Inject constructor(
     private fun wakeAnchor(): Instant? {
         val open = _segments.value.lastOrNull { it.actualEnd == null } ?: return null
         return if (open.kind == SegmentKind.SYNTHETIC_FREE) null else open.actualStart
+    }
+
+    /** The next sound to play, or null when no alert is needed. */
+    private fun nextAlertTime(now: Instant, template: Template?, index: Int, anchor: Instant?): Instant? {
+        val open = _segments.value.lastOrNull { it.actualEnd == null } ?: return null
+        if (_state.value !is DayState.Running) return null
+        val end = open.plannedEnd ?: return null
+        val start = anchor ?: open.actualStart
+        val pomodoro = template?.blocks?.getOrNull(index)?.pomodoro
+        val boundaries = if (pomodoro != null && open.kind == SegmentKind.PLANNED) {
+            com.roni.blocks.core.schedule.AlertPlanner.pomodoroBoundaries(
+                start.epochSeconds, end.epochSeconds, pomodoro.focusMinutes, pomodoro.breakMinutes,
+            )
+        } else emptyList()
+        val reactedSec = reactedAt?.epochSeconds
+        return com.roni.blocks.core.schedule.AlertPlanner.next(
+            startSec = start.epochSeconds,
+            endSec = end.epochSeconds,
+            boundaries = boundaries,
+            reactedSec = reactedSec,
+            afterSec = now.epochSeconds,
+        )?.let { Instant.fromEpochSeconds(it.atSec) }
+    }
+
+    /**
+     * The app came to the foreground: Roni is back, so drop any pending nag and refresh the
+     * notification so it stops its sound. Called from the Application via the
+     * [ProcessLifecycleOwner] observer that drives [AppVisibility].
+     */
+    suspend fun onAppForeground() {
+        ensureRestored()
+        reactedAt = clock.now()
+        persist()
+        sideEffects()
     }
 
     /** Re-draws only the home-screen widget with the model [sideEffects] would compute right now. */
@@ -489,6 +560,8 @@ class DayOrchestrator @Inject constructor(
         }
         _todayPlan.value = plan
         book = rehydratedBook()
+        reactedAt = if (storedDate != null && storedDate != today) null
+        else prefs.read(PrefsFile.DAY, REACTED_AT, InstantSerializer.nullable)
         if (storedPlanStartsAt != null) prefs.remove(PrefsFile.DAY, PLAN_STARTS_AT)
         persist()
         replayMissedTransitions()
@@ -585,6 +658,7 @@ class DayOrchestrator @Inject constructor(
         prefs.write(PrefsFile.DAY, DATE, today(), LocalDateSerializer)
         prefs.write(PrefsFile.DAY, TODAY_PLAN, _todayPlan.value, TodayPlan.serializer().nullable)
         _state.value.templateId()?.let { prefs.write(PrefsFile.DAY, TEMPLATE, it, TemplateId.serializer()) }
+        prefs.write(PrefsFile.DAY, REACTED_AT, reactedAt, InstantSerializer.nullable)
     }
 
     private fun today() = clock.now().toLocalDateTime(zone).date
@@ -615,6 +689,7 @@ class DayOrchestrator @Inject constructor(
         const val TEMPLATE = "template_id"
         const val TODAY_PLAN = "today_plan"
         const val PLAN_STARTS_AT = "plan_starts_at"
+        const val REACTED_AT = "reacted_at"
         const val MAX_REPLAY_STEPS = 500
     }
 }
