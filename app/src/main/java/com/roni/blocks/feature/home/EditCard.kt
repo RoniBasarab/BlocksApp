@@ -86,7 +86,7 @@ fun EditCard(
                     AddBlockRow(block, onAction)
                     Caption("Pick a type to turn this free time into a block, or add a 30-minute block at its start.")
                 }
-                BlockEdit.END_ONLY -> {
+                BlockEdit.END_AND_TYPE, BlockEdit.END_ONLY -> {
                     Steppers(block, showStart = false, showEnd = true, onAction = onAction)
                     Caption("This block is running. You can move its end; use Next to switch to something else.")
                 }

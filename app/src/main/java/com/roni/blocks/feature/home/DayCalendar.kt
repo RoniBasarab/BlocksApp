@@ -210,7 +210,7 @@ private fun BlocksLayout(
                             EdgeHandle(selected.id, Edge.TOP, selected.startMin, accent, onAction, Modifier.zIndex(2f))
                             EdgeHandle(selected.id, Edge.BOTTOM, selected.endMin, accent, onAction, Modifier.zIndex(2f))
                         }
-                        BlockEdit.END_ONLY ->
+                        BlockEdit.END_AND_TYPE, BlockEdit.END_ONLY ->
                             EdgeHandle(selected.id, Edge.BOTTOM, selected.endMin, accent, onAction, Modifier.zIndex(2f))
                         else -> Unit
                     }
@@ -247,7 +247,7 @@ private fun BlocksLayout(
                         handlePlaceables.getOrNull(0)?.place(left, (topY - handlePx / 2f).roundToInt())
                         handlePlaceables.getOrNull(1)?.place(rightX, (bottomY - handlePx / 2f).roundToInt())
                     }
-                    BlockEdit.END_ONLY ->
+                    BlockEdit.END_AND_TYPE, BlockEdit.END_ONLY ->
                         handlePlaceables.getOrNull(0)?.place(rightX, (bottomY - handlePx / 2f).roundToInt())
                     else -> Unit
                 }
