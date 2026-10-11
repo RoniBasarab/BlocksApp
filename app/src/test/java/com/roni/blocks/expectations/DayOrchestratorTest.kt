@@ -12,6 +12,7 @@ import com.roni.blocks.core.daystate.DayStateSerializer
 import com.roni.blocks.core.daystate.EndReason
 import com.roni.blocks.core.logging.AppLogger
 import com.roni.blocks.core.model.BlockType
+import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.InstantSerializer
 import com.roni.blocks.core.model.Segment
@@ -46,6 +47,8 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.plus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNotNull
@@ -774,6 +777,74 @@ class DayOrchestratorTest {
             "the next alarm is the walk's new end",
             LocalTime(10, 16).at(date, zone).toEpochMilliseconds() in scheduledAlarms(),
         )
+    }
+
+    @Test
+    fun walk_inTheEvening_leavesTheDayAlone() = runBlocking {
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        clock.now = LocalTime(20, 30).at(date, zone)
+        orchestrator.handle(DayEvent.KidTimeStarted)
+        orchestrator.handle(DayEvent.KidAsleep)
+        clock.now = LocalTime(20, 50).at(date, zone)
+        orchestrator.handle(DayEvent.EveningChoice(Choice.CHILL))
+        val segmentsBefore = orchestrator.segments.value
+        clock.now = LocalTime(21, 0).at(date, zone)
+
+        assertNotNull(orchestrator.walkPreview(30))
+        assertTrue(orchestrator.startWalk(30))
+
+        assertEquals(DayState.Evening(1), orchestrator.state.value)
+        assertEquals("a standalone walk must not touch the day", segmentsBefore, orchestrator.segments.value)
+        assertNotNull(orchestrator.walkSession.value)
+        ringerKinds.clear()
+
+        clock.now = LocalTime(21, 15, 5).at(date, zone)
+        orchestrator.onAlarm()
+        assertEquals(listOf(AlertKind.TURN_BACK), ringerKinds.toList())
+
+        clock.now = LocalTime(21, 30, 5).at(date, zone)
+        orchestrator.onAlarm()
+        assertEquals(listOf(AlertKind.TURN_BACK, AlertKind.WALK_DONE), ringerKinds.toList())
+        assertEquals(null, orchestrator.walkSession.value)
+        val walks = history.walks(date)
+        assertEquals(1, walks.size)
+        assertEquals(LocalTime(21, 0).at(date, zone), walks.first().start)
+        assertEquals(LocalTime(21, 30).at(date, zone), walks.first().end)
+    }
+
+    @Test
+    fun walk_afterMidnight_survivesTheRollover() = runBlocking {
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        orchestrator.handle(DayEvent.EndDay(EndReason.NORMAL))
+        assertEquals(DayState.Ended, orchestrator.state.value)
+
+        clock.now = LocalTime(23, 50).at(date, zone)
+        assertNotNull(orchestrator.walkPreview(30))
+        assertTrue(orchestrator.startWalk(30))
+        ringerKinds.clear()
+
+        val nextDay = date.plus(1, DateTimeUnit.DAY)
+        clock.now = LocalTime(0, 5, 5).at(nextDay, zone)
+        orchestrator.onAlarm()
+        assertEquals(listOf(AlertKind.TURN_BACK), ringerKinds.toList())
+        assertNotNull(orchestrator.walkSession.value)
+
+        clock.now = LocalTime(0, 20, 5).at(nextDay, zone)
+        orchestrator.onAlarm()
+        assertEquals(listOf(AlertKind.TURN_BACK, AlertKind.WALK_DONE), ringerKinds.toList())
+        assertEquals(null, orchestrator.walkSession.value)
+        val walks = history.walks(date)
+        assertEquals(1, walks.size)
+        assertEquals(LocalTime(23, 50).at(date, zone), walks.first().start)
+        assertEquals(LocalTime(0, 20).at(nextDay, zone), walks.first().end)
+    }
+
+    @Test
+    fun walk_cantStartDuringAPause() = runBlocking {
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        orchestrator.handle(DayEvent.Pause)
+
+        assertEquals(null, orchestrator.walkPreview(30))
     }
 
     private suspend fun awaitBlockIndex(expected: Int) {

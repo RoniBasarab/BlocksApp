@@ -151,6 +151,25 @@ data class DayRecord(
     val demo: Boolean = false,
 )
 
+/**
+ * A standalone walk (2.4.0): a timer that runs at any time and does not touch the day's state,
+ * plan or segments. [date] is the day it started, so one that crosses midnight is logged on the
+ * date it began.
+ */
+@Serializable
+data class WalkSession(
+    @Serializable(with = InstantSerializer::class) val start: Instant,
+    @Serializable(with = InstantSerializer::class) val end: Instant,
+    @Serializable(with = LocalDateSerializer::class) val date: LocalDate,
+)
+
+/** A finished walk, stored per date in history (2.4.0). */
+@Serializable
+data class WalkLog(
+    @Serializable(with = InstantSerializer::class) val start: Instant,
+    @Serializable(with = InstantSerializer::class) val end: Instant,
+)
+
 object LocalTimeSerializer : KSerializer<LocalTime> {
     override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("LocalTime", PrimitiveKind.STRING)
 
