@@ -1,146 +1,84 @@
 # Notes - decisions the task files left unspecified, and what the code does instead
 
-- `ActionEvent`: the frozen-notification events (`CONTINUE_WHERE_I_WAS`, `JUMP_TO_NOW`) are gone with the frozen state; `START_NEXT` survives as the one "move on" action, so old notification buttons that carry it keep working after an update (Task-5.md:97).
-- `NotificationModelMapper` names every block by its real stable `BlockSpec.id`; buttons posted before the update count as stale and are ignored (Task-5.md:97 - fine by design).
-- Debt is `PLANNED` overruns only; pause time is logged as `PAUSE` segments and shown as Pause time, never debt. `debtMinutes` moved to a top-level function in `HistoryManager.kt` because it is pure and needed by JVM tests.
-- `TimelineQueries.effectiveEnd` returns the open block's planned end unchanged: a pause shortens a block, it never moves an end (Task-5.md:84).
-- `DayRecord.plannedBlocks` is now the day's plan (the template, reshaped by a swap or an edit), not a fixed StartDay snapshot; old records without one fall back to the current template (Task-5.md:98, Task-7 Slice 7).
-- `BlockSpec` no longer persists only in templates.json: it is also saved in the `today_plan` pref and in every `DayRecord.plannedBlocks`, so any new `BlockSpec` field needs a default value (Task-5.md:97, Task-7 Slice 7).
-- The compose-side next-button label rule: a work block offers "Next: Free" (finishing early -> the rest becomes free); a free block offers "Next: {next block name}" for planned and synthetic free alike. Pomodoro breaks are still Pause territory (Task-5.md table, Slice 9).
-- `NowButtonId.EMERGENCY` renders as its own centered TextButton (`now_emergency`) instead of living in the side-by-side row, so Pause · Next stay equal-width 48dp buttons (Task-5 layout).
-- Emergency confirmation is always shown ("Stop today", red); only Pause supports "Don't ask again".
-- `TimeFormatter.label/hourGutter` companion statics are the single 24h/12h source of truth; screens pass the flag from the `use24` prefs-backed flow.
-- `BlockType.isWork` (CV/Coding/Gym) lives in `Model.kt` next to the sealed interface, shared by the ledger, notifications and Home.
-- The renderer-test recording sink uses `CopyOnWriteArrayList` because notification renders resume on IO workers (prefs writes) and would race an `ArrayList`.
-- History groups weeks by the `weekStart` walk-back-to-Sunday rule from Task-5; older weeks label themselves "20 – 26 Sep" style.
+## Earlier tasks (condensed)
 
-## Task-6 decisions the task file left unspecified
+NOTES.md crossed 20 KB, so the Task-1..7 entries were condensed here. Still live rules first,
+then the decisions a future agent needs.
 
-- **Restore is idempotent, single-flight, and always completes.** `DayOrchestrator.ensureRestored()` takes a mutex, and sets `_isRestored` in a `finally`, so a `restoreFromStorage()` that throws can no longer strand the app on the splash. Every entry point - the UI gate, `send`, and each receiver - calls it before touching the day. Before this, `handle()` was `= apply(event)` with no restore at all, which is why notification buttons did nothing after a kill.
-- **`DayOrchestrator.onTimeTravelled()` is new, and deliberately not `onTimeChanged()`.** Task-6.md:366 says the debug controller should call `onTimeChanged()`, but :376 expects 20:05 to reach `KidTime`, and `onTimeChanged()` never applies missed transitions (only `onAlarm()` and restore did). The literal wiring left the evening unreachable, defeating the slice's own stated purpose. `onTimeTravelled()` replays the skipped transitions exactly as a cold start does. Proof it was the real gap: `DebugTimeControllerTest.evening_canBeReachedWithoutWaiting` failed with `expected:<KidTime> but was:<Running(template=SUN_TUE_WED, blockIndex=0)>` before the change.
-- `SettingsRow.enabled` gates the Developer rows off in release builds while leaving them visible in debug, instead of hiding them with a build check at each call site.
-- Settings copy stays as inline literals rather than moving to `strings.xml`, matching the rest of the codebase (roni's call). This is a deliberate deviation from Task-6.md's wording.
-- `UiExpectationsTest.assertGutters` measures with `getUnclippedBoundsInRoot()`, because the last Settings card is now legitimately scrolled out of the viewport and a clipped-bounds check would fail on correct layout.
-- `HomeViewModel` and `SettingsViewModel` take a `DebugTimeController`; their tests build a real `DebugClock` with offset 0, since the controller sets the offset on the concrete clock rather than an interface.
-- Two names in Task-6.md Slice 9 do not exist in the code: `TimelineQueries` is a file of `ScheduleEngine` extension functions, not a class, and there is no `InsightsManager` - that logic is `InsightsViewModel`. The headers went on the real code; see `issues.md` item 4.
-
-## Slice 2b: the `day_state` root cause
-
-- **The splash bug was a write/read form mismatch in `DayStateSerializer`, not a clock or race issue.** The serializer called `delegate.serialize(encoder, value)` / `delegate.deserialize(decoder)` directly, but Json only applies class-discriminator handling inside `encoder.encodeSerializableValue(...)` / `decoder.decodeSerializableValue(...)`. Called directly, `SealedClassSerializer` falls back to `encodeStructure` on its SEALED descriptor, so writes produced the POLY_OBJ array form `["<serialName>", {...}]` while reads through `DayState.serializer()` expected the object form `{"type": ...}` - restore threw on every cold start.
-- Judgment call: kept `DayStateSerializer` as a delegating wrapper (via `encodeSerializableValue`/`decodeSerializableValue`) instead of deleting it and moving every call site to `DayState.serializer()` - smaller blast radius, and `DayOrchestrator`/`PrefsStorage` keep one named entry point.
-- Judgment call: legacy array payloads decode with a private `arrayJson = Json { ignoreUnknownKeys = true; encodeDefaults = true; useArrayPolymorphism = true }` mirroring `PrefsStorage.json`; a failed object decode falls back to reading `element[1]` as the old `Interrupted` payload and returns its `Running`, so pre-1.4.0 devices still restore. Anything that fails both forms throws `SerializationException("unreadable day state", ...)`, which the Slice-1 restore catch turns into `NotStarted`.
-- Pinned by `DayStatePersistenceTest`: `dayState_roundTrip_allVariants` asserts every variant writes object form (starts with `{`) and reads back equal; `dayState_readsArrayFormFrom140` seeds the exact 1.4.0 array payload raw and reads it as `Running`.
-## Slice 2c: injecting the io dispatcher
-
-- `PrefsStorage` now takes `@IoDispatcher io: CoroutineDispatcher` instead of hardcoding `Dispatchers.IO`; production injects the existing `@IoDispatcher` binding, tests pass `UnconfinedTestDispatcher()` so every write commits before the assertion. All 15 test files updated mechanically.
-- The pattern: `core/di/CoroutinesModule.kt` declares the `@IoDispatcher` and `@ApplicationScope` qualifiers and binds the io dispatcher plus an app-wide `SupervisorJob` scope; any class that used to pick its own dispatcher or scope now asks for one of these instead.
-- Judgment call: the 3x acceptance's third run failed `DayOrchestratorRestoreTest.legacyInterrupted_restoresAsRunning` (`expected:<Running(template=SUN_TUE_WED, blockIndex=2)> but was:<NotStarted>`) - the flakiness Task-6 already listed. Root cause: Robolectric boots the manifest's `.App`, whose `onCreate` launches `ensureRestored()` on the real `Dispatchers.IO`; that restore uses the real clock (today != the seeded 2026-09-27) and persists `NotStarted` back over the test's seed - the same "coroutine on Dispatchers.IO outlives the test" symptom Task-6 reported. Fixed with `app/src/test/resources/robolectric.properties` (`application=android.app.Application`): unit tests get a plain `Application`, no production graph, no background restore. No test references `com.roni.blocks.App` or an `@AndroidEntryPoint` component, so nothing depended on it. Acceptance restarted from run 1 after this fix.
-
-## Slice 3: settings saves before it says so
-
-- `TimeFormatter.setUse24` now commits the prefs write before flipping `_use24`, so any reader that observes the flip (the `awaitState` in `setHourFormat_persistsAndFlipsTheFormatter`) is guaranteed the write landed - fixes the `expected:<false> but was:<null>` race recorded in issues.md item 2.
-- Judgment call: `settingsState_isLoadingUntilTheLoadCompletes` (Task-6-fixes.md:20, :125) does not exist - repo grep, `git log -S` across all refs, and the TEST-*.xml reports have no hit, and `SettingsUiState` has no loading field. Phantom name like the two Task-6.md doc errors (issues.md item 4); no test added, nothing to check.
-- No other Settings action writes-then-flips: `refresh`/`sendTestNotification` only read, `resetToday`/`clearHistory` delegate to orchestrator/history, `loadDemoData` flips `demoBusy` around the work, debug-clock rows go through `DebugClock.setOffsetMinutes`, which updates memory before the async `apply()`.
-
-## Slice 4: restore runs exactly once
-
-- Classification of the reported restore race: `test-only`. Production restore is single-flight - `restoreMutex` plus the `_isRestored` double-check and `finally` flag, `restoreFromStorage()` reads before `persist()`, and `send`/`handle`/every receiver await `ensureRestored()` first - so two restores cannot interleave. The historic failure was Robolectric's `.App` restoring on the real clock over the seed, fixed in slice 2c; solo `DayOrchestratorProcessDeathTest` is 5/5 green (4 tests, classes=1).
-- `ensureRestored()` now logs `restored day_state=${_state.value}` right after `restoreFromStorage()`. Fake-storage counting was impossible (`PrefsStorage` is a final `@Inject` class) and SharedPreferences listeners skip equal values, so `concurrentEntryPoints_restoreOnce_keepSavedDay` counts that log line instead: three `ensureRestored()` calls race a `send(Pause)` from `Dispatchers.Default`, then the test asserts `Paused(Running(SUN_TUE_WED, 1), 10:00)`, exactly one `restored day_state` line, and that storage still holds today's date plus every seeded segment.
-- Test pattern for racing entry points: orchestrator scope on `Dispatchers.Default` (a test dispatcher there would serialize the race away), fire with `withContext(Dispatchers.Default) { coroutineScope { launch { ... } } }`, await with `withTimeout(5_000) { state.first { ... } }`. `UnconfinedTestDispatcher` stays for PrefsStorage io so writes commit before assertions; `Pending` is for observe-before-restore only. Storage assertions are subset-based (`seeded all in stored`) because `Pause` legitimately appends a PAUSE segment after the seeded ones.
-- Missed-transition replay happens only on the restore path (`restoreFromStorage()` -> `replayMissedTransitions()`), `onAlarm()` and `onTimeTravelled()`, each bounded by `MAX_REPLAY_STEPS`; `send`/`handle` never replay. The new test's clock (10:00) also sits outside every replay trigger - `sun_tue_wed.kid_time` starts 16:20 and `autoEndFlags` is null before 22:30 - so `Pause` lands on the seeded `Running` exactly as written.
-
-## Slice 5: replay system events like a restart
-
-- Before: `SystemEventsReceiver.onReceive` never inspected `intent.action` - all four events (BOOT_COMPLETED, MY_PACKAGE_REPLACED, TIME_SET, TIMEZONE_CHANGED) ran the same `ensureRestored()` + `onAlarm()` inside `withTimeout(9_000)`. `onAlarm()` applies at most one missed transition (`applyOneMissedTransition()`), so a boot or a large clock jump could leave the day one transition short even though architecture.md:309 requires the full replay `onTimeTravelled()` uses.
-- `SystemEventsReceiver` now calls `orchestrator.onTimeTravelled()` instead of `onAlarm()`: the full `replayMissedTransitions()` loop (bounded by `MAX_REPLAY_STEPS`), then `sideEffects()`. `AlarmReceiver` keeps `onAlarm()` - it is scheduled for exactly one transition, and its kdoc says a late alarm must still apply that transition.
-- The date rollover block (read `DATE` pref, `rollover()`, reset day/book/segments, `persist()`) was extracted from `onAlarm()` into a private `applyRollover()`; `onTimeTravelled()` now calls it too, so a TIME_SET/TIMEZONE_CHANGED across midnight replays like a cold start (fresh processes get the same check via `restoreFromStorage()` -> `rollover()` at DayState.kt:160).
-- Pinned by `DayOrchestratorTest.timeSet_jumpForward_replaysMissedTransitions`: `StartDay(SUN_TUE_WED)` at 09:00, clock moved to 16:30 (past `kid_time` start 16:20), `onTimeTravelled()` -> `DayState.KidTime`. The scenario is one-transition so it would pass under the old `onAlarm()` too; the production routing to the full replay loop is the fix.
-
-## Slice 6: named tests from Task-6
-
-- Existence check against the Task-6-fixes.md named-test table: `insightsHeadline_countsBlocks_notDays` (InsightsViewModelTest), `loadDemoData_reportsHowManyDaysWereSeeded` and `loadDemoData_reportsFailureInTheLog` (SettingsViewModelTest) already existed with those exact names and the task's messages; the four template-swap / home-title names matched nothing in the test sources.
-- Added per Task-6.md:147-150: `swapAfterEmergency_restartsFromNow_keepsEarlierSegments`, `swapMidDay_replansFromNow`, `swapAfter2230_isRefused` (DayOrchestratorTest) and `homeTitle_afterEmergency_isTheTemplateTitle` (HomeViewModelTest). 184 -> 188 tests.
-- Production gap 1 (DayOrchestrator.kt): `EMERGENCY_STOP` lived only in the ephemeral `fromEvent` set at flush, not in `book.flags`. A template swap after an emergency therefore dropped it - `swapTemplate` keeps `book.flags` and adds `TEMPLATE_SWAPPED`, and the final end-of-day record lost the emergency marker. `apply()` now folds `EMERGENCY_STOP` into `book.flags` when `EndDay(EMERGENCY)` lands, so the swap carries both flags to the final record. Existing `emergency_endsDayFlagsItAndClearsTheNotification` (flags == setOf(EMERGENCY_STOP)) is unaffected because flush unions flags.
-- Production gap 2 (Home.kt): after an emergency, `DayState.Ended.templateId()` is null, so publish() produced an empty title and "Pick a template" status. `HomeViewModel` now reads the ended day's record from history and, when it carries `EMERGENCY_STOP`, publishes the template title (e.g. "Sunday / Tuesday / Wednesday") and "Stopped early (emergency)". The record read retries with `delay(10)` up to 500 times because the state flow emits `Ended` before `flush()` persists the record - the same race `emergencyConfirmed_endsDayWithEmergencyStop` polls around - and that retry also fixes `actualDay` rendering for the ended day.
-
-## Task-7 Slice 1 fixup: Next keeps the day in the work block's slot
-
-- Slice 1 made `StartDay` land on the block containing the pick time, but `Next` still incremented the machine's `blockIndex` by one. Finishing CV/Coding early opened a `SYNTHETIC_FREE` over the block's slot while the state pointed at the *next* block, so `HomeViewModel.currentIndex` (which maps `Running.blockIndex` to a template block) showed the wrong slot. `apply()` now overrides `DayState.Running.blockIndex` with `book.index` for `DayEvent.Next`; `SegmentBook` keeps `book.index` on `openSyntheticFree` and advances it on `advanceAfter`, so the state tracks the slot the free time sits in.
-- Updated `DayOrchestratorTest.staleAction_isIgnored` to the new semantics: one `Next` on CV opens free and stays on index 0, a second `Next` advances to 1, and a third stale CV tap is dropped. It previously encoded the pre-slice-1 "Next always +1" index. Not in Task-7's slice list; recorded here because the test changed.
-- Fixed `HomeViewModelTest` awaits (`blockIndex()` 0 -> 1) left over from slice 1's `StartDay` change; they had been failing since slice 1 was committed.
-
-## Task-7 Slice 3: Weekly plan vs actual bars
-
-- `WeeklyUiState.bars` (paired bar chart + legend) became `rows: List<PlanProgressUi>`, one progress row per planned block type, with a `missedSummary` line under the hero caption. Planned minutes come from `day.plannedBlocks ?: template.blocks`, clipped at the emergency stop; actual minutes are summed from `PLANNED` + `SYNTHETIC_FREE` segments by type.
-- Judgment call: the chart card stacks rows with `Spacing.l` (16dp), not `Spacing.m` (12dp) - `Spacing.m` is too tight once each row carries a label, bar and value. Real-name deviation from the obvious token.
-- `WeeklyViewModel` now takes `TemplateManager` (to resolve `day.template` block specs for days with no stored `plannedBlocks`); `WeeklyViewModelTest.build()` and `FakeStates.weeklyWithData()` updated, and `weekly_plannedTime_comesFromTheDaysPlans` added (seeds demo data, navigates one week back, compares the Coding row's planned minutes against a recomputed expectation).
-
-## Task-7 Slice 4: Remove Time Debt
-
-- Deleted `feature/timedebt/TimeDebt.kt` (screen + `TimeDebtViewModel`) and `TimeDebtViewModelTest`; every figure it showed already lives on Weekly ("Ran over"), Insights and History. Menu `TimeDebt` destination, `onDebt` param on `AppTopBar`, `AppNav.TimeDebtKey` + route, `HomeAction.TimeDebt` and the Home Time Debt menu row removed; burger menu is now History, Settings.
-- Debt records were write-only storage once the screen was gone: Weekly/Insights/History all compute `debtMinutes(segments)` directly, and the stored `DebtRecord.leakMinutes` was always exactly `debtMinutes(segments)`. Removed `DebtRecord`, `HistoryManager.writeDebt/readDebt/debtKey`, the day-end `writeDebt` in `flush()`, the demo-seeding debt writes, and the `debts` parameter of `aggregateWeek` (now always uses `debtMinutes`). Old `debt_*` keys are ignored and get pruned; no migration. `debtMinutes` stays (Weekly/Insights/History use it).
-- Explainer term "Ran over (time debt)" is now "Ran over" (same sentence). Deleted tests: `TimeDebtViewModelTest` (whole class), `ScreenshotsTest.time_debt`, `ScreenshotsTest.time_debt_empty`, `UiExpectationsTest.timeDebt_empty_isCentered`; `FakeStates.timeDebtEmpty/timeDebtWithDebt` and `DemoDataGeneratorTest.snapshot()`'s debt column removed.
-
-## Task-7 Slice 5: History's day view becomes a recap
-
-- New `feature/home/DayRecap.kt`: `RecapTone`/`RecapBadge`/`RecapRow`/`DayRecapUi` + `DayRecapMapper.map(record, use24)` + `RecapSummaryCard`/`RecapRowCard`/`RecapPill`/`RecapList`. Deleted `ActualDayMapper.kt`, `ActualDayMapperTest` and the finished-day drawing (`ActualDayCanvas`, `ActualBlocks`, `ActualBlock`, `DowntimeOverlay`, `EmergencyOverlay`, `DrawScope.hatch`); `DayCalendar.kt` keeps only the live grid + `LeakOverlay`.
-- Rows anchor on the record's `plannedBlocks`; older records with none fall back to their own `PLANNED` segments. A PLANNED/CONSUMED segment matches a plan block by `blockId` else by planned start; `SYNTHETIC_FREE` becomes the "became free time" note, not a row; a plan block with no segment of its own isn't listed (day ended before it). Notes: done-early, "Started d late (X ran over).", LATE_START "The day started at HH:MM." (first block that actually happened), phone-off. Summary = worked(non-paused) CV/Coding/Gym ÷ planned, capped 100%, planned clipped at the emergency stop; chips Ran over / Paused / Missed n block(s) / Plan changed / Template swapped.
-- HOME + HISTORY both render `RecapList` once the day is over: Home replaces the calendar and suppresses the NowCard; History's detail route replaces the old summary line + `ActualDayCanvas`. Each inset applied once (the ~120dp band in the bug was the top bar's height added twice).
-- Wording: History day chip "+18m" -> "Ran over 18m"; `Shell.kt` ExplainerTerms "Skipped blocks" -> "Missed blocks" with the new body. "Evenings skipped" stat kept its name.
-- Tests touched: `HistoryViewModelTest.leakDay_showsThePlusMinutesChip` (chip text now "Ran over 18m"); `HomeViewModelTest.homeTitle_afterEmergency_isTheTemplateTitle` now waits on `status == "Stopped early (emergency)"` instead of the title - the running state shares that template title, and the added `DayRecapMapper.map` widened the window before the ended state published. Deleted: `ActualDayMapperTest` (3 tests). Added: `DayRecapMapperTest` (4: `recap_readsInPlainWords`, `recap_oldRecordWithoutBlockIds_readsTheSame`, `recap_lateStart_saysWhenTheDayStarted`, `recap_emergency_endsTheList`). Suite 200 -> 201 tests, all green.
-
-## Task-7 Slice 6: Pomodoro inside Coding blocks, and taller hours
-
-- `HourHeight` 64 -> 80dp (`DayCalendar.kt`) - room for a 10-minute break's label and for dragging. No geometry test hard-coded 64 (searched `app/src/test`), so nothing else moved. `Tokens.hourHeight` (64dp) is a separate, unused token and was left alone.
-- Name deviation: the spec's new `PomodoroPhase(number, isBreak, startMin, endMin)` collides with the engine's existing `PomodoroPhase(focusing, index, total, minutesLeft)` in the same `core.schedule` package, so the new type is `PomodoroSlot`. `pomodoroPhases()` still sits next to `pomodoroStatus` in `TimelineQueries.kt` as specified.
-- `CalendarBlockUi.phases: ImmutableList<PomodoroSlot> = persistentListOf()` (the default keeps fakes and existing tests compiling). `CalendarMapper.toBlocks(specs, use24, currentIndex, actualStartMin)` fills it: Coding only; past blocks (`index < currentIndex`) get none; the current block runs from its actual start (fallback planned start), later Coding blocks from their planned start; the block's own `focusMinutes`/`breakMinutes` feed `pomodoroPhases` (all templates are 50/10). No clock - `HomeViewModel.publish` passes `currentIndex` and the open segment's actual start.
-- `phaseLabel` + `duration` are pure top-level helpers in `CalendarMapper.kt` ("32m", "1h 05m"). `DayCalendar.CalendarBlock` draws the cycle in its `drawWithContent` (break bands for every block with phases, labels only on the current block), reading `minuteOfDay()` in the draw phase only, so `HomeRecompositionTest.minuteTick_recomposesNothing` stays green.
-- Tests added (2): `CalendarMapperTest.pomodoroPhases_cutTheLastPhaseAtTheEnd`, `CalendarMapperTest.phaseLabel_saysWhatsLeft`. Suite 201 -> 203 tests, all green. No existing tests touched.
-
-## Task-7 Slice 7: Today's plan (the 2.0.0 data model)
-
-- New `TodayPlan(templateId, blocks, edited)` in `Model.kt`; the orchestrator owns it (`todayPlan: StateFlow<TodayPlan?>`) and a swap/StartDay writes it instead of the dead `planStartsAt` snapshot. `DayBook` lost `plannedBlocks` and `planStartsAt`; `ScheduleEngine.planned(template, date)` and `TimelineQueries.timelineAt(...)` dropped the `planStartsAt` parameter and the planned-from filter, so the timeline is derived from the plan the orchestrator publishes. Removed the `PLAN_STARTS_AT` write; added the `TODAY_PLAN = "today_plan"` pref.
-- Swap rebuild is `SegmentBook.swapPlan(oldBlocks, template, date, zone, now, cutoff)`: the old plan is kept up to `cutoff` with its last block cut there, then the new template's blocks start from `now` (the one containing `now` is restarted at `now`, earlier ones dropped). `cutoff` is `now` while the day is active and the last recorded segment's `actualEnd` when the day is `Ended`. A taken block whose id already exists in the kept part gets a `<id>@<startMin>` suffix (start-of-day minutes, e.g. `sun_tue_wed.coding_am@630`), so a swap to the same template keeps ids unique. The plan stays start-sorted because both swap paths satisfy `cutoff <= now <= ` the new first block's start.
-- **Judgment call, deviates from Task-7.md's "existing swap tests pass":** two existing swap tests had to change because the plan is now the single source of truth and the segments resolve from it. `swapAfterEmergency_restartsFromNow_keepsEarlierSegments`: the day lands on `Running(MON_THU, 2)` not `3` - the state index now points into the *plan* (only the two kept blocks precede gym), where before it counted from the full new template. `swapMidDay_replansFromNow`: the swapped-in block's `plannedStart` is `10:15`, not the template's `09:00` - the block containing `now` is restarted at the swap time, so its planned start is the swap time. Both new behaviors are the spec's own "the new template's blocks from now: the one containing now starts now".
-- Migration for a 1.5.1 save (`plan == null` and the day is active): `migratePlan(planStartsAt)` rebuilds the plan from the day's template minus every block that had already ended by `planStartsAt` (`distinctBy { id }`), `repointBlockIndex` moves the state's block index to the same block id inside that shorter plan (falling back to a clamped index), and `PLAN_STARTS_AT` is removed. The original plan's "read the persisted `plannedBlocks` snapshot" path is dead: 1.5.1 never wrote it, so the segments were always the only record of a swapped day.
-- `HistoryManager.observeDay(date)` = `version.map { readDay(date) }.distinctUntilChanged()`, where `version` is bumped at the end of `writeDay`. `HomeViewModel` replaces its `delay(10)`-retry `readEndedRecord()` poll (and `ENDED_RECORD_READ_LIMIT`) with a collector on that flow, and reads the plan for the title (`plan.templateId`, else the ended record, else the raw state). Caveat: the flow is driven by the in-memory `version`, so callers must share the singleton `HistoryManager`; `HomeViewModelTest` built a second instance and was changed to pass the orchestrator's.
-- Two compile bugs from the model change were caught before the run: `DayOrchestrator.record()`'s `when(event)` lost its `SwapTemplate` branch (non-exhaustive; re-added as a no-op since `apply()` returns early via `applySwap`), and `observeDay` called a non-existent `day(date)` instead of `readDay(date)`.
-- Tests added (4, all `DayOrchestratorTest`): `todayPlan_startsAsTheTemplate`, `todayPlan_swapKeepsThePast_andTakesTheNewTemplateFromNow`, `todayPlan_swapToTheSameTemplate_keepsIdsUnique`, `todayPlan_migratesAnOldSave`. Suite 203 -> 207 tests, all green.
-
-## Task-7 Slice 8.2: edit the plan from the orchestrator
-
-- New file `core/schedule/PlanConversion.kt` holds the `BlockSpec` <-> `PlanBlock` conversion the spec put in the 8.1 bullet (line 715). It is a separate file, not part of `PlanEditor.kt`, because `PlanEditor.kt` is the *verified* 8.1 file and both callers need it: `DayOrchestrator.editPlan` (commit) and `HomeViewModel` (slice 9 preview). Functions: `BlockSpec.toPlanBlock()`, `List<BlockSpec>.toPlanBlocks()`, `PlanBlock.toBlockSpec(originals)`, `List<PlanBlock>.toBlockSpecs(originals)`. Rules: minute of day; Pomodoro follows the *type* (Coding gets the origin's Pomodoro, else the default 50/10; every other type gets none); `quiet` comes from the original block with the same id; a block the editor invented (`edit-N`) has no origin and takes defaults. Its CODEMAP row is deferred to Slice 10 with `PlanEditor.kt`, matching how 8.1 left CODEMAP untouched.
-- `DayOrchestrator.editPlan(edit: PlanEdit): Boolean` (suspend): `ensureRestored()` first, then the same in-memory-then-save path a transition uses. Only `Running`/`Paused`; anything else is `false`. `current` = `currentForEditing()`; `nowMin` from the injected clock. If `PlanEditor.apply` returns null it logs and returns false, changing nothing. On success: `_todayPlan` becomes `plan.copy(blocks = edited.toBlockSpecs(plan.blocks), edited = true)`; `blockIndex` is re-pointed at the current block's id (in `Running` or inside `Paused.running`); the current block's open `PLANNED` segment gets the edited end as its `plannedEnd` (so ran-over is measured against the edited plan) and `book.index` is synced; then `persist()` once and `sideEffects()` (reschedule the alarm + the silent re-render a restore uses).
-- `DayOrchestrator.currentForEditing(): CurrentBlock?` returns the current block's id with `endEditable = false` when the open segment is `SYNTHETIC_FREE` (Next ended the block early and its leftover is free time), else `true`. This is the one function Home uses too.
-- `PLAN_EDITED` needed no new saving: `flush()` already adds it from `todayPlan.edited` (Slice 7).
-- Test-harness change: `RecordingNotificationPort` now also records each `render`'s `transition` flag into a new `transitions` list, so `editPlan_isSilent` can assert the edit's re-render is silent (`transition = false`). `editPlan_keepsTheCurrentBlockRunning_andMovesTheAlarm` reads the scheduled alarm through Robolectric's `shadowOf(AlarmManager).scheduledAlarms` and asserts the edited end (14:30) was scheduled; it uses `any { }` because the shadow keeps the earlier StartDay alarm alongside it.
-- Tests added (4, all `DayOrchestratorTest`): `editPlan_keepsTheCurrentBlockRunning_andMovesTheAlarm`, `editPlan_ranOverIsMeasuredAgainstTheEditedEnd`, `editPlan_survivesProcessDeath`, `editPlan_isSilent`. Suite 207 -> 211 tests, all green.
-
-## Task-7 Slice 9: editing on the calendar
-
-- Tap a block selects it (replacing the old tap behaviour); tap again / Done / Back deselects. `HomeAction`'s five editing messages (`DragEdge`, `DragDone`, `DragCancelled`, `StepEdge`, `Retype`) replace the dead block-sheet pair (`BlockClicked`/`DismissBlockSheet`). `affectsCalendar` (new) covers all five; `affectsOverlays` is now just `ChooseEvening || PickEvening`.
-- `CalendarBlockUi.edit: BlockEdit = BlockEdit.NONE` is filled in `HomeViewModel.publish` with `PlanEditor.editMode(planBlocks, id, minute, currentForEditing())`. `HomeState.draggingId` added. Selection is UI-local (`rememberSaveable`), derived as `blocks.firstOrNull { it.id == selectedId }?.takeIf { it.edit != NONE }`, so it drops out when the id disappears or its mode becomes `NONE` (spec line 797) - and `BackHandler(enabled = selected != null)` clears it.
-- Preview vs commit: `DragEdge` sets `draggingId` + a `PlanEditor.apply` preview; `publish` draws `preview.toBlockSpecs(todayPlan.blocks)` when it exists, else the plan itself (spec: "the result, or the plan itself when the result is null"). `DragDone`/`StepEdge`/`Retype` call a suspend `commitEdit` -> `orchestrator.editPlan(edit)`, then drop the preview and publish from `todayPlan.value`; a refused edit snaps back. `commitEdit` runs in `viewModelScope` (the orchestrator's `editPlan` is `suspend`).
-- **zIndex detail:** the selected block is `zIndex(1f)` so it draws above neighbours, and the handles are `zIndex(2f)` so their touch targets win (spec line 775). Without the `2f` the selected block would sit on top of the handles and steal the drag.
-- The handles are separate children of the blocks `Layout` (`contents = listOf({ blocks }, { handles })`), so they are not clipped by the block's rounded shape. Each is a 48dp box centred on the animated edge line - the 18dp accent circle (2dp `surface` ring) ends up 24dp in from the block's left end (top handle) / right end (bottom handle), so they never overlap on a 10-minute block. `EdgeHandle` is byte-for-byte the spec's sample (accumulate the drag, `PlanEditor.snap`).
-- Spring: a `mutableStateMapOf<String, Pair<Animatable,Animatable>>` animates every block's start/end (damping 0.85, stiffness 500); the dragged block snaps, the rest animate. It runs in a `LaunchedEffect(blocks, draggingId)` and the measure block reads `anim[id]` instead of `block.startMin/endMin`, so a slide recomposes nothing.
-- Edit card is a new file `EditCard.kt` (Home.kt was already 915 lines; mirrors `DayRecap.kt`). Tags: `edit_card`, `edit_done`, `edit_type_<Type>`, `edit_start_minus/plus`, `edit_end_minus/plus`. Deviation: `edit_type_<Type>` uses the data-object names `Cv`/`Coding`/`Gym`/`Free` (BlockType is a sealed interface, not an enum, so there is no `.name`; a local `typeKey` maps it). Chips list the four editable types only. `FULL` = chips + Start/End; `END_ONLY` = End only + the running caption; `TYPE_ONLY` = chips only + the free-time caption; footer "Changes apply to today only." always.
-- **Auto-scroll while dragging is skipped** (spec line 859 allows this): it fought the `detectVerticalDragGestures` in the handle and the steppers cover long moves.
-- Removed the dead block-sheet code the tap selection made unreachable: `BlockSheetUi`, `blockSheet()`, `BlockDetailSheet`, `SheetRow` gone; `blockSheetDrags` stays (used by `EveningChoiceSheet`). Dropped the now-unused `BlockDetailSheet` call and a now-unused `Segment` import in Home.kt.
-- One comment-hook hit: the `edit` field docstring in `HomeUi.kt` was removed (self-explanatory field, siblings undocumented).
-- No new tests (spec line 862; Slice 8 pins the rules). Suite stays 211 tests, all green. No phone connected, so no screenshots were taken.
-
-## Task-7 Slice 10: Demo data, docs and release 2.0.0
-
-- **Demo data (28 days, count unchanged):** `seed` now also picks a late-start day and an edited day, both on a Sun/Tue/Wed weekday so the gym-missed counter is untouched. The late start replays the day from `10:40` (so the CV block records as missed with `MissReason.LATE_START`, exactly like a real late start). The edited day is built through the **same pure pieces**: `editedTemplate` converts the template to `PlanBlock`s, runs `PlanEditor.apply` (a `coding_am` bottom-edge resize to 12:00 with `nowMin = 10:00` and the current block `endEditable`), and converts back with `toBlockSpecs`; the day then replays against that plan. `DayFlag.PLAN_EDITED` is added only when `PlanEditor` actually returned a plan (not merely when the edit was requested), so a refused edit can't produce a mislabelled record. `DemoDataGeneratorTest` unchanged, 5/5 green.
-- **Deviation:** the spec says "a Sun/Tue/Wed late start"; it does not name the edited day's template, and both generated special days are Sun/Tue/Wed (rather than sending the edited day to Mon/Thu) so neither special day is a gym day and the `gymDaysSeen` cadence is exactly as before.
-- **CODEMAP.md:** added `core/schedule/PlanEditor.kt` and `core/schedule/PlanConversion.kt` rows (the latter deferred here from Slice 8.2). The `DayRecap.kt` row already existed, so it was left as is; the Time Debt and `ActualDayMapper.kt` rows were already gone. Updated the rows whose job changed: orchestrator (owns the plan + plan edits), `HistoryManager` (no "time debt", version-driven observe), `Model.kt` (`BlockSpec`/`TodayPlan` in, `DebtRecord` out), `TimelineQueries.kt` (reads the published plan; `pomodoroPhases`), Home (previews plan edits + edit card), History (day-detail recap), Weekly (planned vs actual bars), Settings (redesigned developer clock).
-- **MANUAL_TESTS.md:** dropped the "Known conflict that will affect D6" section (Android 14+ lets an ongoing notice be swiped away, so there is no conflict); "Start Coding"/"Start Free" -> "Next: Coding"/"Next: Free" and "leak state" -> "ran-over state"; Demo-data check drops Time Debt; Emergency check "(Day done card)" -> "(Home shows today's recap)"; the 1.5.1 list was replaced with the 17-step "Check on the phone (2.0.0)" list.
-- **issues.md:** still one open item (connected device tests unrun - no hardware attached), now worded against the 2.0.0 checklist.
-- **Release:** `versionName` 1.5.1 -> 2.0.0, `versionCode` 10501 -> 20000; the 2.0.0 CHANGELOG entry added verbatim from Task-7.md.
-- **Name adaptations from the file's sketches** (for the final report): `PomodoroPhase` became `PomodoroSlot` (collision, Slice 6); the edit-card type tag is `edit_type_<data-object name>` (`Cv`/`Coding`/`Gym`/`Free`) because `BlockType` is a sealed interface with no `.name`; `PlanConversion.kt` is a separate file rather than part of the "verified" `PlanEditor.kt`; the block-sheet UI (`BlockSheetUi`/`BlockDetailSheet`) was deleted rather than kept.
-- No phone connected: nothing was checked on-device, and no screenshots were taken.
-- **Slice 1:** removed Roborazzi and the screenshot/layout-only tests. `DebugTimeControllerTest.evening_canBeReachedWithoutWaiting` fails on master too (expected `KidTime`, got `NotStarted`): pre-existing, owned by the evening slices (2/4), not caused by Slice 1.
+- **Restore is idempotent, single-flight, and always completes.** `DayOrchestrator.ensureRestored()`
+  takes a mutex and sets `_isRestored` in a `finally`; every entry point (the UI gate, `send`, each
+  receiver) awaits it first, so a throwing restore can't strand the app.
+- **`onTimeTravelled()` is new, and deliberately not `onTimeChanged()`** (Task-6.md:376 expects a
+  20:05 jump to reach `KidTime`; `onTimeChanged()` never applied missed transitions). It replays the
+  skipped transitions exactly like a cold start and also applies the date rollover (extracted
+  `applyRollover()`); `SystemEventsReceiver` calls it, `AlarmReceiver` keeps `onAlarm()` (exactly one
+  transition, late alarms still apply it). All replay loops are bounded by `MAX_REPLAY_STEPS`.
+- **The old splash bug was a write/read form mismatch in `DayStateSerializer`**, not a race: direct
+  `serialize` calls produced the POLY_OBJ array form while reads expected the object form. The
+  wrapper now delegates via `encodeSerializableValue`/`decodeSerializableValue` and decodes legacy
+  array payloads with a private `arrayJson` (`ignoreUnknownKeys`, `useArrayPolymorphism`) before
+  throwing `SerializationException`.
+- **Test harness:** `PrefsStorage` takes `@IoDispatcher`; tests pass `UnconfinedTestDispatcher()` so
+  every write commits before the assert. `app/src/test/resources/robolectric.properties` sets
+  `application=android.app.Application`: unit tests get a plain Application, no production Hilt
+  graph, no background restore racing the seed. Race tests use `Dispatchers.Default` +
+  `withTimeout(5_000) { .first { } }` (a test dispatcher serializes the race away).
+  `@IoDispatcher`/`@ApplicationScope` qualifiers live in `core/di/CoroutinesModule.kt`.
+- **Today's plan (`TodayPlan(templateId, blocks, edited)`) is the 2.0.0 data model**: the
+  orchestrator owns it (`todayPlan` StateFlow), `timelineAt` reads it, swap rebuilds via
+  `SegmentBook.swapPlan` (old plan kept up to the cutoff with its last block cut there; the new
+  template's block containing `now` restarts at `now`; `<id>@<startMin>` suffixes keep ids unique).
+  1.5.1 saves migrate via `migratePlan` + `repointBlockIndex`; `PLAN_STARTS_AT` pref is gone.
+  `HistoryManager.observeDay` is version-driven (`version.map { readDay(date) }.distinctUntilChanged()`),
+  so callers must share the singleton `HistoryManager` (`HomeViewModel` dropped its `delay(10)`
+  retry poll for it).
+- **Weekly** renders `rows: List<PlanProgressUi>` (planned minutes from `day.plannedBlocks ?:
+  template.blocks`, clipped at the emergency stop; actual from PLANNED + SYNTHETIC_FREE segments)
+  with a `missedSummary` line; the chart card uses `Spacing.l` (16dp), not `m` — too tight once each
+  row carries a label, bar and value (real-name deviation from the obvious token).
+- **Time Debt is gone** (Task-7 Slice 4): `DebtRecord`, `writeDebt/readDebt` and the `debts`
+  aggregate parameter were deleted; Weekly/Insights/History compute `debtMinutes(segments)` directly
+  (a top-level pure function in `HistoryManager.kt`). Explainer term "Ran over (time debt)" is plain
+  "Ran over". `debtMinutes` stays.
+- **DayRecap** rows anchor on the record's `plannedBlocks` (older records fall back to their own
+  PLANNED segments); a plan block with no segment isn't listed; summary = worked(non-paused)
+  CV/Coding/Gym ÷ planned, capped 100%, planned clipped at the emergency stop; chips Ran over /
+  Paused / Missed n block(s) / Plan changed / Template swapped.
+- **Pomodoro**: the spec's new `PomodoroPhase` collides with the engine's existing
+  `PomodoroPhase(focusing, index, total, minutesLeft)`, so the new type is `PomodoroSlot`.
+  `HourHeight` 64→80dp (`DayCalendar.kt`); `phaseLabel`/`duration` are pure top-level helpers in
+  `CalendarMapper.kt`; break bands draw in `drawWithContent` and read `minuteOfDay()` in the draw
+  phase only, so `HomeRecompositionTest.minuteTick_recomposesNothing` stays green.
+- **Plan editing** (`core/schedule/PlanEditor.kt` + `PlanConversion.kt`): `DayOrchestrator.editPlan(PlanEdit)`
+  is Running/Paused-only, edits in memory then `persist()` once + silent `sideEffects()`
+  (`RecordingNotificationPort` also records each render's `transition` flag);
+  `PLAN_EDITED` comes from `todayPlan.edited` at flush, never saved separately;
+  `currentForEditing()` reports `endEditable = false` for `SYNTHETIC_FREE`. Calendar editing: tap
+  selects, five `HomeAction` editing messages (`DragEdge/DragDone/DragCancelled/StepEdge/Retype`),
+  the handles are separate children of the block's `Layout` at `zIndex(2f)` so the selected block
+  can't steal the drag, `EdgeHandle` is byte-for-byte the spec's sample, springs use a
+  `mutableStateMapOf<String, Pair<Animatable,Animatable>>`; the edit card is its own file
+  `EditCard.kt`; type tags use the data-object names (`Cv`/`Coding`/`Gym`/`Free`) because
+  `BlockType` is a sealed interface with no `.name`; auto-scroll while dragging is skipped (the
+  steppers cover long moves).
+- **Demo data** (28 days, count unchanged): a late-start day (replays from 10:40 →
+  `MissReason.LATE_START` on CV) and an edited day built through the same pure pieces
+  (`editedTemplate` → `PlanEditor.apply` → `toBlockSpecs`); both are Sun/Tue/Wed so the gym-missed
+  cadence is untouched (deviation: the spec never names the edited day's template). `PLAN_EDITED` is
+  added only when `PlanEditor` actually returned a plan, so a refused edit can't mislabel a record.
+- **Naming/doc facts**: `TimelineQueries.kt` is a file of `ScheduleEngine` extension functions, not
+  a class; there is no `InsightsManager` (it's `InsightsViewModel`); Settings copy stays as inline
+  literals rather than `strings.xml` (roni's call — deliberate deviation from Task-6 wording);
+  `SettingsRow.enabled` gates the developer rows off in release while leaving them visible in debug;
+  the emergency "Stop today" confirmation is always shown and only Pause supports "Don't ask again";
+  `NowButtonId.EMERGENCY` renders as its own centered `now_emergency` TextButton so Pause · Next stay
+  equal-width 48dp; `TimeFormatter.label/hourGutter` are the single 12/24h source of truth;
+  `BlockType.isWork` (CV/Coding/Gym) lives in `Model.kt`; the renderer-test recording sink uses
+  `CopyOnWriteArrayList` (renders resume on IO workers).
+- **Test count baseline**: Task-7 ended at 211 tests. Task-8 Slice 1 removed Roborazzi and the
+  screenshot/layout-only tests (`ScreenshotsTest`, `UiExpectationsTest`, `ExampleUnitTest`,
+  `ExampleInstrumentedTest`); `DebugTimeControllerTest.evening_canBeReachedWithoutWaiting` is a
+  pre-existing flaky test owned by the evening slices — passing in every recent full-suite run.
 
 ## Slice 3: weekly keeps its arrows
 
@@ -190,7 +128,3 @@
 - Shared `openAppIntent(context)` extracted to `core/notifications/AppIntent.kt` (launcher-style MainActivity intent); `NotificationRenderer.openApp()` delegates to it and the redundant `REQUEST_OPEN` const is gone.
 - Resources: `widget_now.xml` (root/accent/title/text/chronometer per spec), `drawable/widget_bg.xml` (`#312F2C`, 16dp corners), `xml/widget_info.xml` (min 180×40dp, 3×1 cells, horizontal resize, updatePeriod 0, description @string), manifest receiver with `APPWIDGET_UPDATE` filter + provider meta-data (exported=false, system delivers the broadcast).
 - No named test (Android glue); full suite green (`exit=0`).
-
-
-
-

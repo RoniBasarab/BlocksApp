@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.1.0
+- Fixed: in the evening Home showed a day block with a huge negative timer. The evening (Dishes, then your choice) now shows on the calendar with time left.
+- Fixed: Weekly keeps its arrows on an empty week.
+- Add a block: turn the start of free time into a 30-minute CV, Coding or Gym block.
+- Correct a past day from its recap: when a block ended, what it really was, and missed blocks that happened after all.
+- Evening check-in: Good / OK / Rough, shown in History.
+- Home-screen widget with the current block and time left.
+- Tapping a block that can't move says why.
+- Developer tools in one dialog, with "Test a day" and moving the clock back.
+- Screenshot and layout-only tests removed; the repo root is tidy and the docs live in docs/.
+
 ## 2.0.0
 - Edit today: drag a block's top or bottom edge to change its times; the blocks after it move along, free time absorbs the change, and kid time stays put.
 - Change a block's type, for example turn free time into Coding. Changes apply to today only.

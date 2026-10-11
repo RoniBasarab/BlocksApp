@@ -10,33 +10,20 @@ With a phone attached, run them with:
 These four cannot be automated reliably (they depend on the launcher, the reboot flow, the keyguard
 and the system DND state), so Roni runs them by hand.
 
-**Check on the phone (2.0.0).** Use the debug app for steps that move the clock (Settings → Developer → debug clock).
+**Check on the phone (2.1.0).** Use the debug app for steps that move the clock (Settings → Developer tools).
 
-*Starting the day*
-1. Debug app: Developer → Jump to 09:31 → +1 hour (10:31), then Settings → Reset today and pick Sunday / Tuesday / Wednesday: Home starts on Coding, not on CV.
-2. Swipe the app away from recents and open it again: Home appears within 3 seconds, with today's plan.
-3. Same, but use the notification's Pause, then Next: both work.
-
-*Editing*
-4. Tap the current Coding block: only its bottom handle shows. Drag it down 30 minutes: the free time after it shrinks, and the notification's countdown moves to the new end.
-5. On a Mon/Thu, drag Gym's bottom edge down to 17:00: the free time after it disappears, the afternoon Coding slides to 17:00–18:00, and kid time stays at 19:00.
-6. Tap a Free block and choose Coding: it becomes Coding with break bands. Drag its edges: the trimmed parts turn into free time.
-7. Change a later Coding block to Free: it merges with the free time around it.
-8. Swipe the app away after editing and open it again: the edits are still there.
-9. Swap the template mid-day: the new template takes over from now.
-
-*During and after the day*
-10. The current Coding block shows its focus and break parts, with how much is left.
-11. Emergency: Home shows today's recap ending with "Day stopped (emergency)", and the title stays.
-12. After the day ends, tap swap: the dialog, then the picker, then tracking restarts from now.
-
-*Screens*
-13. History → a day: a list in plain words ("Ran over 47m", "Paused 15m", "Done early", "Missed"), nothing unlabeled, and no gap under the top bar.
-14. The History list's chips say "Ran over 18m", and the week headers line up with the cards.
-15. Weekly: each type shows "Xh of Yh" with a bar, and there's no legend.
-16. The menu has History and Settings; Time Debt is gone. Swiping back from Settings fades.
-17. Settings: the debug clock card is tidy with nothing overlapping. Alert sound opens Android's sound settings. Load demo data shows a spinner, then "Demo data loaded: 28 days".
-18. Debug: Jump to 20:05 → Kid asleep now → Skip dishes: the evening choice sheet appears on Home.
+1. Settings → Developer tools: one row opens the dialog; nothing overlaps.
+2. Test a day: Sun/Tue/Wed at 10:00 → Home starts on Coding.
+3. −1 hour and +1 hour move the clock both ways.
+4. Tap a later Free block → Add a block: Coding → a 30-minute Coding block appears and is selected; drag its bottom handle.
+5. Tap a past block, then kid time: each says why it can't move.
+6. Kid asleep, then pick Game: Dishes and Game appear on the calendar, kid time ends at the tap, the card counts down to 22:30.
+7. End day: the recap asks "How was today?"; pick Good: the chip appears.
+8. In the recap, tap Coding: move its end with −5; tap a missed block: "It happened" shortens the block that ran into it.
+9. History → an older day: the same corrections work.
+10. Weekly: go back past your data, then forward again.
+11. Add the widget: it shows the block and a running countdown; tap Next in the app and the widget follows.
+12. Release app (`com.roni.blocks`): pick a template, swipe the app away, reopen: it comes back.
 
 ## Setup for every test
 

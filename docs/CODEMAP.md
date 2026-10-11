@@ -57,7 +57,7 @@ Rules that hold everywhere:
 | `core/di/AppModule.kt` | The `CoroutineExceptionHandler` binding | Hilt |
 | `core/di/ClockModule.kt` | Binds `Clock`: debug gets the jumpable clock, release the system clock | ClockModule, SystemTimeMapper |
 | `core/di/CoroutinesModule.kt` | The `@IoDispatcher` and `@ApplicationScope` qualifiers: the two ways production code gets a dispatcher or scope | Hilt |
-| `core/di/NotificationModule.kt` | Binds `NotificationPort` to the real renderer | NotificationRenderer |
+| `core/di/NotificationModule.kt` | Binds `NotificationPort` and `WidgetPort` to their real renderers | NotificationRenderer, WidgetUpdater |
 
 ## core/logging
 
@@ -86,7 +86,9 @@ Rules that hold everywhere:
 | path | what it does | talks to |
 | --- | --- | --- |
 | `core/schedule/PlanConversion.kt` | Converts `BlockSpec` to and from the editor's `PlanBlock`; preview and commit share it | Model, PlanEditor |
-| `core/schedule/PlanEditor.kt` | The pure rules for reshaping today's plan (resize, retype); free time absorbs, work blocks push, kid time stays | Model |
+| `core/schedule/PlanEditor.kt` | The pure rules for reshaping today's plan (add, resize, retype, insert); free time absorbs, work blocks push, kid time stays | Model |
+| `core/schedule/RecordConversion.kt` | `toRecordRows`/`withRows`: day record ↔ editable rows for correcting a past day | Model, RecordEditor |
+| `core/schedule/RecordEditor.kt` | The pure rules for editing a past day's rows: `fixMode`, `apply` (SetEnd/Retype/MarkDone, `MIN_LENGTH`/`LAST_MINUTE` limits), `snap` | Model |
 | `core/schedule/ScheduleEngine.kt` | Resolves template + date into concrete blocks and segments | Model, Clock, TimeZone |
 | `core/schedule/SegmentBook.kt` | Builds the segment list History renders; rehydrates it after process death | ScheduleEngine, Model, PrefsStorage |
 | `core/schedule/TimelineQueries.kt` | `ScheduleEngine` extensions that read the published plan: `timelineAt`, `currentBlock`, `pomodoroStatus`, `pomodoroPhases` | ScheduleEngine, Model |
@@ -98,6 +100,14 @@ Rules that hold everywhere:
 | `core/storage/HistoryManager.kt` | The only reader/writer of days and week aggregates; a version flow lets Home observe writes | PrefsStorage, Model |
 | `core/storage/PrefsStorage.kt` | SharedPreferences wrapper split into DAY / SETTINGS / HISTORY files | android.content.SharedPreferences |
 | `core/storage/TemplateManager.kt` | Loads and saves the built-in templates | PrefsStorage, assets |
+
+## core/widget
+
+| path | what it does | talks to |
+| --- | --- | --- |
+| `core/widget/BlocksWidget.kt` | The home-screen widget receiver; restores the day, then asks the orchestrator to redraw it | DayOrchestrator, AppLogger |
+| `core/widget/WidgetPort.kt` | The tiny interface the orchestrator paints through; a no-op default keeps hand-built orchestrator tests unchanged | NotificationModel |
+| `core/widget/WidgetUpdater.kt` | The real renderer: `RemoteViews` from the same `NotificationModel` the notification uses; ids come fresh from `AppWidgetManager` | NotificationModel, SystemTimeMapper |
 
 ## core/system
 
@@ -136,13 +146,13 @@ Rules that hold everywhere:
 | --- | --- | --- |
 | `feature/home/Home.kt` | Home screen, `HomeViewModel` (publishes the calendar and previews plan edits), top bar, now-card dialogs, edit card | DayOrchestrator, HistoryManager, TemplateManager, DebugTimeController |
 | `feature/home/HomeUi.kt` | `HomeState` and the calendar/block UI models | Compose, designsystem |
-| `feature/home/HomeSheets.kt` | Bottom sheets: evening choice, template swap | DayOrchestrator, TemplateManager |
+| `feature/home/HomeSheets.kt` | Bottom sheets: evening choice, template swap, the recap's `CorrectBlockSheet` | DayOrchestrator, TemplateManager |
 | `feature/home/NowCardDialogs.kt` | The now-card's dialog states and confirmations | DayOrchestrator |
-| `feature/home/DayRecap.kt` | A finished day as a readable recap: summary card and one row per block | designsystem, Compose |
+| `feature/home/DayRecap.kt` | A finished day as a readable recap: summary card (+ check-in card until it's answered), one row per block | designsystem, Compose |
 | `feature/home/CalendarMapper.kt` | Pure model→view mapping for the calendar; no clock, no context | DayCalendar |
 | `feature/home/DayCalendar.kt` | The Home calendar grid and its hour geometry | designsystem |
 | `feature/history/History.kt` | History list and the day-detail recap, plus both ViewModels | HistoryManager, DayRecapMapper |
 | `feature/weekly/Weekly.kt` | Weekly screen: planned vs actual per type as bars, week navigation | HistoryManager |
 | `feature/insights/Insights.kt` | Insights screen: last complete week vs the one before | HistoryManager |
 | `feature/templatepicker/TemplatePicker.kt` | Template picker with a live preview of the rest of today | DayOrchestrator, TemplateManager |
-| `feature/settings/Settings.kt` | Settings screen, `SettingsViewModel`, redesigned developer clock and demo controls | DayOrchestrator, DemoDataGenerator, SystemStatuses, DebugTimeController |
+| `feature/settings/Settings.kt` | Settings screen, `SettingsViewModel`, developer tools in one dialog (test a day, debug clock, demo data) | DayOrchestrator, DemoDataGenerator, SystemStatuses, DebugTimeController |
