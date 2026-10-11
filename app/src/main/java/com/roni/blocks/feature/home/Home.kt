@@ -1,6 +1,5 @@
 package com.roni.blocks.feature.home
 
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +28,7 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -658,7 +658,6 @@ fun HomeRoute(
     onTab: (NavKey) -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
-    val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val minute by viewModel.minuteOfDay.collectAsStateWithLifecycle()
     val countdown by viewModel.countdownText.collectAsStateWithLifecycle()
@@ -668,8 +667,10 @@ fun HomeRoute(
     val countdownText = { countdown }
     val progressValue = { progress }
 
+    var message by remember { mutableStateOf<String?>(null) }
+
     LaunchedEffect(viewModel) {
-        viewModel.messages.collect { message -> Toast.makeText(context, message, Toast.LENGTH_SHORT).show() }
+        viewModel.messages.collect { message = it }
     }
 
     ScreenScaffold(bottomBar = { AppBottomBar(AppTab.HOME) { onTab(tabKey(it)) } }) { _ ->
@@ -690,6 +691,17 @@ fun HomeRoute(
                     HomeAction.Settings -> onMenu(SettingsKey)
                     else -> viewModel.onAction(action)
                 }
+            },
+        )
+    }
+
+    message?.let { m ->
+        AlertDialog(
+            onDismissRequest = { message = null },
+            title = null,
+            text = { Text(m, style = MaterialTheme.typography.bodyMedium) },
+            confirmButton = {
+                TextButton(onClick = { message = null }) { Text("OK") }
             },
         )
     }

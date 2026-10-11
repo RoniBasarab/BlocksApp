@@ -11,6 +11,7 @@ import kotlin.time.Instant
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
 import kotlinx.datetime.LocalDate
@@ -37,9 +38,9 @@ class Ticker @javax.inject.Inject constructor(
         while (currentCoroutineContext().isActive) {
             val now = clock.now()
             emit(now.minuteOfDay(zone))
-            delay(millisUntilNextMinute(now))
+            delay(1.seconds)
         }
-    }
+    }.distinctUntilChanged()
 
     fun seconds(): Flow<Int> = flow {
         while (currentCoroutineContext().isActive) {
