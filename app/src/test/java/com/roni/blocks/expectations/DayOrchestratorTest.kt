@@ -37,8 +37,10 @@ import kotlin.time.Instant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.withTimeout
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
@@ -77,6 +79,8 @@ class DayOrchestratorTest {
         java.util.concurrent.CopyOnWriteArrayList()
     private val transitions: java.util.concurrent.CopyOnWriteArrayList<Boolean> =
         java.util.concurrent.CopyOnWriteArrayList()
+    private val alerts: java.util.concurrent.CopyOnWriteArrayList<Boolean> =
+        java.util.concurrent.CopyOnWriteArrayList()
 
     @Before
     fun setUp() {
@@ -97,7 +101,7 @@ class DayOrchestratorTest {
         history = history,
         alarms = AlarmScheduler(context, SystemTimeMapper.Identity, logger),
         notificationMapper = NotificationModelMapper(engine, zone, TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))),
-        notificationRenderer = RecordingNotificationPort(rendered, transitions),
+        notificationRenderer = RecordingNotificationPort(rendered, transitions, alerts),
         clock = clock,
         zone = zone,
         logger = logger,
@@ -294,7 +298,7 @@ class DayOrchestratorTest {
     private object SilentNotificationPort : NotificationPort {
         override fun ensureChannels() = Unit
 
-        override fun render(model: NotificationModel?, transition: Boolean) = Unit
+        override fun render(model: NotificationModel?, transition: Boolean, alert: Boolean) = Unit
 
         override fun onDismissed(key: String) = Unit
 
@@ -304,12 +308,14 @@ class DayOrchestratorTest {
     private class RecordingNotificationPort(
         private val sink: java.util.concurrent.CopyOnWriteArrayList<NotificationModel?>,
         private val transitionSink: java.util.concurrent.CopyOnWriteArrayList<Boolean>,
+        private val alertSink: java.util.concurrent.CopyOnWriteArrayList<Boolean>,
     ) : NotificationPort {
         override fun ensureChannels() = Unit
 
-        override fun render(model: NotificationModel?, transition: Boolean) {
+        override fun render(model: NotificationModel?, transition: Boolean, alert: Boolean) {
             sink += model
             transitionSink += transition
+            alertSink += alert
         }
 
         override fun onDismissed(key: String) = Unit
@@ -451,8 +457,8 @@ class DayOrchestratorTest {
         assertTrue("the plan must be marked edited", plan.edited)
         assertEquals(LocalTime(14, 30), plan.blocks.first { it.id == "mon_thu.gym" }.end)
         assertTrue(
-            "the alarm must move to the edited end",
-            LocalTime(14, 30).at(date, zone).toEpochMilliseconds() in scheduledAlarms(),
+            "the alarm must move to the 5-minute warning before the edited end",
+            LocalTime(14, 25).at(date, zone).toEpochMilliseconds() in scheduledAlarms(),
         )
     }
 
@@ -504,4 +510,141 @@ class DayOrchestratorTest {
     private fun scheduledAlarms(): List<Long> =
         shadowOf(context.getSystemService(AlarmManager::class.java)).scheduledAlarms.map { it.triggerAtTime }
 
+    @Test
+    fun correctPast_fixesAnEarlierBlockWhileTheDayRuns() = runBlocking {
+        // Sun/Tue/Wed, CV 9:00, Next at 9:35 → on coding_am; correct CV's end to 9:25.
+        clock.now = LocalTime(9, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        awaitBlockIndex(0)
+        clock.now = LocalTime(9, 35).at(date, zone)
+        orchestrator.handle(DayEvent.Next("sun_tue_wed.cv"))
+        awaitBlockIndex(1)
+
+        val cvIndex = orchestrator.segments.value.indexOfFirst {
+            it.kind == SegmentKind.PLANNED && it.blockId == "sun_tue_wed.cv"
+        }
+        assertTrue(
+            "correcting CV's end to 9:25 must be allowed",
+            orchestrator.correctPast(com.roni.blocks.core.schedule.RecordEdit.SetEnd(cvIndex, 9 * 60 + 25)),
+        )
+        val updated = orchestrator.segments.value.first {
+            it.kind == SegmentKind.PLANNED && it.blockId == "sun_tue_wed.cv"
+        }
+        assertEquals(LocalTime(9, 25).at(date, zone), updated.actualEnd)
+        assertTrue(
+            "the day must carry the CORRECTED flag after a fix",
+            DayFlag.CORRECTED in orchestrator.liveRecord().flags,
+        )
+        assertTrue("the day must still be on coding_am", orchestrator.state.value is DayState.Running)
+        assertEquals(1, (orchestrator.state.value as DayState.Running).blockIndex)
+    }
+
+    @Test
+    fun correctPast_neverReachesTheRunningBlock() = runBlocking {
+        clock.now = LocalTime(9, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        awaitBlockIndex(0)
+        clock.now = LocalTime(9, 35).at(date, zone)
+        orchestrator.handle(DayEvent.Next("sun_tue_wed.cv"))
+        awaitBlockIndex(1)
+
+        val cvIndex = orchestrator.segments.value.indexOfFirst {
+            it.kind == SegmentKind.PLANNED && it.blockId == "sun_tue_wed.cv"
+        }
+        // CV's open segment ends at 9:35 (the Next time). Correcting to 9:50 must be capped.
+        assertTrue(
+            "correcting past CV's actual end must be refused",
+            !orchestrator.correctPast(com.roni.blocks.core.schedule.RecordEdit.SetEnd(cvIndex, 9 * 60 + 50)),
+        )
+        val cv = orchestrator.segments.value.first {
+            it.kind == SegmentKind.PLANNED && it.blockId == "sun_tue_wed.cv"
+        }
+        assertTrue("CV ends at 9:35 at most", cv.actualEnd!! <= LocalTime(9, 35).at(date, zone))
+    }
+
+    @Test
+    fun editPlan_retypesTheRunningBlock() = runBlocking {
+        clock.now = LocalTime(10, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        awaitBlockIndex(1)
+        val codingId = (orchestrator.state.value as DayState.Running).let { "sun_tue_wed.coding_am" }
+
+        val retype = PlanEdit.Retype(codingId, BlockType.Cv)
+        assertTrue("retype to CV is allowed", orchestrator.editPlan(retype))
+
+        val plan = requireNotNull(orchestrator.todayPlan.value)
+        assertEquals(BlockType.Cv, plan.blocks.first { it.id == codingId }.type)
+        val open = orchestrator.segments.value.lastOrNull { it.actualEnd == null }
+        assertEquals(BlockType.Cv, open?.type)
+        assertEquals(1, (orchestrator.state.value as DayState.Running).blockIndex)
+    }
+
+    @Test
+    fun editPlan_doneEarly_movesTheFreeTimesEnd() = runBlocking {
+        // CV 9:00–9:30, Next at 9:20 → on synthetic-free. Resize CV BOTTOM to 9:45.
+        clock.now = LocalTime(9, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        awaitBlockIndex(0)
+        clock.now = LocalTime(9, 20).at(date, zone)
+        orchestrator.handle(DayEvent.Next("sun_tue_wed.cv"))
+        awaitBlockIndex(0)
+
+        assertTrue(orchestrator.editPlan(PlanEdit.Resize("sun_tue_wed.cv", Edge.BOTTOM, 9 * 60 + 45)))
+
+        val free = orchestrator.segments.value.lastOrNull { it.kind == SegmentKind.SYNTHETIC_FREE }
+        assertEquals(LocalTime(9, 45).at(date, zone), free?.plannedEnd)
+
+        val coding = requireNotNull(orchestrator.todayPlan.value).blocks.first { it.id == "sun_tue_wed.coding_am" }
+        assertEquals(LocalTime(9, 45), coding.start)
+        assertEquals(LocalTime(11, 45), coding.end)
+    }
+
+    @Test
+    fun alarm_fiveMinutesBeforeTheEnd_alerts() = runBlocking {
+        // Coding 09:30–11:30, Pomodoro 50/10. At 11:25:10 a 5-minute warning should fire (11:30 - 5 min).
+        clock.now = LocalTime(9, 40).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        awaitBlockIndex(1)
+
+        alerts.clear()
+        clock.now = LocalTime(11, 25, 10).at(date, zone)
+        orchestrator.onAlarm()
+
+        assertTrue("the 5-minute warning must alert", alerts.last())
+    }
+
+    @Test
+    fun nags_stopOnceRoniReacts() = runBlocking {
+        clock.now = LocalTime(9, 40).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        awaitBlockIndex(1)
+
+        // 11:35:05 = 5 min after coding_am end (11:30) → first nag.
+        clock.now = LocalTime(11, 35, 5).at(date, zone)
+        orchestrator.onAlarm()
+        assertTrue("first nag alerts", alerts.last())
+
+        // 11:36:00 = Roni comes back, reactedAt is set.
+        clock.now = LocalTime(11, 36).at(date, zone)
+        orchestrator.onAppForeground()
+
+        // 11:40:05 = another nag time, but Roni reacted → no alert, no 11:45 nag.
+        clock.now = LocalTime(11, 40, 5).at(date, zone)
+        alerts.clear()
+        orchestrator.onAlarm()
+
+        assertEquals("reachedAt suppressed the nag", false, alerts.last())
+        val scheduled = scheduledAlarms()
+        // The next alarm should be 20:00 (evening) or 22:30 (end of day), not 11:45.
+        assertTrue(
+            "no nag at 11:45 should be scheduled",
+            scheduled.none { LocalTime(11, 45).at(date, zone).toEpochMilliseconds() == it },
+        )
+    }
+
+    private suspend fun awaitBlockIndex(expected: Int) {
+        kotlinx.coroutines.withTimeout(5_000) {
+            orchestrator.state.first { (it is DayState.Running) && (it.blockIndex == expected) }
+        }
+    }
 }

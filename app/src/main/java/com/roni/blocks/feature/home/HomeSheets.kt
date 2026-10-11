@@ -191,20 +191,20 @@ private fun CorrectEndBody(
     var endMin by remember(row.id) { mutableStateOf(row.endMin ?: 0) }
     Text("Correct ${row.title} ${row.range}", style = MaterialTheme.typography.titleLarge, color = colors.textPrimary)
     Text("Ended at", style = MaterialTheme.typography.bodyMedium, color = colors.textSecondary)
+    Text(label(endMin, use24), style = MaterialTheme.typography.titleLarge)
     Row(
         Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Spacing.m),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
     ) {
-        TextButton(onClick = {
-            endMin = (endMin - CORRECT_SNAP).coerceAtLeast(0)
-            onEdit(RecordEdit.SetEnd(index, endMin))
-        }) { Text("\u22125") }
-        Text(label(endMin, use24), style = MaterialTheme.typography.titleLarge)
-        TextButton(onClick = {
-            endMin += CORRECT_SNAP
-            onEdit(RecordEdit.SetEnd(index, endMin))
-        }) { Text("+5") }
+        listOf(-15, -5, 5, 15).forEach { delta ->
+            TextButton(
+                onClick = {
+                    endMin = (endMin + delta).coerceAtLeast(0)
+                    onEdit(RecordEdit.SetEnd(index, endMin))
+                },
+                modifier = Modifier.weight(1f),
+            ) { Text(if (delta > 0) "+$delta" else "\u2212${-delta}") }
+        }
     }
     Text("What did you do?", style = MaterialTheme.typography.bodyMedium, color = colors.textSecondary)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {

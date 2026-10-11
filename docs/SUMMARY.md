@@ -1,6 +1,6 @@
 # Blocks: Project Summary (handoff)
 
-Last updated: Saturday 10 October 2026. Written so an agent with no prior context can take over: the **planning agent** (the next Claude chat working with Roni) or the **working agent** (a coding agent in the repo). Read it fully before anything else.
+Last updated: Sunday 11 October 2026. Written so an agent with no prior context can take over: the **planning agent** (the next Claude chat working with Roni) or the **working agent** (a coding agent in the repo). Read it fully before anything else.
 
 ---
 
@@ -13,7 +13,7 @@ Why it exists: Roni is job-hunting and his unstructured days were drifting (even
 - Code: `C:\Blocks App` on Roni's Windows machine. A git repo; `master` holds released work, tagged `vX.Y.Z`. Remote `origin` = `github.com/RoniBasarab/BlocksApp`. Keep it private (§17).
 - All spec and task files live in the repo root (committed from Task-6 on).
 - Timezone Asia/Jerusalem. The work week is Sunday–Thursday; the weekend is Friday–Saturday.
-- Released: **2.0.0** (Task-7, editable days). In progress: **2.1.0** (Task-8): evenings, corrections, check-in, widget, tidy repo.
+- Released: **2.1.0** (Task-8: evenings, corrections, check-in, widget, tidy repo). In progress: **2.2.0** (Task-9): alerts that get noticed, Done early shown clearly, tap any block of today.
 - All docs live in `docs/` (from Task-8 on); the root holds only the build files, `README.md` and `CHANGELOG.md`.
 
 ## 2. People and roles
@@ -60,8 +60,8 @@ Roni starts fresh sessions for both agents at handoffs, so everything they need 
 |---|---|---|
 | `SUMMARY.md` | This file: the handoff | Current |
 | `AGENT.md` | The working agent's standing instructions; Roni's prompt is just "Read docs/AGENT.md and do what it says." | Updated by the planning agent for each task |
-| `Task-8.md` | The current task (2.1.0), with a slice map of line ranges | Ready to hand over |
-| `schedule-spec.md`, `architecture.md`, `visuals.md` | Behavior, code, look | Describe 2.1.0 |
+| `Task-9.md` | The current task (2.2.0), with a slice map of line ranges | Ready to hand over |
+| `schedule-spec.md`, `architecture.md`, `visuals.md` | Behavior, code, look | Describe 2.1.0; 2.2.0 changes are in Task-9 and §10 here |
 | `CODEMAP.md` | One row per source file | The real file map; task files use its names |
 | `NOTES.md` | The working agent's decision log | Must not contradict the code |
 | `issues.md` | Open issues, with evidence | Check it for wrong conclusions |
@@ -116,8 +116,8 @@ Coding uses Pomodoro 50/10, counted from the block's actual start. Phase switche
 
 **Notifications**
 - One notification, updated in place, with a countdown drawn by the system (the app never wakes up to update it).
-- The `day` channel plays a sound on transitions; the `evening` channel is silent. No sound while the app is on screen, and none for edits. The sound can be changed in Android's channel settings (Settings → Alert sound).
-- Actions: running work block "Pause" + "Next: Free"; free time "Next: X"; ended block "Next: X"; paused "Resume"; evening "Kid asleep" / "End day". Actions never open the app, and stale or double taps are ignored.
+- The `day` channel plays a sound on transitions; the `evening` channel is silent. No sound for edits. From 2.2.0 there are also alerts: 5 minutes before a running block ends, at its end, every 5 minutes after that until Roni reacts, and at each Pomodoro break and focus start; alerts sound even with the app open. The sound can be changed in Android's channel settings (Settings → Alert sound); the debug and release apps each have their own.
+- Actions: running work block "Pause" + "Done early" (2.2.0; was "Next: Free"); free time "Next: X"; ended block "Next: X"; paused "Resume"; evening "Kid asleep" / "End day". Actions never open the app, and stale or double taps are ignored.
 - Tapping it resumes the app as it was (nothing happens if the app is already open). It's `ongoing`, but on Android 14+ it can still be swiped away; it comes back at the next transition.
 
 ## 6. Architecture (quick version; details in `architecture.md`)
@@ -178,23 +178,26 @@ Coding uses Pomodoro 50/10, counted from the block's actual start. Phase switche
 - Task-7's first sessions were far slower than earlier 12-slice tasks and ran out of quota. The logs show why: it read the whole doc set up front (~150k characters, re-sent on every call), ran `git log` seven times between edits, kept retrying `&&` in PowerShell 5.1, and used Python one-liners to search files. Each needless call re-sends the whole context. The prompt in §18 now covers each of these.
 - When a task hands over pure logic, the planning agent compiles and tests it first and marks it *verified* (§17). Task-7's `PlanEditor` was checked against every named test plus 40,000 random edit sequences.
 
-## 9. Current state (10 Oct 2026)
+## 9. Current state (11 Oct 2026)
 
-**Released, 2.0.0:** `master` = `34a9505` = tag `v2.0.0`, pushed. 211 JVM tests, gate green. Not yet checked on the phone; the release variant has never been installed.
+**Released, 2.1.0:** `master` = `c874755` = tag `v2.1.0`, pushed. The repo root is tidy and the docs live in `docs/`.
 
-**Roni's findings on 2.0.0 (10 Oct), all in Task-8:**
-- The evening showed his Coding block at -10:33:10: `HomeViewModel.currentIndex()` used `Evening.blockIndex` as an index into the plan (Slice 2).
-- Can't test daytime at night (Slice 4, Test a day).
-- Weekly's empty week loses its arrows (Slice 3).
-- Blocks "not adjustable": at night everything is past and taps were silent (Slice 5).
-- The repo root was full of the agent's scratch files (Slice 0).
-- He never looks at screenshots: Roborazzi and layout-only tests go (Slice 1).
+**Roni's findings on 2.1.0 (11 Oct, on the phone), all in Task-9 with their causes:**
+- The widget doesn't load (a plain `<View>` in the RemoteViews layout).
+- "Next: Free" everywhere, and Next on Coding seemed to jump in the Pomodoro: Next before the end opens free time for the rest of the block, but Home and the notification kept showing the work block, and the notification restarted the Pomodoro from the free time's start.
+- The app is too quiet: the block-end alarm updated the notification without sound, so nothing ever sounded on its own. Pomodoro wake-ups counted from the planned start, not the real one.
+- The notification should show the Pomodoro round and the time to the break.
+- After moving the debug clock, minutes left lagged up to a minute (`Ticker.minutes`).
+- A cut-off Toast for locked blocks; he can't edit the running or past blocks; History needs ±15.
+- He suggested a foreground service. Not picked in the questionnaire; the silent alarms were the real cause.
 
-**The repo is public now** (Roni opened it so the planning agent could read it). The docs describe his family's routine; he was told he can switch it back to private.
+**The repo is public** (Roni opened it so the planning agent could read it). The docs describe his family's routine; he was told he can switch it back to private.
 
-**Waiting on Roni:** extract the Task-8 files into the repo, start the working agent with "Read docs/AGENT.md and do what it says."; before installing release, create a keystore (`keystore.properties` in the root; the build reads it), and back it up.
+**Waiting on Roni:** extract the Task-9 files into the repo and start the working agent with "Read docs/AGENT.md and do what it says." Before installing release, a keystore (`keystore.properties` in the root) and a backup of it.
 
-**Deviation to remember:** Roni once asked for "minutes left, updated once a minute" in the notification. It uses the system chronometer instead (zero wake-ups; it shows negative time while running over). He hasn't objected.
+**Deviation to remember:** Roni once asked for "minutes left, updated once a minute" in the notification. It uses the system chronometer instead (it shows negative time while running over). He hasn't objected.
+
+**Working-agent lessons from Task-8 (now in `AGENT.md`):** Gradle output through a PowerShell pipe hung until the shell's 900 s timeout (the daemon holds the pipe), and the case-insensitive filter matched warnings, so the agent doubted green builds. Gradle now runs through `cmd /c` into a temp file with a case-sensitive filter, and `exit=0` is the whole answer. After its final report it looped re-checking an old todo list; it now stops after the report.
 
 ## 10. Editing (2.0.0) and other future ideas
 
@@ -207,8 +210,8 @@ Coding uses Pomodoro 50/10, counted from the block's actual start. Phase switche
 | Scope | Today only; templates unchanged | The template stays a clean starting point |
 | Handles | Work blocks only; free time is the slack | One mental model: you shape the work, and free time fills the rest |
 | Growing | Takes the adjacent free time first; work blocks move along keeping their length; kid time never moves | Changes as little as possible; pickup and bedtime are fixed in real life |
-| Current block | Its end only, not into the next 5 minutes; changing its type is Next's job | No rewriting what's already happening |
-| Past blocks | Fixed | History stays true |
+| Current block | Its end only (2.2.0: also its type, work types only), not into the next 5 minutes; changing its type is Next's job | No rewriting what's already happening |
+| Past blocks | Fixed in the plan (2.1.0/2.2.0: the record is corrected instead) | History stays true |
 | Steps | 5 minutes; 10-minute minimum | Precise enough, and a 10-minute block still has room for both handles |
 | Precise edits | The edit card's ±5 steppers do the same as dragging | Long moves without auto-scroll, and an accessible fallback |
 | Sound | Edits are silent; the alarm and countdown follow | An edit isn't a transition |
@@ -241,17 +244,26 @@ Coding uses Pomodoro 50/10, counted from the block's actual start. Phase switche
 - A home-screen widget: the current block plus a system-drawn countdown, updated only at transitions.
 - Not wanted: job-search features (keep it about time), export/backup (not now).
 
+**2.2.0 scope (decided with Roni, 11 Oct; one release, Task-9):**
+- Fixes: the widget, the debug-clock lag, the locked-tap dialog, ±15 in corrections.
+- Done early, shown clearly: Next before a work block's end still gives free time until its planned end, but Home and the notification say "Free time · Done early", name the real next block and stop the Pomodoro. The button on a running work block says "Done early".
+- The notification shows the Pomodoro round, the break time and a countdown to it.
+- Alerts: 5 minutes before the end, at the end, every 5 minutes until Roni reacts (any tap, or opening the app), and each Pomodoro break and focus start. They sound even with the app open. Pure `AlertPlanner` (*verified*) decides the times.
+- Editing: tap any block of today. Past blocks: corrected right away with the 2.1.0 correction sheet. The running block: its end (±5/±15) and, for an unfinished work block, its type (work types only). Running free time ended sooner starts the next work block sooner. `PlanEditor` gained `END_AND_TYPE` (*verified*).
+- Not picked: a foreground service, heads-up banners, the app playing its own sound.
+
 **Later, not agreed (don't build without asking):**
+- A foreground service, if alerts still come late in deep Doze (or `setAlarmClock` for alerts).
 - Saving today's edits as the template, or a template editor screen.
 - Undo; haptics on snap.
 - Moving a whole block by dragging its middle; handles on free time; adding or splitting blocks.
-- Export/backup of history (JSON/CSV); a daily score or streaks; a home-screen widget; deeper pattern detection.
+- Export/backup of history (JSON/CSV); a daily score or streaks; deeper pattern detection.
 
 ## 11. Next steps
 
-1. **Roni:** run Task-8 with the working agent ("Read docs/AGENT.md and do what it says."; the same line again in a fresh session if the quota runs out).
-2. **Roni:** after 2.1.0, the phone checklist in `docs/MANUAL_TESTS.md`, with the release app.
-3. **Planning agent:** review Task-8's report against its slices and named tests. The repo can be read directly while it's public (`add_repo` read access).
+1. **Roni:** run Task-9 with the working agent ("Read docs/AGENT.md and do what it says."; the same line again in a fresh session if the quota runs out).
+2. **Roni:** after 2.2.0, the phone checklist in `docs/MANUAL_TESTS.md`, especially the alert timing with the phone locked.
+3. **Planning agent:** review Task-9's report against its slices and named tests. The repo can be read directly while it's public (`add_repo` read access).
 
 ## 12. Decisions log (settled; don't reopen without a reason)
 
@@ -285,6 +297,10 @@ Coding uses Pomodoro 50/10, counted from the block's actual start. Phase switche
 | History's day view is a words-first recap (7 Oct) | The calendar of actual blocks was unreadable |
 | Weekly plan vs actual as per-type progress rows, no legend (7 Oct) | Paired bars and a two-color legend confused the per-type colors |
 | Calendar hour height 80dp (7 Oct) | Room for break labels and handles |
+| Alerts: 5-minute warning, end, then every 5 minutes until a reaction; Pomodoro breaks (11 Oct) | Roni: the app was too quiet to notice |
+| Alerts sound even with the app open; edits stay silent (11 Oct) | A screen that's on isn't a screen that's watched |
+| Tap any block of today: past blocks corrected live, the running block's end and type editable (11 Oct) | Roni: "changing the blocks themselves is impossible" |
+| No foreground service yet (11 Oct) | The silent alarms were the cause; revisit only if alerts come late |
 
 ## 13. Glossary
 

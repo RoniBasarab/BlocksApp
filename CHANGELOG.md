@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.0
+- Sounds that get noticed: 5 minutes before a block ends, at the end, and every 5 minutes until you react; Pomodoro breaks too.
+- Done early: the screen and the notification show your free time and the real next block; the Pomodoro no longer restarts.
+- The notification shows the Pomodoro round and the time to the break.
+- Tap any block of today: fix past blocks right away, change the running block's end and type, ±15 steps.
+- Fixed: the widget wouldn't load.
+- Fixed: after moving the debug clock, minutes left were wrong for up to a minute.
+- Locked blocks explain why in a dialog instead of a cut-off message.
+
 ## 2.1.0
 - Fixed: in the evening Home showed a day block with a huge negative timer. The evening (Dishes, then your choice) now shows on the calendar with time left.
 - Fixed: Weekly keeps its arrows on an empty week.

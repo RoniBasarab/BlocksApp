@@ -245,18 +245,13 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun lockedTap_onAPastBlock_saysItsOver() = runBlocking {
+    fun lockedTap_onAPastBlock_opensTheCorrectionSheet() = runBlocking {
         startDayInsideCoding()
-        val messages = mutableListOf<String>()
-        val job = launch(Dispatchers.Unconfined) { viewModel.messages.collect { messages += it } }
 
         viewModel.onAction(HomeAction.LockedBlockTapped("sun_tue_wed.cv"))
 
-        assertEquals(
-            "This block is over. You can correct what happened in the day's recap once the day ends.",
-            messages.single(),
-        )
-        job.cancel()
+        val row = viewModel.correctingRow.value ?: error("no correcting row opened")
+        assertEquals("sun_tue_wed.cv@540", row.id)
     }
 
     @Test
@@ -269,6 +264,27 @@ class HomeViewModelTest {
 
         assertEquals("Kid time and the evening can't be moved.", messages.single())
         job.cancel()
+    }
+
+    @Test
+    fun doneEarly_saysFreeTimeAndNamesTheNextBlock() = runBlocking {
+        startDayInsideCoding()
+
+        viewModel.onAction(HomeAction.Next)
+        awaitRunningOrPaused { it.blockIndex() == 1 }
+
+        val nowCard = viewModel.state.value.nowCard ?: error("no nowCard")
+        assertEquals("Free time", nowCard.title)
+        assertEquals("Done early", nowCard.chip)
+        assertEquals(
+            listOf(NowButtonId.NEXT, NowButtonId.EMERGENCY),
+            nowCard.buttons.map { it.id },
+        )
+        assertEquals("Next: Free", nowCard.buttons.first { it.id == NowButtonId.NEXT }.label)
+
+        val coding = viewModel.state.value.blocks.first { it.id == firstBlockId }
+        assertEquals(0, coding.phases.size)
+        assertTrue(coding.subtitle?.startsWith("Done early · free until") == true)
     }
 
     private suspend fun startDayInsideCoding() {
@@ -297,7 +313,7 @@ class HomeViewModelTest {
     private object SilentNotificationPort : NotificationPort {
         override fun ensureChannels() = Unit
 
-        override fun render(model: NotificationModel?, transition: Boolean) = Unit
+        override fun render(model: NotificationModel?, transition: Boolean, alert: Boolean) = Unit
 
         override fun onDismissed(key: String) = Unit
 

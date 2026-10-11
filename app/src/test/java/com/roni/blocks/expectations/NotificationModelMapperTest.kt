@@ -148,15 +148,15 @@ class NotificationModelMapperTest {
     // ── Running ──────────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun running_focus_countsDownToTheBlockEnd_withPause() {
-        // Coding 09:30–11:30, Pomodoro 50/10 → at 10:35 we are in focus 2 of 2.
+    fun running_focus_countsDownToTheBreak_withPause() {
+        // Coding 09:30–11:30, Pomodoro 50/10 → at 10:35 we are in focus 2 of 2; next break at 11:20.
         val model = mapper.from(running(1, at(10, 35)), timeline(1, at(9, 30)), at(10, 35))
         assertEquals("Coding_9_30:running", model?.key)
         assertEquals(NotificationChannelKind.DAY, model?.channel)
         assertEquals("Coding · Focus 2/2", model?.title)
-        assertEquals("until 11:30", model?.text)
-        assertEquals(at(11, 30), model?.countdownTo)
-        assertEquals(listOf("Pause", "Next: Free"), labels(model))
+        assertEquals("Break at 11:20 · ends 11:30", model?.text)
+        assertEquals(at(11, 20), model?.countdownTo)
+        assertEquals(listOf("Pause", "Done early"), labels(model))
         assertEquals(listOf(ActionEvent.PAUSE, ActionEvent.START_NEXT), events(model))
     }
 
@@ -167,28 +167,28 @@ class NotificationModelMapperTest {
         assertEquals("Coding_9_30:break", model?.key)
         assertEquals(NotificationChannelKind.DAY, model?.channel)
         assertEquals("Coding · Break", model?.title)
-        assertEquals("focus resumes at 10:30", model?.text)
+        assertEquals("Focus 2/2 at 10:30 · ends 11:30", model?.text)
         assertEquals(at(10, 30), model?.countdownTo)
-        assertEquals(listOf("Pause", "Next: Free"), labels(model))
+        assertEquals(listOf("Pause", "Done early"), labels(model))
     }
 
     @Test
-    fun running_blockWithoutPhases_showsJustTheBlockName() {
+    fun running_blockWithoutPhases_namesTheNextBlock() {
         val model = mapper.from(running(0, at(9, 0)), timeline(0, at(9, 0)), at(9, 0))
         assertEquals("Cv_9_0:running", model?.key)
         assertEquals(NotificationChannelKind.DAY, model?.channel)
         assertEquals("CV", model?.title)
-        assertEquals("until 09:30", model?.text)
+        assertEquals("until 09:30 · then Coding", model?.text)
         assertEquals(at(9, 30), model?.countdownTo)
-        assertEquals(listOf("Pause", "Next: Free"), labels(model))
+        assertEquals(listOf("Pause", "Done early"), labels(model))
     }
 
     @Test
     fun running_pausedBlock_countdownStaysOnThePlannedEnd() {
         // A pause shortens the block instead of moving its end, so the countdown is unchanged.
         val model = mapper.from(running(1, at(11, 0)), timeline(1, at(9, 30), pausedMinutes = 8), at(11, 0))
-        assertEquals("until 11:30", model?.text)
-        assertEquals(at(11, 30), model?.countdownTo)
+        assertEquals("Break at 11:20 · ends 11:30", model?.text)
+        assertEquals(at(11, 20), model?.countdownTo)
     }
 
     // ── Leaking ──────────────────────────────────────────────────────────────────────────────
@@ -304,4 +304,64 @@ class NotificationModelMapperTest {
     fun off_showsNothing() {
         assertNull(mapper.from(DayState.Off, null, at(23, 0)))
     }
+
+    // ── 2.2.0 Done early and Pomodoro (Task-9 §slice 2) ─────────────────────────────────────
+
+    @Test
+    fun doneEarly_showsFreeTimeAndTheRealNextBlock() {
+        // CV 9:00–9:30, Next at 9:20 → open segment is SYNTHETIC_FREE 9:20–9:30, next is Coding 9:30.
+        val tl = timeline(
+            blockIndex = 0,
+            openedAt = at(9, 0),
+            openUntil = at(9, 30),
+            openType = BlockType.Free,
+        ).let { engine_timeline_with_synthetic_free(it) }
+        val model = mapper.from(running(0, at(9, 21)), tl, at(9, 21))
+        assertEquals("Cv_9_0:early", model?.key)
+        assertEquals("Free time · CV done early", model?.title)
+        assertEquals("until 09:30 · then Coding", model?.text)
+        assertEquals(at(9, 30), model?.countdownTo)
+        assertEquals(listOf("Next: Coding"), labels(model))
+        assertEquals(listOf(ActionEvent.START_NEXT), events(model))
+    }
+
+    @Test
+    fun pomodoro_showsTheRoundAndTimeToBreak() {
+        // coding_am 9:40–11:30, focus/break 50/10 → at 10:00 we are in focus 1/2, next break at 10:30.
+        val codingSpec = template.blocks[1]
+        val tl = engine.timelineAt(
+            template = template,
+            date = date,
+            zone = zone,
+            segments = listOf(
+                Segment(
+                    type = BlockType.Coding,
+                    kind = SegmentKind.PLANNED,
+                    plannedStart = codingSpec.start.at(date, zone),
+                    plannedEnd = codingSpec.end.at(date, zone),
+                    actualStart = at(9, 40),
+                    actualEnd = null,
+                    blockId = codingSpec.id,
+                ),
+            ),
+            now = at(10, 0),
+        )
+        val model = mapper.from(running(1, at(10, 0)), tl, at(10, 0))
+        assertEquals("Coding · Focus 1/2", model?.title)
+        assertEquals("Break at 10:30 · ends 11:30", model?.text)
+        assertEquals(at(10, 30), model?.countdownTo)
+    }
+
+    private fun engine_timeline_with_synthetic_free(tl: com.roni.blocks.core.schedule.DayTimeline) =
+        tl.copy(
+            open = Segment(
+                type = BlockType.Free,
+                kind = SegmentKind.SYNTHETIC_FREE,
+                plannedStart = at(9, 0),
+                plannedEnd = at(9, 30),
+                actualStart = at(9, 20),
+                actualEnd = null,
+                blockId = template.blocks[0].id,
+            ),
+        )
 }

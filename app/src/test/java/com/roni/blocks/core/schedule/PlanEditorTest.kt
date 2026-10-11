@@ -93,11 +93,55 @@ class PlanEditorTest {
     fun currentBlock_onlyItsEndMoves() {
         val id = "sun_tue_wed.coding_am"
         assertNull(resize(sunTueWed, id, Edge.TOP, t(9, 45), now = t(10, 0), currentId = id))
-        assertNull(retype(sunTueWed, id, BlockType.Gym, now = t(10, 0), currentId = id))
         val r = resize(sunTueWed, id, Edge.BOTTOM, t(10, 0), now = t(10, 2), currentId = id)!!
         assertEquals("09:30-10:10", r.at(id)) // not into the next 5 minutes
-        // Next ended CV early (its leftover is free time): its end is fixed too
-        assertNull(resize(sunTueWed, "sun_tue_wed.cv", Edge.BOTTOM, t(9, 50), now = t(9, 20), currentId = "sun_tue_wed.cv", endEditable = false))
+    }
+
+    @Test
+    fun currentWorkBlock_canBecomeAnotherWorkType() {
+        val id = "sun_tue_wed.coding_am"
+        val current = CurrentBlock(id, endEditable = true)
+        assertEquals(BlockEdit.END_AND_TYPE, PlanEditor.editMode(sunTueWed, id, t(10, 0), current))
+        val r = retype(sunTueWed, id, BlockType.Cv, now = t(10, 0), currentId = id)!!
+        assertEquals(BlockType.Cv, r.first { it.id == id }.type)
+        assertEquals("09:30-11:30", r.at(id))
+        assertEquals(sunTueWed.map { it.id }, r.map { it.id })
+        assertNull(retype(sunTueWed, id, BlockType.Free, now = t(10, 0), currentId = id)) // that's Done early, not an edit
+    }
+
+    @Test
+    fun finishedEarly_endStillMoves_typeDoesNot() {
+        val cv = "sun_tue_wed.cv"
+        val early = CurrentBlock(cv, endEditable = false)
+        assertEquals(BlockEdit.END_ONLY, PlanEditor.editMode(sunTueWed, cv, t(9, 20), early))
+        assertNull(PlanEditor.apply(sunTueWed, PlanEdit.Retype(cv, BlockType.Coding), t(9, 20), early))
+        val r = PlanEditor.apply(sunTueWed, PlanEdit.Resize(cv, Edge.BOTTOM, t(9, 50)), t(9, 20), early)!!
+        assertEquals("09:00-09:50", r.at(cv))
+        assertEquals("09:50-11:50", r.at("sun_tue_wed.coding_am")) // pushed, same length
+        assertEquals("11:50-14:00", r.at("sun_tue_wed.free_midday"))
+    }
+
+    @Test
+    fun runningFreeTime_endingSooner_startsTheNextBlockSooner() {
+        val free = "sun_tue_wed.free_midday"
+        assertEquals(BlockEdit.END_ONLY, PlanEditor.editMode(sunTueWed, free, t(12, 0), CurrentBlock(free, true)))
+        val r = resize(sunTueWed, free, Edge.BOTTOM, t(13, 0), now = t(12, 0), currentId = free)!!
+        assertEquals("11:30-13:00", r.at(free))
+        assertEquals("13:00-15:30", r.at("sun_tue_wed.coding_pm"))
+        assertEquals(sunTueWed.map { it.id }, r.map { it.id })
+        // never before the next 5 minutes
+        val soon = resize(sunTueWed, free, Edge.BOTTOM, t(11, 30), now = t(12, 0), currentId = free)!!
+        assertEquals("11:30-12:05", soon.at(free))
+        assertEquals("12:05-15:30", soon.at("sun_tue_wed.coding_pm"))
+    }
+
+    @Test
+    fun runningFreeTime_endingLater_pushesTheNextBlock() {
+        val free = "sun_tue_wed.free_midday"
+        val r = resize(sunTueWed, free, Edge.BOTTOM, t(14, 30), now = t(12, 0), currentId = free)!!
+        assertEquals("11:30-14:30", r.at(free))
+        assertEquals("14:30-16:00", r.at("sun_tue_wed.coding_pm"))
+        assertEquals("16:00-16:20", r.at("sun_tue_wed.free_pm"))
     }
 
     @Test

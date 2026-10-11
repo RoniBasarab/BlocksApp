@@ -1,6 +1,5 @@
 package com.roni.blocks.feature.home
 
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +28,7 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -180,6 +180,11 @@ private val day: DayOrchestrator,
     /** One-shot toasts: why a tap on a block did nothing. */
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
+    private val _correctingRow = MutableStateFlow<RecapRow?>(null)
+
+    /** The recap row whose correction sheet is up (past block and today are both eligible). */
+    val correctingRow: StateFlow<RecapRow?> = _correctingRow.asStateFlow()
+
     val minuteOfDay: StateFlow<Int> =
         ticker.minutes.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
@@ -283,9 +288,16 @@ private val day: DayOrchestrator,
             is HomeAction.StepEdge -> stepEdge(action.id, action.edge, action.byMin)
             is HomeAction.Retype -> commitEdit(PlanEdit.Retype(action.id, action.type))
             is HomeAction.Insert -> insertBlock(action.id, action.type)
-            is HomeAction.LockedBlockTapped ->
-                _state.value.blocks.firstOrNull { it.id == action.id }
-                    ?.let { _messages.tryEmit(lockedReason(it)) }
+            is HomeAction.LockedBlockTapped -> {
+                val block = _state.value.blocks.firstOrNull { it.id == action.id }
+                val row = block?.let { recapRowForBlock(it) }
+                when {
+                    row != null && row.fix != com.roni.blocks.core.schedule.RowFix.NONE -> {
+                        _correctingRow.value = row
+                    }
+                    else -> block?.let { _messages.tryEmit(lockedReason(it)) }
+                }
+            }
             HomeAction.SwapTemplate,
             HomeAction.History,
             HomeAction.Settings,
@@ -336,7 +348,8 @@ private val day: DayOrchestrator,
 
     /**
      * The reason a tapped block offers no handles. Mirrors the refusals of [PlanEditor.editMode],
-     * most specific first, so the toast matches what the user sees.
+     * most specific first, so the toast matches what the user sees. Past blocks (index < current)
+     * open the correction sheet instead and never reach this function.
      */
     private fun lockedReason(tapped: CalendarBlockUi): String {
         val dayState = day.state.value
@@ -346,22 +359,44 @@ private val day: DayOrchestrator,
         val currentIndex = screen.currentBlockId?.let { id -> screen.blocks.indexOfFirst { it.id == id } } ?: -1
         if (!tapped.type.isEditable()) return LOCKED_KID_TIME
         if (dayState == DayState.NotStarted) return LOCKED_PICK_TEMPLATE
-        if (currentIndex >= 0 && index in 0 until currentIndex) return LOCKED_OVER
         if (currentIndex < 0) {
-            if (dayState == DayState.KidTime && template != TemplateId.FRI_SAT) return LOCKED_OVER
-            if (dayState == DayState.KidTime) return LOCKED_DAY_BLOCK_RUNNING
-            return LOCKED_OVER
-        }
-        if (index == currentIndex) {
-            return if (day.currentForEditing()?.endEditable == false) LOCKED_FINISHED_EARLY else LOCKED_FREE_RUNNING
+            if (dayState == DayState.KidTime && template != TemplateId.FRI_SAT) return LOCKED_DAY_BLOCK_RUNNING
+            return LOCKED_DAY_BLOCK_RUNNING
         }
         val nowMin = clock.now().minuteOfDay(zone)
-        return if (tapped.endMin <= snapUp(nowMin + PlanEditor.SNAP)) LOCKED_WILL_MISS else LOCKED_OVER
+        return if (tapped.endMin <= snapUp(nowMin + PlanEditor.SNAP)) LOCKED_WILL_MISS else LOCKED_DAY_BLOCK_RUNNING
     }
 
     fun correctRecord(edit: RecordEdit) {
         val date = clock.now().toLocalDateTime(zone).date
         viewModelScope.launch { history.correctDay(date, edit, zone) }
+    }
+
+    /**
+     * Corrects a past block of today. The recap row carries the segment index, so the record
+     * editor knows which segment to edit. The day must still have that segment in memory, which
+     * is the case until the day ends (and history has it from then on).
+     */
+    fun correctPast(edit: RecordEdit) {
+        viewModelScope.launch {
+            day.correctPast(edit)
+            _correctingRow.value = null
+            publish(day.state.value)
+        }
+    }
+
+    fun dismissCorrectPast() {
+        _correctingRow.value = null
+    }
+
+    /**
+     * The recap row for the block the user just tapped, or null when no row exists. Past blocks
+     * of today always have one; future blocks, kid time and not-started days don't.
+     */
+    private fun recapRowForBlock(block: CalendarBlockUi): RecapRow? {
+        val liveRecord = day.liveRecord()
+        val rows = DayRecapMapper.map(liveRecord, timeFormatter.use24.value).rows
+        return rows.firstOrNull { it.id == "${block.id}@${block.startMin}" }
     }
 
     fun checkIn(pick: CheckIn) {
@@ -378,7 +413,9 @@ private val day: DayOrchestrator,
             runCatching { templates.get(plan.templateId) }.getOrNull()?.let { Template(it.id, it.name, plan.blocks) }
         } ?: id?.let { runCatching { templates.get(it) }.getOrNull() }
         val segments = day.segments.value
+        val openAny = segments.lastOrNull { it.actualEnd == null }
         val open = segments.lastOrNull { it.kind == SegmentKind.PLANNED && it.actualEnd == null }
+        val doneEarly = dayState is DayState.Running && openAny?.kind == SegmentKind.SYNTHETIC_FREE
         val specs = preview?.let { pv -> todayPlan?.blocks?.let { pv.toBlockSpecs(it) } } ?: template?.blocks
         val daySpecs = specs?.let { withEvening(it, segments) }
         val index = currentIndex(dayState, daySpecs)
@@ -387,18 +424,36 @@ private val day: DayOrchestrator,
                 it,
                 timeFormatter.use24.value,
                 currentIndex = index,
-                actualStartMin = open?.actualStart?.minuteOfDay(zone),
+                actualStartMin = if (doneEarly) null else open?.actualStart?.minuteOfDay(zone),
             )
         } ?: persistentListOf()
         val blocks = if (todayPlan != null) {
             val planBlocks = preview ?: todayPlan.blocks.toPlanBlocks()
             val currentForEdit = day.currentForEditing()
-            mapped.map { b -> b.copy(edit = PlanEditor.editMode(planBlocks, b.id, minute, currentForEdit)) }.toPersistentList()
+            val currentBlockIndex = index.takeIf { it >= 0 }
+            val liveRows = DayRecapMapper.map(day.liveRecord(), timeFormatter.use24.value).rows
+            mapped.mapIndexed { i, b ->
+                val isCurrentAndDoneEarly = doneEarly && currentBlockIndex != null && i == currentBlockIndex
+                val phaseSubtitle = if (isCurrentAndDoneEarly) {
+                    "Done early · free until ${timeFormatter.label(openAny!!.plannedEnd!!.minuteOfDay(zone))}"
+                } else b.subtitle
+                val phasesForUi = if (isCurrentAndDoneEarly) persistentListOf() else b.phases
+                // Past blocks (i < currentIndex) show what happened: "Done HH:MM–HH:MM" or "Missed".
+                val pastSubtitle = if (currentBlockIndex != null && i < currentBlockIndex) {
+                    val row = liveRows.firstOrNull { it.id == "${b.id}@${b.startMin}" }
+                    row?.let { pastSubtitleFor(it, timeFormatter.use24.value) }
+                } else null
+                b.copy(
+                    edit = PlanEditor.editMode(planBlocks, b.id, minute, currentForEdit),
+                    subtitle = pastSubtitle ?: phaseSubtitle,
+                    phases = phasesForUi,
+                )
+            }.toPersistentList()
         } else {
             mapped
         }
         val current = blocks.getOrNull(index)
-        val effectiveEndMin = open?.plannedEnd?.let { it.minuteOfDay(zone) }
+        val effectiveEndMin = openAny?.plannedEnd?.let { it.minuteOfDay(zone) }
         val leaking = current != null && effectiveEndMin != null && minute > effectiveEndMin
         val nextLabel = blocks.getOrNull(index + 1)
         val emergencyEnded = dayState is DayState.Ended && endedRecord?.flags?.contains(DayFlag.EMERGENCY_STOP) == true
@@ -422,7 +477,7 @@ private val day: DayOrchestrator,
             currentBlockId = current?.id,
             leakFromMin = if (leaking) effectiveEndMin else null,
             recap = recap,
-            nowCard = nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel),
+            nowCard = nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel, doneEarly),
             eveningChoicePending = dayState.isDishesSlot,
             eveningSheetOpen = eveningSheetOpen,
             draggingId = draggingId,
@@ -493,6 +548,7 @@ private val day: DayOrchestrator,
         effectiveEndMin: Int?,
         minute: Int,
         next: CalendarBlockUi?,
+        doneEarly: Boolean,
     ): NowCardUi? {
         val nextTitle = next?.title
         return when (dayState) {
@@ -507,6 +563,29 @@ private val day: DayOrchestrator,
                 buttons = persistentListOf(NowButton(NowButtonId.NEXT, "Start", NowButtonStyle.PRIMARY)),
             )
             is DayState.Running -> {
+                if (doneEarly) {
+                    val subtitle = buildString {
+                        effectiveEndMin?.let { append("until ${timeFormatter.label(it)}") }
+                        if (nextTitle != null) {
+                            if (isNotEmpty()) append(" · then ")
+                            append("then $nextTitle")
+                        }
+                    }
+                    NowCardUi(
+                        title = "Free time",
+                        type = BlockType.Free,
+                        chip = "Done early",
+                        chipTone = ChipTone.NEUTRAL,
+                        subtitle = subtitle.ifEmpty { null },
+                        isLeaking = false,
+                        showProgress = false,
+                        buttons = buildList {
+                            add(NowButton(NowButtonId.NEXT, if (nextTitle != null) "Next: $nextTitle" else "Next", NowButtonStyle.PRIMARY))
+                            add(NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY))
+                        }.toPersistentList(),
+                        endsAt = effectiveEndMin?.let { timeFormatter.label(it) },
+                    )
+                } else {
                 val title = current?.title ?: "Running"
                 val pomodoro = current?.subtitle != null
                 if (leaking) {
@@ -524,28 +603,41 @@ private val day: DayOrchestrator,
                         }.toPersistentList(),
                     )
                 } else {
+                    val workNotOver = current?.type?.isWork == true && effectiveEndMin != null && minute <= effectiveEndMin
+                    val nextLabel = when {
+                        current?.type != null && !current.type.isWork -> "Next: ${nextTitle ?: "Free"}"
+                        workNotOver -> "Done early"
+                        else -> "Next: ${nextTitle ?: "Free"}"
+                    }
                     NowCardUi(
                         title = title,
                         type = current?.type,
                         chip = if (pomodoro) "Focus" else null,
                         chipTone = ChipTone.NEUTRAL,
-                        subtitle = effectiveEndMin?.let { "until ${timeFormatter.label(it)}" },
+                        subtitle = run {
+                            if (effectiveEndMin == null) null
+                            else {
+                                val until = "until ${timeFormatter.label(effectiveEndMin)}"
+                                if (nextTitle != null && current?.type != null) "$until · then $nextTitle" else until
+                            }
+                        },
                         isLeaking = false,
                         showProgress = pomodoro,
                         buttons = if (current?.type != null && !current.type.isWork) {
                             persistentListOf(
-                                NowButton(NowButtonId.NEXT, "Next: ${nextTitle ?: "Free"}", NowButtonStyle.PRIMARY),
+                                NowButton(NowButtonId.NEXT, nextLabel, NowButtonStyle.PRIMARY),
                                 NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
                             )
                         } else {
                             persistentListOf(
                                 NowButton(NowButtonId.PAUSE, "Pause", NowButtonStyle.SECONDARY),
-                                NowButton(NowButtonId.NEXT, "Next: Free", NowButtonStyle.PRIMARY),
+                                NowButton(NowButtonId.NEXT, nextLabel, NowButtonStyle.PRIMARY),
                                 NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
                             )
                         },
                         endsAt = effectiveEndMin?.let { timeFormatter.label(it) },
                     )
+                }
                 }
             }
             is DayState.Paused -> NowCardUi(
@@ -642,14 +734,21 @@ private val day: DayOrchestrator,
 }
 
 private const val LOCKED_KID_TIME = "Kid time and the evening can't be moved."
-private const val LOCKED_OVER = "This block is over. You can correct what happened in the day's recap once the day ends."
 private const val LOCKED_PICK_TEMPLATE = "Pick a template first; then you can change the day."
 private const val LOCKED_DAY_BLOCK_RUNNING = "Blocks can be changed while a day block is running."
-private const val LOCKED_FINISHED_EARLY = "You finished this block early; the rest is free time."
-private const val LOCKED_FREE_RUNNING = "This free time is running. Change the block after it instead."
 private const val LOCKED_WILL_MISS = "This block can't start before it ends, so it will count as missed."
 
 private fun snapUp(min: Int): Int = ((min + PlanEditor.SNAP - 1) / PlanEditor.SNAP) * PlanEditor.SNAP
+
+/** "Done HH:MM–HH:MM" or "Missed" for the calendar subtitle of a past block. */
+private fun pastSubtitleFor(row: RecapRow, use24: Boolean): String? {
+    val range = row.range
+    return when {
+        row.missed -> "Missed"
+        range.isNotEmpty() -> "Done $range"
+        else -> null
+    }
+}
 
 @Composable
 fun HomeRoute(
@@ -658,7 +757,6 @@ fun HomeRoute(
     onTab: (NavKey) -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
-    val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val minute by viewModel.minuteOfDay.collectAsStateWithLifecycle()
     val countdown by viewModel.countdownText.collectAsStateWithLifecycle()
@@ -668,9 +766,13 @@ fun HomeRoute(
     val countdownText = { countdown }
     val progressValue = { progress }
 
+    var message by remember { mutableStateOf<String?>(null) }
+
     LaunchedEffect(viewModel) {
-        viewModel.messages.collect { message -> Toast.makeText(context, message, Toast.LENGTH_SHORT).show() }
+        viewModel.messages.collect { message = it }
     }
+
+    val correctingRow by viewModel.correctingRow.collectAsStateWithLifecycle()
 
     ScreenScaffold(bottomBar = { AppBottomBar(AppTab.HOME) { onTab(tabKey(it)) } }) { _ ->
         HomeScreen(
@@ -682,6 +784,7 @@ fun HomeRoute(
             onSuppressConfirmation = viewModel::onSuppressConfirmation,
             onAskAgain = viewModel::onAskAgain,
             onCorrect = viewModel::correctRecord,
+            onCorrectPast = viewModel::correctPast,
             onCheckIn = viewModel::checkIn,
             onAction = { action ->
                 when (action) {
@@ -690,6 +793,26 @@ fun HomeRoute(
                     HomeAction.Settings -> onMenu(SettingsKey)
                     else -> viewModel.onAction(action)
                 }
+            },
+        )
+    }
+
+    correctingRow?.let { row ->
+        CorrectBlockSheet(
+            row = row,
+            use24 = state.use24,
+            onEdit = { viewModel.correctPast(it) },
+            onDismiss = { viewModel.dismissCorrectPast() },
+        )
+    }
+
+    message?.let { m ->
+        AlertDialog(
+            onDismissRequest = { message = null },
+            title = null,
+            text = { Text(m, style = MaterialTheme.typography.bodyMedium) },
+            confirmButton = {
+                TextButton(onClick = { message = null }) { Text("OK") }
             },
         )
     }
@@ -706,6 +829,7 @@ fun HomeScreen(
     onSuppressConfirmation: (NowButtonId) -> Unit = {},
     onAskAgain: (NowButtonId) -> Unit = {},
     onCorrect: (RecordEdit) -> Unit = {},
+    onCorrectPast: (RecordEdit) -> Unit = {},
     onCheckIn: (CheckIn) -> Unit = {},
 ) {
     SideEffect { RecompositionCounter.hit("HomeScreen") }
