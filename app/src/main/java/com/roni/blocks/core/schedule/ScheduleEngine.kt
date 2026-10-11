@@ -132,11 +132,12 @@ class ScheduleEngine @Inject constructor(
         now: Instant,
         template: Template? = null,
         blockIndex: Int = 0,
+        anchor: Instant? = null,
     ): Instant? {
         val twenty = localInstant(date, 20, 0, zone)
         val end = localInstant(date, 22, 30, zone)
         val midnight = localInstant(date.plus(1, DateTimeUnit.DAY), 0, 0, zone)
-        val runningWake = template?.let { nextBoundary(it, date, blockIndex, now) }
+        val runningWake = template?.let { nextBoundary(it, date, blockIndex, now, anchor) }
         val candidates = when (state) {
             DayState.NotStarted -> rePrompts(date) + midnight
             DayState.Off, DayState.Ended -> listOf(midnight)
@@ -159,12 +160,12 @@ class ScheduleEngine @Inject constructor(
         }
     }
 
-    private fun nextBoundary(template: Template, date: LocalDate, blockIndex: Int, now: Instant): Instant? {
+    private fun nextBoundary(template: Template, date: LocalDate, blockIndex: Int, now: Instant, anchor: Instant? = null): Instant? {
         val block = planned(template, date).getOrNull(blockIndex) ?: return null
         val pomodoro = block.spec.pomodoro
         if (pomodoro == null) return block.plannedEnd.takeIf { it > now }
         val cycle = (pomodoro.focusMinutes + pomodoro.breakMinutes).minutes
-        var cursor = block.plannedStart
+        var cursor = anchor ?: block.plannedStart
         while (cursor <= block.plannedEnd) {
             if (cursor > now) return cursor
             cursor = cursor.plus(pomodoro.focusMinutes.minutes)

@@ -141,4 +141,19 @@ class ScheduleEngineTest {
         assertEquals(SegmentKind.INTERRUPTION, segment.kind)
         assertEquals(null, segment.plannedStart)
     }
+
+    @Test
+    fun nextWakeUp_followsTheRealStartOfAPomodoroBlock() {
+        // Coding starts planned at 09:00 but actually at 09:40 → next wake-up is 10:30 (the first break).
+        val anchor = Instant.parse("2026-09-21T09:40:00Z")
+        val next = engine.nextWakeUp(
+            state = DayState.Running(TemplateId.MON_THU, 1),
+            date = date,
+            now = Instant.parse("2026-09-21T10:00:00Z"),
+            template = template,
+            blockIndex = 1,
+            anchor = anchor,
+        )
+        assertEquals(Instant.parse("2026-09-21T10:30:00Z"), next)
+    }
 }

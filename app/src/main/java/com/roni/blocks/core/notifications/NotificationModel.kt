@@ -95,7 +95,24 @@ class NotificationModelMapper @Inject constructor(
         val block = blocks.getOrNull(state.blockIndex) ?: return null
         val id = block.spec.id
         val end = timeline?.let { effectiveEnd(it, now) } ?: block.plannedEnd
-        val pomodoro = engine.pomodoroStatus(block, now, zone, timeline?.open?.actualStart ?: block.plannedStart)
+        val open = timeline?.open
+        val pomodoro = engine.pomodoroStatus(block, now, zone, open?.actualStart ?: block.plannedStart)
+
+        if (open != null && open.kind == com.roni.blocks.core.model.SegmentKind.SYNTHETIC_FREE && open.plannedEnd != null) {
+            val nextName = blocks.getOrNull(state.blockIndex + 1)?.let { blockName(it.spec.type) }.orEmpty()
+            val text = if (nextName.isNotEmpty()) "until ${hhmm(open.plannedEnd)} · then $nextName" else "until ${hhmm(open.plannedEnd)}"
+            return NotificationModel(
+                key = "$id:early",
+                channel = NotificationChannelKind.DAY,
+                title = "Free time · ${blockName(block.spec.type)} done early",
+                text = text,
+                countdownTo = open.plannedEnd,
+                actions = buildList {
+                    if (nextName.isNotEmpty()) add(NotificationActionModel("Next: $nextName", ActionEvent.START_NEXT, id))
+                },
+                accentArgb = accent(BlockType.Free),
+            )
+        }
 
         if (end != null && now >= end) {
             val landing = landingBlockForStartNext(blocks, now) ?: return null
@@ -113,39 +130,81 @@ class NotificationModelMapper @Inject constructor(
             )
         }
 
+        val nextName = blocks.getOrNull(state.blockIndex + 1)?.let { blockName(it.spec.type) }.orEmpty()
+        val workActions = listOf(
+            NotificationActionModel("Pause", ActionEvent.PAUSE, id),
+            NotificationActionModel("Done early", ActionEvent.START_NEXT, id),
+        )
+        val nonWorkActions = buildList {
+            if (nextName.isNotEmpty()) add(NotificationActionModel("Next: $nextName", ActionEvent.START_NEXT, id))
+        }
+
         if (pomodoro != null && pomodoro.onBreak) {
+            val boundaries = com.roni.blocks.core.schedule.AlertPlanner.pomodoroBoundaries(
+                open?.actualStart?.epochSeconds ?: block.plannedStart.epochSeconds,
+                block.plannedEnd.epochSeconds,
+                block.spec.pomodoro?.focusMinutes ?: 50,
+                block.spec.pomodoro?.breakMinutes ?: 10,
+            )
+            val nextFocus = boundaries.firstOrNull { it.kind == com.roni.blocks.core.schedule.AlertKind.FOCUS && it.atSec > now.epochSeconds }
+            val focusStart = nextFocus?.let { Instant.fromEpochSeconds(it.atSec) } ?: pomodoro.phaseEnd
+            val total = pomodoro.total
+            val nextFocusIndex = (pomodoro.index + 1).coerceAtMost(total)
             return NotificationModel(
                 key = "$id:break",
                 channel = NotificationChannelKind.DAY,
                 title = "${blockName(block.spec.type)} · Break",
-                text = "focus resumes at ${hhmm(pomodoro.phaseEnd)}",
-                countdownTo = pomodoro.phaseEnd,
-                actions = listOf(
-                    NotificationActionModel("Pause", ActionEvent.PAUSE, id),
-                    NotificationActionModel("Next: Free", ActionEvent.START_NEXT, id),
-                ),
+                text = "Focus $nextFocusIndex/$total at ${hhmm(focusStart)} · ends ${hhmm(block.plannedEnd)}",
+                countdownTo = focusStart,
+                actions = workActions,
                 accentArgb = accent(block.spec.type),
             )
         }
 
-        val nextName = blocks.getOrNull(state.blockIndex + 1)?.let { blockName(it.spec.type) }.orEmpty()
-        val actions = when {
-            block.spec.type.isWork -> listOf(
-                NotificationActionModel("Pause", ActionEvent.PAUSE, id),
-                NotificationActionModel("Next: Free", ActionEvent.START_NEXT, id),
+        if (pomodoro != null) {
+            val boundaries = com.roni.blocks.core.schedule.AlertPlanner.pomodoroBoundaries(
+                open?.actualStart?.epochSeconds ?: block.plannedStart.epochSeconds,
+                block.plannedEnd.epochSeconds,
+                block.spec.pomodoro?.focusMinutes ?: 50,
+                block.spec.pomodoro?.breakMinutes ?: 10,
             )
-            else -> buildList {
-                if (nextName.isNotEmpty()) add(NotificationActionModel("Next: $nextName", ActionEvent.START_NEXT, id))
+            val nextBreak = boundaries.firstOrNull { it.kind == com.roni.blocks.core.schedule.AlertKind.BREAK && it.atSec > now.epochSeconds }
+            val breakStart = nextBreak?.let { Instant.fromEpochSeconds(it.atSec) }
+            val phase = " · Focus ${pomodoro.index}/${pomodoro.total}"
+            val text = if (breakStart != null) {
+                val endLabel = if (end != null) hhmm(end) else hhmm(block.plannedEnd)
+                "Break at ${hhmm(breakStart)} · ends $endLabel"
+            } else if (end != null) {
+                val tail = if (nextName.isNotEmpty()) " · then $nextName" else ""
+                "until ${hhmm(end)}$tail"
+            } else {
+                null
             }
+            return NotificationModel(
+                key = "$id:running",
+                channel = NotificationChannelKind.DAY,
+                title = "${blockName(block.spec.type)}$phase",
+                text = text.orEmpty(),
+                countdownTo = breakStart ?: end,
+                actions = workActions,
+                accentArgb = accent(block.spec.type),
+            )
         }
+
         val phase = pomodoro?.let { " · Focus ${it.index}/${it.total}" }.orEmpty()
+        val text = if (end != null) {
+            val until = "until ${hhmm(end)}"
+            if (nextName.isNotEmpty() && block.spec.type.isWork) "$until · then $nextName" else until
+        } else {
+            ""
+        }
         return NotificationModel(
             key = "$id:running",
             channel = NotificationChannelKind.DAY,
             title = "${blockName(block.spec.type)}$phase",
-            text = "until ${hhmm(end)}",
+            text = text,
             countdownTo = end,
-            actions = actions,
+            actions = if (block.spec.type.isWork) workActions else nonWorkActions,
             accentArgb = accent(block.spec.type),
         )
     }

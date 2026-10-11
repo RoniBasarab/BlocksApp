@@ -271,6 +271,27 @@ class HomeViewModelTest {
         job.cancel()
     }
 
+    @Test
+    fun doneEarly_saysFreeTimeAndNamesTheNextBlock() = runBlocking {
+        startDayInsideCoding()
+
+        viewModel.onAction(HomeAction.Next)
+        awaitRunningOrPaused { it.blockIndex() == 1 }
+
+        val nowCard = viewModel.state.value.nowCard ?: error("no nowCard")
+        assertEquals("Free time", nowCard.title)
+        assertEquals("Done early", nowCard.chip)
+        assertEquals(
+            listOf(NowButtonId.NEXT, NowButtonId.EMERGENCY),
+            nowCard.buttons.map { it.id },
+        )
+        assertEquals("Next: Free", nowCard.buttons.first { it.id == NowButtonId.NEXT }.label)
+
+        val coding = viewModel.state.value.blocks.first { it.id == firstBlockId }
+        assertEquals(0, coding.phases.size)
+        assertTrue(coding.subtitle?.startsWith("Done early · free until") == true)
+    }
+
     private suspend fun startDayInsideCoding() {
         orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
         awaitRunningOrPaused { it.blockIndex() == 1 }

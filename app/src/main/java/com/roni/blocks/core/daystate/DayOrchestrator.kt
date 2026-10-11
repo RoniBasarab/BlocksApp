@@ -36,6 +36,7 @@ import com.roni.blocks.core.time.at
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.time.Clock
+import kotlin.time.Instant
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -440,12 +441,24 @@ class DayOrchestrator @Inject constructor(
         val today = today()
         val template = currentTemplate()
         val index = (_state.value as? DayState.Running)?.blockIndex ?: 0
-        val wake = engine.nextWakeUp(_state.value, today, now, template, index)
+        val anchor = wakeAnchor()
+        val wake = engine.nextWakeUp(_state.value, today, now, template, index, anchor)
         if (wake == null) alarms.cancel() else alarms.schedule(wake)
         val timeline = engine.timelineAt(template, today, zone, _segments.value, now)
         val model = notificationMapper.from(_state.value, timeline, now)
         notificationRenderer.render(model, transition)
         widgetUpdater.update(model)
+    }
+
+    /**
+     * The instant the Pomodoro cursor should start from, or null when the open segment is free
+     * time / none (then the engine uses the planned start, or no boundaries at all). 2.2.0:
+     * `SYNTHETIC_FREE` is "Done early", so the wake-up is the free time's planned end and the
+     * Pomodoro cursor stays parked.
+     */
+    private fun wakeAnchor(): Instant? {
+        val open = _segments.value.lastOrNull { it.actualEnd == null } ?: return null
+        return if (open.kind == SegmentKind.SYNTHETIC_FREE) null else open.actualStart
     }
 
     /** Re-draws only the home-screen widget with the model [sideEffects] would compute right now. */

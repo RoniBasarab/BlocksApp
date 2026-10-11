@@ -378,7 +378,9 @@ private val day: DayOrchestrator,
             runCatching { templates.get(plan.templateId) }.getOrNull()?.let { Template(it.id, it.name, plan.blocks) }
         } ?: id?.let { runCatching { templates.get(it) }.getOrNull() }
         val segments = day.segments.value
+        val openAny = segments.lastOrNull { it.actualEnd == null }
         val open = segments.lastOrNull { it.kind == SegmentKind.PLANNED && it.actualEnd == null }
+        val doneEarly = dayState is DayState.Running && openAny?.kind == SegmentKind.SYNTHETIC_FREE
         val specs = preview?.let { pv -> todayPlan?.blocks?.let { pv.toBlockSpecs(it) } } ?: template?.blocks
         val daySpecs = specs?.let { withEvening(it, segments) }
         val index = currentIndex(dayState, daySpecs)
@@ -387,18 +389,30 @@ private val day: DayOrchestrator,
                 it,
                 timeFormatter.use24.value,
                 currentIndex = index,
-                actualStartMin = open?.actualStart?.minuteOfDay(zone),
+                actualStartMin = if (doneEarly) null else open?.actualStart?.minuteOfDay(zone),
             )
         } ?: persistentListOf()
         val blocks = if (todayPlan != null) {
             val planBlocks = preview ?: todayPlan.blocks.toPlanBlocks()
             val currentForEdit = day.currentForEditing()
-            mapped.map { b -> b.copy(edit = PlanEditor.editMode(planBlocks, b.id, minute, currentForEdit)) }.toPersistentList()
+            val currentBlockIndex = index.takeIf { it >= 0 }
+            mapped.mapIndexed { i, b ->
+                val isCurrentAndDoneEarly = doneEarly && currentBlockIndex != null && i == currentBlockIndex
+                val phaseSubtitle = if (isCurrentAndDoneEarly) {
+                    "Done early · free until ${timeFormatter.label(openAny!!.plannedEnd!!.minuteOfDay(zone))}"
+                } else b.subtitle
+                val phasesForUi = if (isCurrentAndDoneEarly) persistentListOf() else b.phases
+                b.copy(
+                    edit = PlanEditor.editMode(planBlocks, b.id, minute, currentForEdit),
+                    subtitle = phaseSubtitle,
+                    phases = phasesForUi,
+                )
+            }.toPersistentList()
         } else {
             mapped
         }
         val current = blocks.getOrNull(index)
-        val effectiveEndMin = open?.plannedEnd?.let { it.minuteOfDay(zone) }
+        val effectiveEndMin = openAny?.plannedEnd?.let { it.minuteOfDay(zone) }
         val leaking = current != null && effectiveEndMin != null && minute > effectiveEndMin
         val nextLabel = blocks.getOrNull(index + 1)
         val emergencyEnded = dayState is DayState.Ended && endedRecord?.flags?.contains(DayFlag.EMERGENCY_STOP) == true
@@ -422,7 +436,7 @@ private val day: DayOrchestrator,
             currentBlockId = current?.id,
             leakFromMin = if (leaking) effectiveEndMin else null,
             recap = recap,
-            nowCard = nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel),
+            nowCard = nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel, doneEarly),
             eveningChoicePending = dayState.isDishesSlot,
             eveningSheetOpen = eveningSheetOpen,
             draggingId = draggingId,
@@ -493,6 +507,7 @@ private val day: DayOrchestrator,
         effectiveEndMin: Int?,
         minute: Int,
         next: CalendarBlockUi?,
+        doneEarly: Boolean,
     ): NowCardUi? {
         val nextTitle = next?.title
         return when (dayState) {
@@ -507,6 +522,29 @@ private val day: DayOrchestrator,
                 buttons = persistentListOf(NowButton(NowButtonId.NEXT, "Start", NowButtonStyle.PRIMARY)),
             )
             is DayState.Running -> {
+                if (doneEarly) {
+                    val subtitle = buildString {
+                        effectiveEndMin?.let { append("until ${timeFormatter.label(it)}") }
+                        if (nextTitle != null) {
+                            if (isNotEmpty()) append(" · then ")
+                            append("then $nextTitle")
+                        }
+                    }
+                    NowCardUi(
+                        title = "Free time",
+                        type = BlockType.Free,
+                        chip = "Done early",
+                        chipTone = ChipTone.NEUTRAL,
+                        subtitle = subtitle.ifEmpty { null },
+                        isLeaking = false,
+                        showProgress = false,
+                        buttons = buildList {
+                            add(NowButton(NowButtonId.NEXT, if (nextTitle != null) "Next: $nextTitle" else "Next", NowButtonStyle.PRIMARY))
+                            add(NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY))
+                        }.toPersistentList(),
+                        endsAt = effectiveEndMin?.let { timeFormatter.label(it) },
+                    )
+                } else {
                 val title = current?.title ?: "Running"
                 val pomodoro = current?.subtitle != null
                 if (leaking) {
@@ -524,28 +562,41 @@ private val day: DayOrchestrator,
                         }.toPersistentList(),
                     )
                 } else {
+                    val workNotOver = current?.type?.isWork == true && effectiveEndMin != null && minute <= effectiveEndMin
+                    val nextLabel = when {
+                        current?.type != null && !current.type.isWork -> "Next: ${nextTitle ?: "Free"}"
+                        workNotOver -> "Done early"
+                        else -> "Next: ${nextTitle ?: "Free"}"
+                    }
                     NowCardUi(
                         title = title,
                         type = current?.type,
                         chip = if (pomodoro) "Focus" else null,
                         chipTone = ChipTone.NEUTRAL,
-                        subtitle = effectiveEndMin?.let { "until ${timeFormatter.label(it)}" },
+                        subtitle = run {
+                            if (effectiveEndMin == null) null
+                            else {
+                                val until = "until ${timeFormatter.label(effectiveEndMin)}"
+                                if (nextTitle != null && current?.type != null) "$until · then $nextTitle" else until
+                            }
+                        },
                         isLeaking = false,
                         showProgress = pomodoro,
                         buttons = if (current?.type != null && !current.type.isWork) {
                             persistentListOf(
-                                NowButton(NowButtonId.NEXT, "Next: ${nextTitle ?: "Free"}", NowButtonStyle.PRIMARY),
+                                NowButton(NowButtonId.NEXT, nextLabel, NowButtonStyle.PRIMARY),
                                 NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
                             )
                         } else {
                             persistentListOf(
                                 NowButton(NowButtonId.PAUSE, "Pause", NowButtonStyle.SECONDARY),
-                                NowButton(NowButtonId.NEXT, "Next: Free", NowButtonStyle.PRIMARY),
+                                NowButton(NowButtonId.NEXT, nextLabel, NowButtonStyle.PRIMARY),
                                 NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
                             )
                         },
                         endsAt = effectiveEndMin?.let { timeFormatter.label(it) },
                     )
+                }
                 }
             }
             is DayState.Paused -> NowCardUi(
