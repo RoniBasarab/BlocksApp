@@ -14,6 +14,8 @@ import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.Template
 import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.model.TodayPlan
+import com.roni.blocks.core.model.WalkLog
+import com.roni.blocks.core.model.WalkSession
 import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.schedule.RecordEdit
 import com.roni.blocks.core.schedule.toRecordRows
@@ -42,6 +44,7 @@ import com.roni.blocks.core.time.at
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -98,6 +101,10 @@ class DayOrchestrator @Inject constructor(
     private val _todayPlan = MutableStateFlow<TodayPlan?>(null)
     val todayPlan: StateFlow<TodayPlan?> = _todayPlan.asStateFlow()
 
+    /** The walk Home shows: the open day-block walk's segment, else a running standalone walk (2.4.0). */
+    private val _walkSession = MutableStateFlow<WalkSession?>(null)
+    val walkSession: StateFlow<WalkSession?> = _walkSession.asStateFlow()
+
     /**
      * False until prefs are read and the date rollover is applied. [state] is [DayState.NotStarted]
      * until then, so callers wanting today's real state must wait for this flag first.
@@ -110,6 +117,8 @@ class DayOrchestrator @Inject constructor(
      * the foreground. Used to suppress nagging alerts once Roni has acknowledged the day.
      */
     private var reactedAt: Instant? = null
+    /** A standalone walk (2.4.0) that runs outside the day; survives the date rollover. */
+    private var standaloneWalk: WalkSession? = null
     private val restoreMutex = Mutex()
 
     init {
@@ -169,6 +178,10 @@ class DayOrchestrator @Inject constructor(
         }
         if (event == ActionEvent.TURN_BACK) {
             turnBack()
+            return
+        }
+        if (standaloneWalk != null && event == ActionEvent.START_NEXT) {
+            endWalk()
             return
         }
         apply(event.toDayEvent(expectedBlockId))
@@ -296,7 +309,18 @@ class DayOrchestrator @Inject constructor(
      */
     fun walkPreview(minutes: Int): WalkPreview? {
         val state = _state.value
-        if (state !is DayState.Running) return null
+        if (state !is DayState.Running) {
+            // A standalone walk (2.4.0) needs no plan: now out, now + minutes home, no "then".
+            if (state is DayState.Paused || standaloneWalk != null) return null
+            val now = clock.now()
+            val end = now + minutes.minutes
+            return WalkPreview(
+                turnBackAt = now + (end - now) / 2,
+                homeAt = end,
+                afterTitle = null,
+                afterEnd = null,
+            )
+        }
         val plan = _todayPlan.value ?: return null
         val currentId = state.currentBlockId() ?: return null
         val open = book.segments.lastOrNull { it.actualEnd == null }
@@ -330,7 +354,17 @@ class DayOrchestrator @Inject constructor(
     suspend fun startWalk(minutes: Int): Boolean {
         ensureRestored()
         val state = _state.value
-        if (state !is DayState.Running) return false
+        if (state !is DayState.Running) {
+            // Any other time (2.4.0): a standalone walk that leaves the day completely alone.
+            if (state is DayState.Paused || standaloneWalk != null) return false
+            val now = clock.now()
+            standaloneWalk = WalkSession(now, now + minutes.minutes, now.toLocalDateTime(zone).date)
+            reactedAt = now
+            persist()
+            sideEffects()
+            logger.info("standalone walk started for $minutes min at $now")
+            return true
+        }
         val plan = _todayPlan.value ?: return false
         val currentId = state.currentBlockId() ?: return false
         val open = book.segments.lastOrNull { it.actualEnd == null }
@@ -376,6 +410,19 @@ class DayOrchestrator @Inject constructor(
      */
     suspend fun turnBack(): Boolean {
         ensureRestored()
+        val session = standaloneWalk
+        if (session != null) {
+            // A standalone walk turns back the same way (2.4.0); it only moves its own end.
+            val now = clock.now()
+            val half = session.start + (session.end - session.start) / 2
+            if (now >= half) return false
+            standaloneWalk = session.copy(end = now + (now - session.start))
+            reactedAt = now
+            persist()
+            sideEffects()
+            logger.info("standalone walk turns back at $now")
+            return true
+        }
         val state = _state.value
         if (state !is DayState.Running) return false
         val plan = _todayPlan.value ?: return false
@@ -404,6 +451,22 @@ class DayOrchestrator @Inject constructor(
         return true
     }
 
+    /**
+     * "End walk" on a standalone walk (2.4.0): logs it from its start to now and clears it, leaving
+     * the day untouched. A day-block walk still ends through Next.
+     */
+    suspend fun endWalk() {
+        ensureRestored()
+        val session = standaloneWalk ?: return
+        val now = clock.now()
+        history.addWalk(session.date, WalkLog(session.start, now))
+        standaloneWalk = null
+        reactedAt = now
+        persist()
+        sideEffects()
+        logger.info("standalone walk ended at $now")
+    }
+
     suspend fun onAlarm() {
         ensureRestored()
         applyRollover()
@@ -419,6 +482,19 @@ class DayOrchestrator @Inject constructor(
                     val (label, end) = walkNext(walk)
                     walkRinger.ring(due.kind, walkEnd, label, end)
                 }
+        }
+        // A standalone walk (2.4.0) rings the same way but touches nothing else. It is worked out
+        // before the day's own transitions, and its end is not a reason to return early.
+        val session = standaloneWalk
+        if (session != null) {
+            com.roni.blocks.core.schedule.AlertPlanner
+                .dueWalk(session.start.epochSeconds, session.end.epochSeconds, now.epochSeconds)
+                ?.let { due -> walkRinger.ring(due.kind, session.end, null, null) }
+            if (now >= session.end) {
+                history.addWalk(session.date, WalkLog(session.start, session.end))
+                standaloneWalk = null
+                persist()
+            }
         }
         if (applyOneMissedTransition()) return
         if (walk != null && walkEnd != null && now < walkEnd) {
@@ -497,6 +573,7 @@ class DayOrchestrator @Inject constructor(
         _state.value = DayState.NotStarted
         _segments.value = emptyList()
         _todayPlan.value = null
+        standaloneWalk = null
         persist()
         alarms.cancel()
         sideEffects()
@@ -716,17 +793,21 @@ class DayOrchestrator @Inject constructor(
         // While a walk runs the day's own alert is irrelevant: the walk rings at half time and at
         // the end, and those alarms must survive Doze (clock = true).
         val walk = openWalk()
-        val nextAlert = if (walk?.plannedEnd != null) {
-            com.roni.blocks.core.schedule.AlertPlanner
+        val session = standaloneWalk
+        val nextAlert = when {
+            walk?.plannedEnd != null -> com.roni.blocks.core.schedule.AlertPlanner
                 .nextWalk(walk.actualStart.epochSeconds, walk.plannedEnd!!.epochSeconds, now.epochSeconds)
                 ?.let { Instant.fromEpochSeconds(it.atSec) }
-        } else {
-            nextAlertTime(now, template, index, anchor)
+            session != null -> com.roni.blocks.core.schedule.AlertPlanner
+                .nextWalk(session.start.epochSeconds, session.end.epochSeconds, now.epochSeconds)
+                ?.let { Instant.fromEpochSeconds(it.atSec) }
+            else -> nextAlertTime(now, template, index, anchor)
         }
         val alarmAt = listOfNotNull(wake, nextAlert).minOrNull()
-        if (alarmAt == null) alarms.cancel() else alarms.schedule(alarmAt, clock = walk != null)
+        if (alarmAt == null) alarms.cancel() else alarms.schedule(alarmAt, clock = walk != null || session != null)
         val timeline = engine.timelineAt(template, today, zone, _segments.value, now)
-        val model = notificationMapper.from(_state.value, timeline, now)
+        val model = if (session != null) notificationMapper.walk(session.start, session.end, now)
+        else notificationMapper.from(_state.value, timeline, now)
         notificationRenderer.render(model, transition, alert)
         widgetUpdater.update(model)
     }
@@ -819,6 +900,8 @@ class DayOrchestrator @Inject constructor(
         book = rehydratedBook()
         reactedAt = if (storedDate != null && storedDate != today) null
         else prefs.read(PrefsFile.DAY, REACTED_AT, InstantSerializer.nullable)
+        // A standalone walk survives the rollover: it is read and kept whatever the stored date.
+        standaloneWalk = prefs.read(PrefsFile.DAY, STANDALONE_WALK, WalkSession.serializer().nullable)
         if (storedPlanStartsAt != null) prefs.remove(PrefsFile.DAY, PLAN_STARTS_AT)
         persist()
         replayMissedTransitions()
@@ -923,6 +1006,17 @@ class DayOrchestrator @Inject constructor(
         prefs.write(PrefsFile.DAY, TODAY_PLAN, _todayPlan.value, TodayPlan.serializer().nullable)
         _state.value.templateId()?.let { prefs.write(PrefsFile.DAY, TEMPLATE, it, TemplateId.serializer()) }
         prefs.write(PrefsFile.DAY, REACTED_AT, reactedAt, InstantSerializer.nullable)
+        prefs.write(PrefsFile.DAY, STANDALONE_WALK, standaloneWalk, WalkSession.serializer().nullable)
+        _walkSession.value = currentWalkSession()
+    }
+
+    /** The walk Home should show: an open day-block walk's segment, else the standalone walk (2.4.0). */
+    private fun currentWalkSession(): WalkSession? {
+        val open = openWalk()
+        if (open != null && open.plannedEnd != null) {
+            return WalkSession(open.actualStart, open.plannedEnd, open.actualStart.toLocalDateTime(zone).date)
+        }
+        return standaloneWalk
     }
 
     private fun today() = clock.now().toLocalDateTime(zone).date
@@ -954,6 +1048,7 @@ class DayOrchestrator @Inject constructor(
         const val TODAY_PLAN = "today_plan"
         const val PLAN_STARTS_AT = "plan_starts_at"
         const val REACTED_AT = "reacted_at"
+        const val STANDALONE_WALK = "standalone_walk"
         const val MAX_REPLAY_STEPS = 500
     }
 }

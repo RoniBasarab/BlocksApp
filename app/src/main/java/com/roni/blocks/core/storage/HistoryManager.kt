@@ -8,6 +8,7 @@ import com.roni.blocks.core.model.LocalDateSerializer
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.TemplateId
+import com.roni.blocks.core.model.WalkLog
 import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.schedule.RecordEdit
 import com.roni.blocks.core.schedule.RecordEditor
@@ -25,6 +26,7 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.minus
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
 
 @Serializable
 data class WeekAggregate(
@@ -64,6 +66,20 @@ class HistoryManager @Inject constructor(
     /** Re-reads [date] after every write; emits the same record again only when it changed. */
     fun observeDay(date: LocalDate): Flow<DayRecord?> =
         version.map { readDay(date) }.distinctUntilChanged()
+
+    /** Appends a finished walk to [date]'s own list, under its own key so day records stay untouched. */
+    suspend fun addWalk(date: LocalDate, log: WalkLog) {
+        prefs.write(PrefsFile.HISTORY, walkKey(date), walks(date) + log, ListSerializer(WalkLog.serializer()))
+        version.value++
+    }
+
+    /** The standalone walks logged on [date], oldest first. */
+    suspend fun walks(date: LocalDate): List<WalkLog> =
+        prefs.read(PrefsFile.HISTORY, walkKey(date), ListSerializer(WalkLog.serializer())) ?: emptyList()
+
+    /** Re-reads [date]'s walks after every write, like [observeDay]. */
+    fun observeWalks(date: LocalDate): Flow<List<WalkLog>> =
+        version.map { walks(date) }.distinctUntilChanged()
 
     /**
      * Corrects the stored record of a day that already happened (2.1.0) and rebuilds that day's week.
@@ -172,6 +188,7 @@ class HistoryManager @Inject constructor(
 
     private fun dayKey(date: LocalDate) = "record_$date"
     private fun weekKey(date: LocalDate) = "agg_week_$date"
+    private fun walkKey(date: LocalDate) = "walks_$date"
 }
 
 fun missedGym(template: TemplateId?, segments: List<Segment>): Boolean {

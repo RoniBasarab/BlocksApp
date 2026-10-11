@@ -13,7 +13,7 @@ Why it exists: Roni is job-hunting and his unstructured days were drifting (even
 - Code: `C:\Blocks App` on Roni's Windows machine. A git repo; `master` holds released work, tagged `vX.Y.Z`. Remote `origin` = `github.com/RoniBasarab/BlocksApp`. Keep it private (§17).
 - All spec and task files live in the repo root (committed from Task-6 on).
 - Timezone Asia/Jerusalem. The work week is Sunday–Thursday; the weekend is Friday–Saturday.
-- Released: **2.2.1** (Task-9: alerts that get noticed, Done early shown clearly, tap any block of today; 2.2.1 three small fixes). In progress: **2.3.0** (Task-10): Next starts the next thing now, and walks.
+- Released: **2.3.0** (Task-10: Next starts the next thing now; walks during day blocks). In progress: **2.4.0** (Task-11): walks at any time.
 - All docs live in `docs/` (from Task-8 on); the root holds only the build files, `README.md` and `CHANGELOG.md`.
 
 ## 2. People and roles
@@ -60,7 +60,7 @@ Roni starts fresh sessions for both agents at handoffs, so everything they need 
 |---|---|---|
 | `SUMMARY.md` | This file: the handoff | Current |
 | `AGENT.md` | The working agent's standing instructions; Roni's prompt is just "Read docs/AGENT.md and do what it says." | Updated by the planning agent for each task |
-| `Task-10.md` | The current task (2.3.0), with a slice map of line ranges | Ready to hand over |
+| `Task-11.md` | The current task (2.4.0), with a slice map of line ranges | Ready to hand over |
 | `schedule-spec.md`, `architecture.md`, `visuals.md` | Behavior, code, look | Describe 2.1.0; 2.2.0 changes are in Task-9 and §10 here |
 | `CODEMAP.md` | One row per source file | The real file map; task files use its names |
 | `NOTES.md` | The working agent's decision log | Must not contradict the code |
@@ -178,18 +178,15 @@ Coding uses Pomodoro 50/10, counted from the block's actual start. Phase switche
 - Task-7's first sessions were far slower than earlier 12-slice tasks and ran out of quota. The logs show why: it read the whole doc set up front (~150k characters, re-sent on every call), ran `git log` seven times between edits, kept retrying `&&` in PowerShell 5.1, and used Python one-liners to search files. Each needless call re-sends the whole context. The prompt in §18 now covers each of these.
 - When a task hands over pure logic, the planning agent compiles and tests it first and marks it *verified* (§17). Task-7's `PlanEditor` was checked against every named test plus 40,000 random edit sequences.
 
-## 9. Current state (11 Oct 2026)
+## 9. Current state (11 Oct 2026, night)
 
-**Released, 2.2.1:** `master` = `adb7224` = tag `v2.2.1`, pushed. Task-9 (2.2.0) was reviewed against the repo: all slices match; three small slips (a doubled "then", the live correction sheet closing after one step, free time's notification not naming the next block) were fixed in 2.2.1.
+**Released, 2.3.0:** tag `v2.3.0`, pushed. Task-10 was built as written: Next starts the next real block now with its own length; Next into kid time starts kid time; walks during day blocks (insert into the plan, timer-style rings at half time and the end, WalkCard).
 
-**Roni's findings on 2.2.1 (11 Oct), in Task-10 with their causes:**
-- Next before the next block's planned start opened it with its planned times (Coding PM opened at 10:03 counted to 15:30: 327 min; its Pomodoro said "Break at 10:50").
-- Next into kid time left the day `Running` on the kid-time block: no Kid asleep, and "Next: Free" did nothing.
-- New wish: walks (§10).
+**Roni's finding on 2.3.0:** he wants walks mainly at night, and the button only existed on a running day block (the planning agent's spec, not an agent slip). Task-11 adds standalone walks: any state except a pause or a walk, from a walk icon in the top bar, logged per day in History (`walks_<date>`), surviving midnight. He also said the clock fix "seems fixed, a bit fidgety" (no details yet).
 
 **The repo is public** (Roni opened it so the planning agent could read it). The docs describe his family's routine; he was told he can switch it back to private.
 
-**Waiting on Roni:** extract the Task-10 files into the repo and start the working agent with "Read docs/AGENT.md and do what it says." Before installing release, a keystore (`keystore.properties` in the root) and a backup of it.
+**Waiting on Roni:** extract the Task-11 files into the repo and start the working agent with "Read docs/AGENT.md and do what it says." Before installing release, a keystore (`keystore.properties` in the root) and a backup of it.
 
 **Deviation to remember:** Roni once asked for "minutes left, updated once a minute" in the notification. It uses the system chronometer instead (it shows negative time while running over). He hasn't objected.
 

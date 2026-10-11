@@ -2,14 +2,14 @@
 
 Read this first, every session. The current task is named in the first paragraph.
 
-You're the working agent for Blocks, an Android app (Kotlin, Compose, Hilt) in this repo. Implement docs/Task-10.md (target 2.3.0) exactly, on a branch task10 from master. The owner's tokens are limited: be fast, decisive and brief.
+You're the working agent for Blocks, an Android app (Kotlin, Compose, Hilt) in this repo. Implement docs/Task-11.md (target 2.4.0) exactly, on a branch task11 from master. The owner's tokens are limited: be fast, decisive and brief.
 
 START
-1. One command: git branch --show-current ; git log --oneline master..task10 2>$null ; git status --short
-   - No task10 branch yet: git checkout -b task10, then Slice 0. On this first run the new docs/ files and the files under core/schedule show as untracked or modified: that's expected, Slice 0 commits them first.
-   - Commits named "task10 slice N" are finished slices; continue with the lowest one missing.
-   - Modified files mean a previous session stopped mid-slice: run that slice's tests; if green or a quick fix, finish and commit it; otherwise git stash push -m "partial" and redo the slice. Never stash before the "task10 prep" commit exists: the new docs would go with it.
-2. Read docs/Task-10.md lines 1-53 once (slice map, findings, decisions, rules). Then read only the current slice's lines from the map. Open docs/CODEMAP.md when you need to find a file; docs/NOTES.md only to look up an earlier decision. Don't read SUMMARY.md or the specs.
+1. One command: git branch --show-current ; git log --oneline master..task11 2>$null ; git status --short
+   - No task11 branch yet: git checkout -b task11, then the prep commit and Slice 1. On this first run the new docs/ files show as untracked or modified: that's expected, the prep commit takes them first.
+   - Commits named "task11 slice N" are finished slices; continue with the lowest one missing.
+   - Modified files mean a previous session stopped mid-slice: run that slice's tests; if green or a quick fix, finish and commit it; otherwise git stash push -m "partial" and redo the slice. Never stash before the "task11 prep" commit exists: the new docs would go with it.
+2. Read docs/Task-11.md lines 1-39 once (slice map, findings, decisions, rules). Then read only the current slice's lines from the map. Open docs/CODEMAP.md when you need to find a file; docs/NOTES.md only to look up an earlier decision. Don't read SUMMARY.md or the specs.
 
 FINDING THINGS: GREP FIRST
 - Search the repo with git grep -n "<name>" (add -- "*.kt" to narrow). It answers in a second; reading files to search, writing Python or PowerShell scripts to search, or searching the web is slower. Never do those for anything inside the repo.
@@ -42,7 +42,7 @@ EACH SLICE
 1. Read the slice. git grep what you'll change.
 2. Make all the slice's edits, code and its named tests, before building. Paste the task's code and adapt names; don't rewrite it.
 3. Build and test the slice; fix until exit=0. Then the full suite once: the same command without --tests.
-4. git add -A ; git commit -m "task10 slice N: <title>" 2>&1 | Select-Object -First 1
+4. git add -A ; git commit -m "task11 slice N: <title>" 2>&1 | Select-Object -First 1
 5. One line: "Slice N done: <hash>". Start the next slice at once.
 
 ALWAYS
@@ -54,4 +54,4 @@ ALWAYS
 - Real names win: if a name in the task doesn't exist, use the real one. Don't refactor beyond the slice.
 - If an edit mangles a file: git checkout -- <file>, then redo the edit.
 - Phone: only com.roni.blocks.debug. Never install over, clear, force-stop or uninstall com.roni.blocks.
-- Finish with Slice 4: final gate, merge task10 into master, tag v2.3.0, push, the short final report, then stop. Don't re-verify finished slices or close old todo lists by re-checking them; mark them done and end.
+- Finish with Slice 3: final gate, merge task11 into master, tag v2.4.0, push, the short final report, then stop. Don't re-verify finished slices or close old todo lists by re-checking them; mark them done and end.

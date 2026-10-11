@@ -1,10 +1,8 @@
 # Changelog
 
-## 2.3.0
-- Walks: tap Walk to step out for 30 minutes (adjustable). It rings like a timer at half time ("Turn back now") and when you should be home, then you're back to what you were doing.
-- Next before the next block's time starts it now with its own length; free time in between is skipped.
-- Next into kid time starts kid time (with Kid asleep).
-- Fixed: a block started early counted down to its planned end (327 min left) and its Pomodoro to the wrong time.
+## 2.4.0
+- Walks at any time: the walk icon in the top bar starts one in kid time, the evening, after the day ends, or after midnight. Same rings and walk card; the day itself isn't touched.
+- History lists each day's walks.
 
 ## 2.2.1
 - Fixed: the "done early" card and the notification said "then then" before the next block.

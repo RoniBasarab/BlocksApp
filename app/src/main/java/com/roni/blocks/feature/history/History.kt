@@ -39,10 +39,12 @@ import androidx.lifecycle.viewModelScope
 import com.roni.blocks.core.model.CheckIn
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.SegmentKind
+import com.roni.blocks.core.model.WalkLog
 import com.roni.blocks.core.schedule.RecordEdit
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.debtMinutes
 import com.roni.blocks.core.time.TimeFormatter
+import com.roni.blocks.core.time.minuteOfDay
 import com.roni.blocks.designsystem.AppCard
 import com.roni.blocks.designsystem.AppChip
 import com.roni.blocks.designsystem.AppTheme
@@ -69,6 +71,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.DayOfWeek
@@ -102,6 +105,8 @@ data class HistoryDetailUi(
     val title: String,
     val recap: DayRecapUi,
     val use24: Boolean = true,
+    /** "Walk · HH:MM–HH:MM · N min", one per standalone walk (2.4.0); empty hides the section. */
+    val walks: List<String> = emptyList(),
 )
 
 /** Content only; the top bar lives in [HistoryRoute]. */
@@ -310,16 +315,23 @@ class HistoryDetailViewModel @Inject constructor(
         job = viewModelScope.launch {
             val date = runCatching { LocalDate.parse(dateKey) }.getOrNull() ?: return@launch
             loadedDate = date
-            history.observeDay(date).collect { record ->
-                _state.value = record?.let {
-                    HistoryDetailUi(
-                        title = "${weekdayFull(it.date.dayOfWeek)} ${it.date.dayOfMonth} ${monthName(it.date.monthNumber)}",
-                        recap = DayRecapMapper.map(it, timeFormatter.use24.value, checkInTitle = "How was this day?"),
-                        use24 = timeFormatter.use24.value,
-                    )
+            combine(history.observeDay(date), history.observeWalks(date)) { record, logs -> record to logs }
+                .collect { (record, logs) ->
+                    _state.value = record?.let {
+                        HistoryDetailUi(
+                            title = "${weekdayFull(it.date.dayOfWeek)} ${it.date.dayOfMonth} ${monthName(it.date.monthNumber)}",
+                            recap = DayRecapMapper.map(it, timeFormatter.use24.value, checkInTitle = "How was this day?"),
+                            use24 = timeFormatter.use24.value,
+                            walks = logs.map(::walkLine),
+                        )
+                    }
                 }
-            }
         }
+    }
+
+    private fun walkLine(log: WalkLog): String {
+        val t = timeFormatter
+        return "Walk · ${t.label(log.start.minuteOfDay(zone))}–${t.label(log.end.minuteOfDay(zone))} · ${(log.end - log.start).inWholeMinutes} min"
     }
 
     fun checkIn(pick: CheckIn) {
@@ -361,13 +373,16 @@ fun HistoryDetailRoute(date: String?, onBack: () -> Unit, viewModel: HistoryDeta
         },
     ) { padding ->
         detail?.let { d ->
-            RecapList(
-                s = d.recap,
-                bottomPadding = Spacing.l + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
-                modifier = Modifier.fillMaxSize().padding(padding),
-                onRowTap = { correcting = it },
-                onCheckIn = viewModel::checkIn,
-            )
+            Column(Modifier.fillMaxSize().padding(padding)) {
+                RecapList(
+                    s = d.recap,
+                    bottomPadding = Spacing.l,
+                    modifier = Modifier.weight(1f),
+                    onRowTap = { correcting = it },
+                    onCheckIn = viewModel::checkIn,
+                )
+                WalksSection(d.walks)
+            }
         }
     }
     correcting?.let { row ->
@@ -377,6 +392,21 @@ fun HistoryDetailRoute(date: String?, onBack: () -> Unit, viewModel: HistoryDeta
             onEdit = viewModel::correct,
             onDismiss = { correcting = null },
         )
+    }
+}
+
+/** The "Walks" section of a day (2.4.0): one line per standalone walk; hidden when there are none. */
+@Composable
+private fun WalksSection(walks: List<String>) {
+    if (walks.isEmpty()) return
+    Column(
+        Modifier.fillMaxWidth().padding(start = Spacing.l, end = Spacing.l, bottom = Spacing.l),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
+    ) {
+        Text("Walks", style = MaterialTheme.typography.titleSmall, color = AppTheme.colors.textPrimary)
+        walks.forEach { line ->
+            Text(line, style = MaterialTheme.typography.bodyMedium, color = AppTheme.colors.textSecondary)
+        }
     }
 }
 

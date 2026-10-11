@@ -76,6 +76,38 @@ class NotificationModelMapper @Inject constructor(
         }
     }
 
+    /**
+     * The standalone-walk notification (2.4.0): the same "heading out / heading home" texts and
+     * actions as the day-block walk, without a "then" (a standalone walk has no next block).
+     */
+    fun walk(start: Instant, end: Instant, now: Instant): NotificationModel {
+        val half = start + (end - start) / 2
+        return if (now < half) {
+            NotificationModel(
+                key = "walk",
+                channel = NotificationChannelKind.DAY,
+                title = "Walk · heading out",
+                text = "Turn back at ${hhmm(half)} · home by ${hhmm(end)}",
+                countdownTo = half,
+                actions = listOf(
+                    NotificationActionModel("Turn back now", ActionEvent.TURN_BACK, null),
+                    NotificationActionModel("End walk", ActionEvent.START_NEXT, null),
+                ),
+                accentArgb = accent(BlockType.Walk),
+            )
+        } else {
+            NotificationModel(
+                key = "walk:home",
+                channel = NotificationChannelKind.DAY,
+                title = "Walk · heading home",
+                text = "Home by ${hhmm(end)}",
+                countdownTo = end,
+                actions = listOf(NotificationActionModel("End walk", ActionEvent.START_NEXT, null)),
+                accentArgb = accent(BlockType.Walk),
+            )
+        }
+    }
+
     private fun notStarted(now: Instant): NotificationModel? {
         val minute = now.minuteOfDay(zone)
         if (minute < DAY_START_MIN || minute >= DAY_PROMPT_END_MIN) return null

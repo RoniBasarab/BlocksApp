@@ -301,6 +301,10 @@ private val day: DayOrchestrator,
                 day.turnBack()
                 publish(day.state.value)
             }
+            HomeAction.EndWalk -> viewModelScope.launch {
+                day.endWalk()
+                publish(day.state.value)
+            }
             is HomeAction.PickEvening -> {
                 eveningSheetOpen = false
                 day.send(DayEvent.EveningChoice(action.choice))
@@ -536,23 +540,27 @@ private val day: DayOrchestrator,
         val emergencyEnded = dayState is DayState.Ended && endedRecord?.flags?.contains(DayFlag.EMERGENCY_STOP) == true
 
         val walk = segments.lastOrNull { it.actualEnd == null && it.kind == SegmentKind.PLANNED && it.type == BlockType.Walk }
-        val walkEnd = walk?.plannedEnd
-        val walkCard = if (walk != null && walkEnd != null && dayState is DayState.Running) {
-            val startSec = walk.actualStart.epochSeconds
-            val endSec = walkEnd.epochSeconds
-            val turnBackMin = Instant.fromEpochSeconds(startSec + (endSec - startSec) / 2).minuteOfDay(zone)
-            val walkBlock = blocks.firstOrNull { it.id == walk.blockId }
-            val afterTitle = walkBlock?.let { wb ->
-                daySpecs?.let { PlanEditor.nextStop(it.toPlanBlocks(), wb.id)?.let { stop -> blocks.firstOrNull { b -> b.id == stop.id }?.title } }
+        // The walk card (2.4.0) comes from [DayOrchestrator.walkSession]: a day-block walk's open
+        // segment, or the standalone timer that leaves the day alone.
+        val walkSession = day.walkSession.value
+        val walkCard = if (walkSession != null) {
+            val start = walkSession.start
+            val end = walkSession.end
+            val turnBackMin = Instant.fromEpochSeconds(start.epochSeconds + (end.epochSeconds - start.epochSeconds) / 2).minuteOfDay(zone)
+            val afterTitle = walk?.let { wb ->
+                blocks.firstOrNull { it.id == wb.blockId }?.let { walkBlock ->
+                    daySpecs?.let { PlanEditor.nextStop(it.toPlanBlocks(), walkBlock.id)?.let { stop -> blocks.firstOrNull { b -> b.id == stop.id }?.title } }
+                }
             }
             WalkCardUi(
-                startMin = walk.actualStart.minuteOfDay(zone),
+                startMin = start.minuteOfDay(zone),
                 turnBackMin = turnBackMin,
-                endMin = walkEnd.minuteOfDay(zone),
+                endMin = end.minuteOfDay(zone),
                 headingHome = minute >= turnBackMin,
                 turnBackAt = timeFormatter.label(turnBackMin),
-                homeAt = timeFormatter.label(walkEnd.minuteOfDay(zone)),
+                homeAt = timeFormatter.label(end.minuteOfDay(zone)),
                 nextLabel = afterTitle,
+                standalone = walk == null,
             )
         } else null
 
@@ -578,6 +586,7 @@ private val day: DayOrchestrator,
             recap = recap,
             nowCard = if (walkCard != null) null else nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel, doneEarly),
             walkCard = walkCard,
+            walkEnabled = day.walkPreview(PlanEditor.WALK_DEFAULT) != null,
             walkSheet = walkSheet,
             eveningChoicePending = dayState.isDishesSlot,
             eveningSheetOpen = eveningSheetOpen,
@@ -989,18 +998,31 @@ fun HomeScreen(
                 title = state.title,
                 status = state.status,
                 debugClock = state.debugClock,
+                walkEnabled = state.walkEnabled,
                 showDivider = { scroll.value > 0 },
                 onAction = onAction,
             )
             val recap = state.recap
             if (recap != null) {
-                RecapList(
-                    s = recap,
-                    bottomPadding = Spacing.l,
-                    modifier = Modifier.weight(1f).testTag("home_calendar"),
-                    onRowTap = { correcting = it },
-                    onCheckIn = onCheckIn,
-                )
+                // A standalone walk (2.4.0) shows its card above an ended day's recap list.
+                Column(Modifier.weight(1f)) {
+                    state.walkCard?.let { ui ->
+                        WalkCard(
+                            ui = ui,
+                            countdownText = walkCountdown,
+                            progress = walkProgress,
+                            onAction = onAction,
+                            modifier = Modifier.padding(horizontal = Spacing.l, vertical = Spacing.s),
+                        )
+                    }
+                    RecapList(
+                        s = recap,
+                        bottomPadding = Spacing.l,
+                        modifier = Modifier.weight(1f).testTag("home_calendar"),
+                        onRowTap = { correcting = it },
+                        onCheckIn = onCheckIn,
+                    )
+                }
             } else {
                 DayCalendar(
                     blocks = state.blocks,
@@ -1090,6 +1112,8 @@ fun HomeTopBar(
     title: String,
     status: String,
     debugClock: String?,
+    /** A walk fits right now (2.4.0): not already walking and not paused. */
+    walkEnabled: Boolean,
     showDivider: () -> Boolean,
     onAction: (HomeAction) -> Unit,
 ) {
@@ -1128,6 +1152,11 @@ fun HomeTopBar(
         }
         IconButton(onClick = { onAction(HomeAction.SwapTemplate) }) {
             Icon(Icons.Outlined.SwapHoriz, "Swap template")
+        }
+        if (walkEnabled) {
+            IconButton(onClick = { onAction(HomeAction.Walk) }) {
+                Icon(Icons.AutoMirrored.Outlined.DirectionsWalk, "Take a walk")
+            }
         }
         Box {
             IconButton(onClick = { menuOpen = true }) { Icon(Icons.Outlined.Menu, "Menu") }
@@ -1337,7 +1366,7 @@ fun WalkCard(
                 NowPrimaryButton(
                     button = NowButton(NowButtonId.NEXT, "End walk", NowButtonStyle.PRIMARY),
                     modifier = Modifier.weight(1f),
-                    onClick = { onAction(HomeAction.Next) },
+                    onClick = { onAction(if (ui.standalone) HomeAction.EndWalk else HomeAction.Next) },
                 )
             }
         }
