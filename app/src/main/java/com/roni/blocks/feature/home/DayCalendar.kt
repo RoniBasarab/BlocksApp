@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import kotlin.math.roundToInt
 import com.roni.blocks.core.debug.RecompositionCounter
+import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.schedule.BlockEdit
 import com.roni.blocks.core.schedule.Edge
 import com.roni.blocks.core.schedule.PlanEditor
@@ -313,6 +314,14 @@ private fun CalendarBlock(
                         val y = if (p.isBreak) top + (bottom - top - layout.size.height) / 2 else top + 4.dp.toPx()
                         drawText(layout, topLeft = Offset(x, y))
                     }
+                }
+                if (block.type == BlockType.Walk) {
+                    val midY = size.height / 2f
+                    drawLine(palette.accent.copy(alpha = 0.6f), Offset(0f, midY), Offset(size.width, midY), Metrics.hairline.toPx())
+                    val layout = measurer.measure("turn", small.copy(color = palette.accent))
+                    val x = size.width - 4.dp.toPx() - layout.size.width
+                    val y = midY + 2.dp.toPx()
+                    if (y + layout.size.height <= size.height) drawText(layout, topLeft = Offset(x, y))
                 }
                 if (isCurrent) {
                     val y = (minuteOfDay() - block.startMin) * HourHeight.toPx() / 60f

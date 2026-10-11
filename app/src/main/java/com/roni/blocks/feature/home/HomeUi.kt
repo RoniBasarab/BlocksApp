@@ -26,7 +26,7 @@ data class CalendarBlockUi(
 
 enum class ChipTone { NEUTRAL, BREAK, LEAK }
 
-enum class NowButtonId { PAUSE, EMERGENCY, NEXT, RESUME, KID_ASLEEP, CHOOSE_EVENING, END_DAY }
+enum class NowButtonId { PAUSE, EMERGENCY, NEXT, WALK, RESUME, KID_ASLEEP, CHOOSE_EVENING, END_DAY }
 
 /** [PRIMARY] is the full-width action; [SECONDARY] buttons share one weighted row. */
 enum class NowButtonStyle { SECONDARY, PRIMARY }
@@ -47,6 +47,31 @@ data class NowCardUi(
     val endsAt: String? = null,
 )
 
+/** The walk start sheet (2.3.0): the adjustable length and what [DayOrchestrator.walkPreview] says. */
+@Immutable
+data class WalkSheetUi(
+    val minutes: Int,
+    val turnBackAt: String,
+    val homeAt: String,
+    val afterTitle: String?,
+    val afterEnd: String?,
+    val cappedByKidTime: Boolean,
+    val canShrink: Boolean,
+    val canGrow: Boolean,
+)
+
+/** The walk in progress (2.3.0): its timing, which way home, and what runs after it. */
+@Immutable
+data class WalkCardUi(
+    val startMin: Int,
+    val turnBackMin: Int,
+    val endMin: Int,
+    val headingHome: Boolean,
+    val turnBackAt: String,
+    val homeAt: String,
+    val nextLabel: String?,
+)
+
 @Immutable
 data class HomeState(
     val weekdayShort: String = "",
@@ -60,6 +85,8 @@ data class HomeState(
     val leakFromMin: Int? = null,
     val recap: DayRecapUi? = null,
     val nowCard: NowCardUi? = null,
+    val walkCard: WalkCardUi? = null,
+    val walkSheet: WalkSheetUi? = null,
     val eveningChoicePending: Boolean = false,
     val eveningSheetOpen: Boolean = false,
     val draggingId: String? = null,
@@ -72,6 +99,11 @@ sealed interface HomeAction {
     data object Pause : HomeAction
     data object Emergency : HomeAction
     data object Next : HomeAction
+    data object Walk : HomeAction
+    data class WalkStep(val byMin: Int) : HomeAction
+    data object StartWalk : HomeAction
+    data object DismissWalkSheet : HomeAction
+    data object TurnBack : HomeAction
     data object Resume : HomeAction
     data object KidAsleep : HomeAction
     data object ChooseEvening : HomeAction

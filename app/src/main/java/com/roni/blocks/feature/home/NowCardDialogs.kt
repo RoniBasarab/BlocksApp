@@ -71,7 +71,7 @@ internal val infoRows = listOf(
 internal val NowButtonId.needsConfirmation: Boolean
     get() = when (this) {
         NowButtonId.PAUSE, NowButtonId.EMERGENCY -> true
-        NowButtonId.NEXT, NowButtonId.RESUME, NowButtonId.KID_ASLEEP,
+        NowButtonId.NEXT, NowButtonId.WALK, NowButtonId.RESUME, NowButtonId.KID_ASLEEP,
         NowButtonId.CHOOSE_EVENING, NowButtonId.END_DAY,
         -> false
     }
@@ -90,7 +90,7 @@ internal fun NowButtonId.confirmation(blockTitle: String, endsAt: String? = null
         askAgain = false,
         red = true,
     )
-    NowButtonId.NEXT, NowButtonId.RESUME, NowButtonId.KID_ASLEEP,
+    NowButtonId.NEXT, NowButtonId.WALK, NowButtonId.RESUME, NowButtonId.KID_ASLEEP,
     NowButtonId.CHOOSE_EVENING, NowButtonId.END_DAY,
     -> null
 }

@@ -278,7 +278,7 @@ class HomeViewModelTest {
         assertEquals("Free time", nowCard.title)
         assertEquals("Done early", nowCard.chip)
         assertEquals(
-            listOf(NowButtonId.NEXT, NowButtonId.EMERGENCY),
+            listOf(NowButtonId.NEXT, NowButtonId.WALK, NowButtonId.EMERGENCY),
             nowCard.buttons.map { it.id },
         )
         assertEquals("Next: Coding", nowCard.buttons.first { it.id == NowButtonId.NEXT }.label)

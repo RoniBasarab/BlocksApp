@@ -1,6 +1,7 @@
 package com.roni.blocks.feature.home
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Nightlight
@@ -57,6 +59,8 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -84,6 +88,7 @@ import com.roni.blocks.core.daystate.DayState
 import com.roni.blocks.core.daystate.EndReason
 import com.roni.blocks.core.daystate.isDishesSlot
 import com.roni.blocks.core.daystate.templateId
+import com.roni.blocks.core.daystate.WalkPreview
 import com.roni.blocks.core.debug.RecompositionCounter
 import com.roni.blocks.core.model.BlockSpec
 import com.roni.blocks.core.model.BlockType
@@ -122,7 +127,10 @@ import com.roni.blocks.navigation.HistoryKey
 import com.roni.blocks.navigation.SettingsKey
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.time.Clock
+import kotlin.time.Instant
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -171,6 +179,7 @@ private val day: DayOrchestrator,
     private var preview: List<PlanBlock>? = null
     private var draggingId: String? = null
     private var eveningSheetOpen = false
+    private var walkSheet: WalkSheetUi? = null
 
     /** The block a just-finished insert should select, so its handles show. */
     private var insertedBlockId: String? = null
@@ -197,6 +206,15 @@ private val day: DayOrchestrator,
 
     val progress: StateFlow<Float> =
         combine(_state, minuteOfDay) { s, minute -> progressOf(s, minute) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0f)
+
+    /** mm:ss to the next walk ring, for the WalkCard ring's middle. */
+    val walkCountdown: StateFlow<String> =
+        combine(_state, minuteOfDay, secondOfDay) { s, minute, second -> walkCountdownText(s, minute, second) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
+
+    val walkProgress: StateFlow<Float> =
+        combine(_state, minuteOfDay, secondOfDay) { s, minute, second -> walkProgressOf(s, minute, second) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0f)
 
     init {
@@ -272,6 +290,17 @@ private val day: DayOrchestrator,
             HomeAction.KidAsleep -> day.send(DayEvent.KidAsleep)
             HomeAction.ChooseEvening -> eveningSheetOpen = true
             HomeAction.EndDay -> day.send(DayEvent.EndDay(EndReason.NORMAL))
+            HomeAction.Walk -> openWalkSheet()
+            is HomeAction.WalkStep -> stepWalk(action.byMin)
+            HomeAction.StartWalk -> startWalk()
+            HomeAction.DismissWalkSheet -> {
+                walkSheet = null
+                publish(day.state.value)
+            }
+            HomeAction.TurnBack -> viewModelScope.launch {
+                day.turnBack()
+                publish(day.state.value)
+            }
             is HomeAction.PickEvening -> {
                 eveningSheetOpen = false
                 day.send(DayEvent.EveningChoice(action.choice))
@@ -394,6 +423,47 @@ private val day: DayOrchestrator,
         _correctingRow.value = null
     }
 
+    private fun openWalkSheet() {
+        val preview = day.walkPreview(PlanEditor.WALK_DEFAULT) ?: return
+        walkSheet = sheetUi(PlanEditor.WALK_DEFAULT, preview)
+        publish(day.state.value)
+    }
+
+    private fun stepWalk(delta: Int) {
+        val current = walkSheet ?: return
+        val minutes = (current.minutes + delta).coerceIn(PlanEditor.WALK_MIN, PlanEditor.WALK_MAX)
+        val preview = day.walkPreview(minutes) ?: return
+        walkSheet = sheetUi(minutes, preview)
+        publish(day.state.value)
+    }
+
+    private fun startWalk() {
+        val minutes = walkSheet?.minutes ?: return
+        walkSheet = null
+        publish(day.state.value)
+        viewModelScope.launch {
+            day.startWalk(minutes)
+            publish(day.state.value)
+        }
+    }
+
+    /** The sheet's labels come from the same [DayOrchestrator.walkPreview] the walk will commit with. */
+    private fun sheetUi(minutes: Int, preview: WalkPreview): WalkSheetUi {
+        val use24 = timeFormatter.use24.value
+        val nowMin = clock.now().minuteOfDay(zone)
+        val homeMin = preview.homeAt.minuteOfDay(zone)
+        return WalkSheetUi(
+            minutes = minutes,
+            turnBackAt = label(preview.turnBackAt.minuteOfDay(zone), use24),
+            homeAt = label(homeMin, use24),
+            afterTitle = preview.afterTitle,
+            afterEnd = preview.afterEnd?.let { label(it.minuteOfDay(zone), use24) },
+            cappedByKidTime = nowMin + minutes > homeMin,
+            canShrink = minutes > PlanEditor.WALK_MIN,
+            canGrow = day.walkPreview(minutes + PlanEditor.SNAP) != null,
+        )
+    }
+
     /**
      * The recap row for the block the user just tapped, or null when no row exists. Past blocks
      * of today always have one; future blocks, kid time and not-started days don't.
@@ -465,11 +535,33 @@ private val day: DayOrchestrator,
         } else blocks.getOrNull(index + 1)
         val emergencyEnded = dayState is DayState.Ended && endedRecord?.flags?.contains(DayFlag.EMERGENCY_STOP) == true
 
+        val walk = segments.lastOrNull { it.actualEnd == null && it.kind == SegmentKind.PLANNED && it.type == BlockType.Walk }
+        val walkEnd = walk?.plannedEnd
+        val walkCard = if (walk != null && walkEnd != null && dayState is DayState.Running) {
+            val startSec = walk.actualStart.epochSeconds
+            val endSec = walkEnd.epochSeconds
+            val turnBackMin = Instant.fromEpochSeconds(startSec + (endSec - startSec) / 2).minuteOfDay(zone)
+            val walkBlock = blocks.firstOrNull { it.id == walk.blockId }
+            val afterTitle = walkBlock?.let { wb ->
+                daySpecs?.let { PlanEditor.nextStop(it.toPlanBlocks(), wb.id)?.let { stop -> blocks.firstOrNull { b -> b.id == stop.id }?.title } }
+            }
+            WalkCardUi(
+                startMin = walk.actualStart.minuteOfDay(zone),
+                turnBackMin = turnBackMin,
+                endMin = walkEnd.minuteOfDay(zone),
+                headingHome = minute >= turnBackMin,
+                turnBackAt = timeFormatter.label(turnBackMin),
+                homeAt = timeFormatter.label(walkEnd.minuteOfDay(zone)),
+                nextLabel = afterTitle,
+            )
+        } else null
+
         if (dayState is DayState.Ended || dayState is DayState.Off || dayState is DayState.NotStarted) {
             preview = null
             draggingId = null
         }
         if (!dayState.isDishesSlot) eveningSheetOpen = false
+        if (walkCard != null || dayState !is DayState.Running) walkSheet = null
 
         _state.value = HomeState(
             weekdayShort = now.toLocalDateTime(zone).dayOfWeek.name.take(3),
@@ -484,7 +576,9 @@ private val day: DayOrchestrator,
             currentBlockId = current?.id,
             leakFromMin = if (leaking) effectiveEndMin else null,
             recap = recap,
-            nowCard = nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel, doneEarly),
+            nowCard = if (walkCard != null) null else nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel, doneEarly),
+            walkCard = walkCard,
+            walkSheet = walkSheet,
             eveningChoicePending = dayState.isDishesSlot,
             eveningSheetOpen = eveningSheetOpen,
             draggingId = draggingId,
@@ -588,6 +682,7 @@ private val day: DayOrchestrator,
                         showProgress = false,
                         buttons = buildList {
                             add(NowButton(NowButtonId.NEXT, if (nextTitle != null) "Next: $nextTitle" else "Next", NowButtonStyle.PRIMARY))
+                            add(NowButton(NowButtonId.WALK, "Walk", NowButtonStyle.SECONDARY))
                             add(NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY))
                         }.toPersistentList(),
                         endsAt = effectiveEndMin?.let { timeFormatter.label(it) },
@@ -606,6 +701,7 @@ private val day: DayOrchestrator,
                         showProgress = false,
                         buttons = buildList {
                             nextTitle?.let { add(NowButton(NowButtonId.NEXT, "Next: $it", NowButtonStyle.PRIMARY)) }
+                            add(NowButton(NowButtonId.WALK, "Walk", NowButtonStyle.SECONDARY))
                             add(NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY))
                         }.toPersistentList(),
                     )
@@ -633,12 +729,14 @@ private val day: DayOrchestrator,
                         buttons = if (current?.type != null && !current.type.isWork) {
                             persistentListOf(
                                 NowButton(NowButtonId.NEXT, nextLabel, NowButtonStyle.PRIMARY),
+                                NowButton(NowButtonId.WALK, "Walk", NowButtonStyle.SECONDARY),
                                 NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
                             )
                         } else {
                             persistentListOf(
                                 NowButton(NowButtonId.PAUSE, "Pause", NowButtonStyle.SECONDARY),
                                 NowButton(NowButtonId.NEXT, nextLabel, NowButtonStyle.PRIMARY),
+                                NowButton(NowButtonId.WALK, "Walk", NowButtonStyle.SECONDARY),
                                 NowButton(NowButtonId.EMERGENCY, "Emergency", NowButtonStyle.SECONDARY),
                             )
                         },
@@ -738,6 +836,22 @@ private val day: DayOrchestrator,
         val span = (block.endMin - block.startMin).coerceAtLeast(1)
         return ((minute - block.startMin).toFloat() / span).coerceIn(0f, 1f)
     }
+
+    /** mm:ss to the next ring: the turn-back while walking out, the end while walking home. */
+    private fun walkCountdownText(s: HomeState, minute: Int, second: Int): String {
+        val walk = s.walkCard ?: return ""
+        val nowSec = minute * 60 + second
+        val target = if (walk.headingHome) walk.endMin else walk.turnBackMin
+        val remaining = (target * 60 - nowSec).coerceAtLeast(0)
+        return "%02d:%02d".format(remaining / 60, remaining % 60)
+    }
+
+    private fun walkProgressOf(s: HomeState, minute: Int, second: Int): Float {
+        val walk = s.walkCard ?: return 0f
+        val span = (walk.endMin - walk.startMin).coerceAtLeast(1) * 60
+        val nowSec = minute * 60 + second
+        return ((nowSec - walk.startMin * 60).toFloat() / span).coerceIn(0f, 1f)
+    }
 }
 
 private const val LOCKED_KID_TIME = "Kid time and the evening can't be moved."
@@ -768,6 +882,8 @@ fun HomeRoute(
     val minute by viewModel.minuteOfDay.collectAsStateWithLifecycle()
     val countdown by viewModel.countdownText.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
+    val walkCountdown by viewModel.walkCountdown.collectAsStateWithLifecycle()
+    val walkProgress by viewModel.walkProgress.collectAsStateWithLifecycle()
     val suppressed by viewModel.suppressedConfirmations.collectAsStateWithLifecycle()
     val minuteOfDay = { minute }
     val countdownText = { countdown }
@@ -793,6 +909,8 @@ fun HomeRoute(
             onCorrect = viewModel::correctRecord,
             onCorrectPast = viewModel::correctPast,
             onCheckIn = viewModel::checkIn,
+            walkCountdown = { walkCountdown },
+            walkProgress = { walkProgress },
             onAction = { action ->
                 when (action) {
                     HomeAction.SwapTemplate -> onSwap()
@@ -838,6 +956,8 @@ fun HomeScreen(
     onCorrect: (RecordEdit) -> Unit = {},
     onCorrectPast: (RecordEdit) -> Unit = {},
     onCheckIn: (CheckIn) -> Unit = {},
+    walkCountdown: () -> String = { "" },
+    walkProgress: () -> Float = { 0f },
 ) {
     SideEffect { RecompositionCounter.hit("HomeScreen") }
     val scroll = rememberScrollState()
@@ -915,7 +1035,17 @@ fun HomeScreen(
                         .align(Alignment.BottomCenter)
                         .padding(horizontal = Spacing.l, vertical = Spacing.s),
                 )
-            } else state.nowCard?.let { ui ->
+            } else state.walkCard?.let { ui ->
+                WalkCard(
+                    ui = ui,
+                    countdownText = walkCountdown,
+                    progress = walkProgress,
+                    onAction = onAction,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = Spacing.l, vertical = Spacing.s),
+                )
+            } ?: state.nowCard?.let { ui ->
                 NowCard(
                     ui = ui,
                     countdownText = countdownText,
@@ -934,6 +1064,14 @@ fun HomeScreen(
 
     if (state.eveningChoicePending || state.eveningSheetOpen) {
         EveningChoiceSheet(onPick = { onAction(HomeAction.PickEvening(it)) })
+    }
+    state.walkSheet?.let { sheet ->
+        WalkSheet(
+            ui = sheet,
+            onStep = { onAction(HomeAction.WalkStep(it)) },
+            onStart = { onAction(HomeAction.StartWalk) },
+            onDismiss = { onAction(HomeAction.DismissWalkSheet) },
+        )
     }
     correcting?.let { row ->
         CorrectBlockSheet(
@@ -1142,6 +1280,114 @@ fun NowCard(
 }
 
 @Composable
+fun WalkCard(
+    ui: WalkCardUi,
+    countdownText: () -> String,
+    progress: () -> Float,
+    onAction: (HomeAction) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    SideEffect { RecompositionCounter.hit("WalkCard") }
+    val c = AppTheme.colors
+    val accent = c.block(BlockType.Walk).accent
+
+    AppCard(modifier.fillMaxWidth().testTag("walk_card")) {
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(WalkRingSize), contentAlignment = Alignment.Center) {
+                    WalkRing(progress = progress, modifier = Modifier.fillMaxSize())
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CountdownText(countdownText, c.textPrimary)
+                        Text(
+                            if (ui.headingHome) "to home" else "to turn",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = c.textSecondary,
+                        )
+                    }
+                }
+                Spacer(Modifier.width(Spacing.m))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Walk", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                        AppChip(if (ui.headingHome) "Heading home" else "Heading out", accent)
+                    }
+                    Text(
+                        "Turn back at ${ui.turnBackAt}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = c.textSecondary,
+                    )
+                    Text(
+                        buildString {
+                            append("Home by ${ui.homeAt}")
+                            ui.nextLabel?.let { append(" · then $it") }
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = c.textSecondary,
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                if (!ui.headingHome) {
+                    NowSecondaryButton(
+                        button = NowButton(NowButtonId.WALK, "Turn back now", NowButtonStyle.SECONDARY),
+                        onClick = { onAction(HomeAction.TurnBack) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                NowPrimaryButton(
+                    button = NowButton(NowButtonId.NEXT, "End walk", NowButtonStyle.PRIMARY),
+                    modifier = Modifier.weight(1f),
+                    onClick = { onAction(HomeAction.Next) },
+                )
+            }
+        }
+    }
+}
+
+private val WalkRingSize = 120.dp
+
+/** The way out is cool, the way home warm; elapsed solid, the rest dimmed. */
+@Composable
+private fun WalkRing(progress: () -> Float, modifier: Modifier = Modifier) {
+    val c = AppTheme.colors
+    val out = c.block(BlockType.Walk).accent
+    val home = c.secondary
+    val track = c.outline
+    Canvas(modifier) {
+        val stroke = 8.dp.toPx()
+        val inset = stroke / 2
+        val arcSize = Size(size.width - stroke, size.height - stroke)
+        val topLeft = Offset(inset, inset)
+        val style = Stroke(width = stroke, cap = StrokeCap.Butt)
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+        val radius = size.minDimension / 2f
+        drawArc(track, 0f, 360f, false, topLeft, arcSize, style = style)
+
+        val p = progress().coerceIn(0f, 1f)
+        fun leg(color: Color, from: Float, to: Float) {
+            val solidEnd = p.coerceIn(from, to)
+            if (solidEnd > from) {
+                drawArc(color, -90f + from * 360f, (solidEnd - from) * 360f, false, topLeft, arcSize, style = style)
+            }
+            if (to > solidEnd) {
+                drawArc(color.copy(alpha = 0.35f), -90f + solidEnd * 360f, (to - solidEnd) * 360f, false, topLeft, arcSize, style = style)
+            }
+        }
+        leg(out, 0f, 0.5f)
+        leg(home, 0.5f, 1f)
+
+        // Notch at the turn-back point (the bottom of the ring).
+        drawLine(c.background, Offset(cx, cy + radius - stroke), Offset(cx, cy + radius), stroke * 0.5f)
+
+        // A dot on the ring for now.
+        val rad = Math.toRadians((-90.0 + p * 360.0))
+        val dot = Offset(cx + (cos(rad) * (radius - stroke / 2)).toFloat(), cy + (sin(rad) * (radius - stroke / 2)).toFloat())
+        drawCircle(c.textPrimary, radius = stroke * 0.55f, center = dot)
+    }
+}
+
+@Composable
 private fun CountdownText(text: () -> String, color: Color, modifier: Modifier = Modifier) {
     SideEffect { RecompositionCounter.hit("CountdownText") }
     val value = text()
@@ -1202,6 +1448,7 @@ private fun nowButtonIcon(id: NowButtonId): ImageVector = when (id) {
     NowButtonId.EMERGENCY -> Icons.Outlined.WarningAmber
     NowButtonId.END_DAY -> Icons.Outlined.Stop
     NowButtonId.NEXT -> Icons.Outlined.PlayArrow
+    NowButtonId.WALK -> Icons.AutoMirrored.Outlined.DirectionsWalk
     NowButtonId.RESUME -> Icons.Outlined.PlayArrow
     NowButtonId.KID_ASLEEP -> Icons.Outlined.Nightlight
     NowButtonId.CHOOSE_EVENING -> Icons.Outlined.Nightlight
@@ -1211,6 +1458,7 @@ private fun NowButtonId.toAction(): HomeAction = when (this) {
     NowButtonId.PAUSE -> HomeAction.Pause
     NowButtonId.EMERGENCY -> HomeAction.Emergency
     NowButtonId.NEXT -> HomeAction.Next
+    NowButtonId.WALK -> HomeAction.Walk
     NowButtonId.RESUME -> HomeAction.Resume
     NowButtonId.KID_ASLEEP -> HomeAction.KidAsleep
     NowButtonId.CHOOSE_EVENING -> HomeAction.ChooseEvening
