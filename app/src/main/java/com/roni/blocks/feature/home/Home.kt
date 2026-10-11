@@ -180,6 +180,11 @@ private val day: DayOrchestrator,
     /** One-shot toasts: why a tap on a block did nothing. */
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
+    private val _correctingRow = MutableStateFlow<RecapRow?>(null)
+
+    /** The recap row whose correction sheet is up (past block and today are both eligible). */
+    val correctingRow: StateFlow<RecapRow?> = _correctingRow.asStateFlow()
+
     val minuteOfDay: StateFlow<Int> =
         ticker.minutes.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
@@ -283,9 +288,16 @@ private val day: DayOrchestrator,
             is HomeAction.StepEdge -> stepEdge(action.id, action.edge, action.byMin)
             is HomeAction.Retype -> commitEdit(PlanEdit.Retype(action.id, action.type))
             is HomeAction.Insert -> insertBlock(action.id, action.type)
-            is HomeAction.LockedBlockTapped ->
-                _state.value.blocks.firstOrNull { it.id == action.id }
-                    ?.let { _messages.tryEmit(lockedReason(it)) }
+            is HomeAction.LockedBlockTapped -> {
+                val block = _state.value.blocks.firstOrNull { it.id == action.id }
+                val row = block?.let { recapRowForBlock(it) }
+                when {
+                    row != null && row.fix != com.roni.blocks.core.schedule.RowFix.NONE -> {
+                        _correctingRow.value = row
+                    }
+                    else -> block?.let { _messages.tryEmit(lockedReason(it)) }
+                }
+            }
             HomeAction.SwapTemplate,
             HomeAction.History,
             HomeAction.Settings,
@@ -336,7 +348,8 @@ private val day: DayOrchestrator,
 
     /**
      * The reason a tapped block offers no handles. Mirrors the refusals of [PlanEditor.editMode],
-     * most specific first, so the toast matches what the user sees.
+     * most specific first, so the toast matches what the user sees. Past blocks (index < current)
+     * open the correction sheet instead and never reach this function.
      */
     private fun lockedReason(tapped: CalendarBlockUi): String {
         val dayState = day.state.value
@@ -346,22 +359,44 @@ private val day: DayOrchestrator,
         val currentIndex = screen.currentBlockId?.let { id -> screen.blocks.indexOfFirst { it.id == id } } ?: -1
         if (!tapped.type.isEditable()) return LOCKED_KID_TIME
         if (dayState == DayState.NotStarted) return LOCKED_PICK_TEMPLATE
-        if (currentIndex >= 0 && index in 0 until currentIndex) return LOCKED_OVER
         if (currentIndex < 0) {
-            if (dayState == DayState.KidTime && template != TemplateId.FRI_SAT) return LOCKED_OVER
-            if (dayState == DayState.KidTime) return LOCKED_DAY_BLOCK_RUNNING
-            return LOCKED_OVER
-        }
-        if (index == currentIndex) {
-            return if (day.currentForEditing()?.endEditable == false) LOCKED_FINISHED_EARLY else LOCKED_FREE_RUNNING
+            if (dayState == DayState.KidTime && template != TemplateId.FRI_SAT) return LOCKED_DAY_BLOCK_RUNNING
+            return LOCKED_DAY_BLOCK_RUNNING
         }
         val nowMin = clock.now().minuteOfDay(zone)
-        return if (tapped.endMin <= snapUp(nowMin + PlanEditor.SNAP)) LOCKED_WILL_MISS else LOCKED_OVER
+        return if (tapped.endMin <= snapUp(nowMin + PlanEditor.SNAP)) LOCKED_WILL_MISS else LOCKED_DAY_BLOCK_RUNNING
     }
 
     fun correctRecord(edit: RecordEdit) {
         val date = clock.now().toLocalDateTime(zone).date
         viewModelScope.launch { history.correctDay(date, edit, zone) }
+    }
+
+    /**
+     * Corrects a past block of today. The recap row carries the segment index, so the record
+     * editor knows which segment to edit. The day must still have that segment in memory, which
+     * is the case until the day ends (and history has it from then on).
+     */
+    fun correctPast(edit: RecordEdit) {
+        viewModelScope.launch {
+            day.correctPast(edit)
+            _correctingRow.value = null
+            publish(day.state.value)
+        }
+    }
+
+    fun dismissCorrectPast() {
+        _correctingRow.value = null
+    }
+
+    /**
+     * The recap row for the block the user just tapped, or null when no row exists. Past blocks
+     * of today always have one; future blocks, kid time and not-started days don't.
+     */
+    private fun recapRowForBlock(block: CalendarBlockUi): RecapRow? {
+        val liveRecord = day.liveRecord()
+        val rows = DayRecapMapper.map(liveRecord, timeFormatter.use24.value).rows
+        return rows.firstOrNull { it.id == "${block.id}@${block.startMin}" }
     }
 
     fun checkIn(pick: CheckIn) {
@@ -396,15 +431,21 @@ private val day: DayOrchestrator,
             val planBlocks = preview ?: todayPlan.blocks.toPlanBlocks()
             val currentForEdit = day.currentForEditing()
             val currentBlockIndex = index.takeIf { it >= 0 }
+            val liveRows = DayRecapMapper.map(day.liveRecord(), timeFormatter.use24.value).rows
             mapped.mapIndexed { i, b ->
                 val isCurrentAndDoneEarly = doneEarly && currentBlockIndex != null && i == currentBlockIndex
                 val phaseSubtitle = if (isCurrentAndDoneEarly) {
                     "Done early · free until ${timeFormatter.label(openAny!!.plannedEnd!!.minuteOfDay(zone))}"
                 } else b.subtitle
                 val phasesForUi = if (isCurrentAndDoneEarly) persistentListOf() else b.phases
+                // Past blocks (i < currentIndex) show what happened: "Done HH:MM–HH:MM" or "Missed".
+                val pastSubtitle = if (currentBlockIndex != null && i < currentBlockIndex) {
+                    val row = liveRows.firstOrNull { it.id == "${b.id}@${b.startMin}" }
+                    row?.let { pastSubtitleFor(it, timeFormatter.use24.value) }
+                } else null
                 b.copy(
                     edit = PlanEditor.editMode(planBlocks, b.id, minute, currentForEdit),
-                    subtitle = phaseSubtitle,
+                    subtitle = pastSubtitle ?: phaseSubtitle,
                     phases = phasesForUi,
                 )
             }.toPersistentList()
@@ -693,14 +734,21 @@ private val day: DayOrchestrator,
 }
 
 private const val LOCKED_KID_TIME = "Kid time and the evening can't be moved."
-private const val LOCKED_OVER = "This block is over. You can correct what happened in the day's recap once the day ends."
 private const val LOCKED_PICK_TEMPLATE = "Pick a template first; then you can change the day."
 private const val LOCKED_DAY_BLOCK_RUNNING = "Blocks can be changed while a day block is running."
-private const val LOCKED_FINISHED_EARLY = "You finished this block early; the rest is free time."
-private const val LOCKED_FREE_RUNNING = "This free time is running. Change the block after it instead."
 private const val LOCKED_WILL_MISS = "This block can't start before it ends, so it will count as missed."
 
 private fun snapUp(min: Int): Int = ((min + PlanEditor.SNAP - 1) / PlanEditor.SNAP) * PlanEditor.SNAP
+
+/** "Done HH:MM–HH:MM" or "Missed" for the calendar subtitle of a past block. */
+private fun pastSubtitleFor(row: RecapRow, use24: Boolean): String? {
+    val range = row.range
+    return when {
+        row.missed -> "Missed"
+        range.isNotEmpty() -> "Done $range"
+        else -> null
+    }
+}
 
 @Composable
 fun HomeRoute(
@@ -724,6 +772,8 @@ fun HomeRoute(
         viewModel.messages.collect { message = it }
     }
 
+    val correctingRow by viewModel.correctingRow.collectAsStateWithLifecycle()
+
     ScreenScaffold(bottomBar = { AppBottomBar(AppTab.HOME) { onTab(tabKey(it)) } }) { _ ->
         HomeScreen(
             state = state,
@@ -734,6 +784,7 @@ fun HomeRoute(
             onSuppressConfirmation = viewModel::onSuppressConfirmation,
             onAskAgain = viewModel::onAskAgain,
             onCorrect = viewModel::correctRecord,
+            onCorrectPast = viewModel::correctPast,
             onCheckIn = viewModel::checkIn,
             onAction = { action ->
                 when (action) {
@@ -743,6 +794,15 @@ fun HomeRoute(
                     else -> viewModel.onAction(action)
                 }
             },
+        )
+    }
+
+    correctingRow?.let { row ->
+        CorrectBlockSheet(
+            row = row,
+            use24 = state.use24,
+            onEdit = { viewModel.correctPast(it) },
+            onDismiss = { viewModel.dismissCorrectPast() },
         )
     }
 
@@ -769,6 +829,7 @@ fun HomeScreen(
     onSuppressConfirmation: (NowButtonId) -> Unit = {},
     onAskAgain: (NowButtonId) -> Unit = {},
     onCorrect: (RecordEdit) -> Unit = {},
+    onCorrectPast: (RecordEdit) -> Unit = {},
     onCheckIn: (CheckIn) -> Unit = {},
 ) {
     SideEffect { RecompositionCounter.hit("HomeScreen") }

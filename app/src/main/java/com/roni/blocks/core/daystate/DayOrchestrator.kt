@@ -14,6 +14,9 @@ import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.Template
 import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.model.TodayPlan
+import com.roni.blocks.core.schedule.RecordEdit
+import com.roni.blocks.core.schedule.toRecordRows
+import com.roni.blocks.core.schedule.withRows
 import com.roni.blocks.core.notifications.ActionEvent
 import com.roni.blocks.core.notifications.NotificationModelMapper
 import com.roni.blocks.core.notifications.NotificationModel
@@ -190,22 +193,33 @@ class DayOrchestrator @Inject constructor(
             is DayState.Paused -> state.copy(running = state.running.copy(blockIndex = index))
             else -> state
         }
-        // Ran over is measured against the edited plan, so the current block's open planned segment
-        // takes its new end; an edit to a later block can shorten the current free time too.
-        val currentEnd = blocks.firstOrNull { it.id == current.id }?.end?.at(today(), zone)
-        if (currentEnd != null) {
-            book = book.copy(
-                segments = book.segments.map { segment ->
-                    if (segment.kind == SegmentKind.PLANNED && segment.actualEnd == null && segment.blockId == current.id) {
-                        segment.copy(plannedEnd = currentEnd)
-                    } else {
-                        segment
+        // Ran over is measured against the edited plan, so the current block's open segment follows
+        // the new plan: a planned segment takes its new end (and new type when retyped); a
+        // synthetic-free segment from "Done early" takes the current block's new end (2.2.0).
+        val currentBlockSpec = blocks.firstOrNull { it.id == current.id }
+        val currentEnd = currentBlockSpec?.end?.at(today(), zone)
+        val currentType = currentBlockSpec?.type
+        book = book.copy(
+            segments = book.segments.map { segment ->
+                if (segment.actualEnd == null) {
+                    when {
+                        segment.blockId == current.id && segment.kind == SegmentKind.PLANNED ->
+                            segment.copy(
+                                plannedEnd = currentEnd ?: segment.plannedEnd,
+                                type = currentType ?: segment.type,
+                            )
+                        segment.blockId == null && segment.kind == SegmentKind.SYNTHETIC_FREE ->
+                            segment.copy(plannedEnd = currentEnd ?: segment.plannedEnd)
+                        else -> segment
                     }
-                },
-                index = index,
-            )
-            _segments.value = book.segments
-        }
+                } else {
+                    segment
+                }
+            },
+            index = index,
+        )
+        _segments.value = book.segments
+        reactedAt = clock.now()
         persist()
         sideEffects()
         logger.info("edited plan with $edit")
@@ -220,6 +234,45 @@ class DayOrchestrator @Inject constructor(
         val id = _state.value.currentBlockId() ?: return null
         val open = _segments.value.lastOrNull { it.actualEnd == null }
         return CurrentBlock(id, endEditable = open == null || open.kind != SegmentKind.SYNTHETIC_FREE)
+    }
+
+    /**
+     * A snapshot of today's record, useful for the recap UI and for correcting a past block
+     * while the day is still running. Built from the in-memory book so it reflects the live
+     * segments, not the last persisted record (2.2.0).
+     */
+    fun liveRecord(): DayRecord = DayRecord(
+        date = today(),
+        template = currentTemplate()?.id,
+        segments = book.segments,
+        flags = book.flags,
+        plannedBlocks = _todayPlan.value?.blocks,
+    )
+
+    /**
+     * Correct a past block of the live day: a closed PLANNED/SYNTHETIC_FREE segment or a CONSUMED
+     * one. Limits the edit's end to the open segment's start (or to `now` when nothing is open).
+     * Returns false when the edit isn't allowed or changes nothing. Works in every state that has
+     * segments, including kid time and the evening (2.2.0).
+     */
+    suspend fun correctPast(edit: RecordEdit): Boolean {
+        ensureRestored()
+        val live = liveRecord()
+        val open = book.segments.lastOrNull { it.actualEnd == null }
+        val limitMin = open?.actualStart?.let { it.toLocalDateTime(zone).hour * 60 + it.toLocalDateTime(zone).minute }
+            ?: clock.now().toLocalDateTime(zone).let { it.hour * 60 + it.minute }
+        val rows = live.toRecordRows(zone)
+        val newRows = com.roni.blocks.core.schedule.RecordEditor.apply(rows, edit, limitMin) ?: return false
+        val updated = live.withRows(newRows, zone)
+        book = book.copy(
+            segments = updated.segments,
+            flags = updated.flags,
+        )
+        _segments.value = book.segments
+        reactedAt = clock.now()
+        persist()
+        sideEffects()
+        return true
     }
 
     suspend fun onAlarm() {

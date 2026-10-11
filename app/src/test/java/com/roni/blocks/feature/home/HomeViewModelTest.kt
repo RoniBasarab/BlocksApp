@@ -245,18 +245,13 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun lockedTap_onAPastBlock_saysItsOver() = runBlocking {
+    fun lockedTap_onAPastBlock_opensTheCorrectionSheet() = runBlocking {
         startDayInsideCoding()
-        val messages = mutableListOf<String>()
-        val job = launch(Dispatchers.Unconfined) { viewModel.messages.collect { messages += it } }
 
         viewModel.onAction(HomeAction.LockedBlockTapped("sun_tue_wed.cv"))
 
-        assertEquals(
-            "This block is over. You can correct what happened in the day's recap once the day ends.",
-            messages.single(),
-        )
-        job.cancel()
+        val row = viewModel.correctingRow.value ?: error("no correcting row opened")
+        assertEquals("sun_tue_wed.cv@540", row.id)
     }
 
     @Test

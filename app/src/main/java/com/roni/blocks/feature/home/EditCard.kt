@@ -86,13 +86,49 @@ fun EditCard(
                     AddBlockRow(block, onAction)
                     Caption("Pick a type to turn this free time into a block, or add a 30-minute block at its start.")
                 }
-                BlockEdit.END_AND_TYPE, BlockEdit.END_ONLY -> {
+                BlockEdit.END_AND_TYPE -> {
+                    WorkTypeChips(block, onAction)
                     Steppers(block, showStart = false, showEnd = true, onAction = onAction)
-                    Caption("This block is running. You can move its end; use Next to switch to something else.")
+                    Caption("This block is running. Change when it ends or what it is; Done early ends it now.")
+                }
+                BlockEdit.END_ONLY -> {
+                    Steppers(block, showStart = false, showEnd = true, onAction = onAction)
+                    Caption(endOnlyCaption(block))
                 }
                 BlockEdit.NONE -> Unit
             }
             Text("Changes apply to today only.", style = MaterialTheme.typography.bodySmall, color = c.textMuted)
+        }
+    }
+}
+
+private fun endOnlyCaption(block: CalendarBlockUi): String {
+    val next = block.id  // not used; placeholder so the compiler is happy
+    return when (block.type) {
+        BlockType.Free -> "End free time sooner to start the next block sooner."
+        else -> "${block.title} finished early; this is free time until ${hhmm(block.endMin)}."
+    }
+}
+
+@Composable
+private fun WorkTypeChips(block: CalendarBlockUi, onAction: (HomeAction) -> Unit) {
+    val c = AppTheme.colors
+    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+        WorkTypes.forEach { type ->
+            val selected = block.type == type
+            Text(
+                blockTitle(type),
+                style = MaterialTheme.typography.labelLarge,
+                color = if (selected) c.onPrimary else c.textPrimary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(AppShapes.chip)
+                    .background(if (selected) c.block(type).accent else c.surfaceRaised)
+                    .clickable { onAction(HomeAction.Retype(block.id, type)) }
+                    .padding(vertical = Spacing.s)
+                    .testTag("edit_type_${typeKey(type)}"),
+            )
         }
     }
 }
@@ -151,28 +187,59 @@ private fun Steppers(
     showEnd: Boolean,
     onAction: (HomeAction) -> Unit,
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s), verticalAlignment = Alignment.CenterVertically) {
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
         if (showStart) {
             Stepper(
                 label = "Start",
                 value = hhmm(block.startMin),
+                onMinus = { onAction(HomeAction.StepEdge(block.id, Edge.TOP, -15)) },
+                onMinusSmall = { onAction(HomeAction.StepEdge(block.id, Edge.TOP, -5)) },
+                onPlusSmall = { onAction(HomeAction.StepEdge(block.id, Edge.TOP, 5)) },
+                onPlus = { onAction(HomeAction.StepEdge(block.id, Edge.TOP, 15)) },
                 minusTag = "edit_start_minus",
                 plusTag = "edit_start_plus",
-                onMinus = { onAction(HomeAction.StepEdge(block.id, Edge.TOP, -PlanEditor.SNAP)) },
-                onPlus = { onAction(HomeAction.StepEdge(block.id, Edge.TOP, PlanEditor.SNAP)) },
-                modifier = Modifier.weight(1f),
             )
         }
         if (showEnd) {
             Stepper(
                 label = "End",
                 value = hhmm(block.endMin),
+                onMinus = { onAction(HomeAction.StepEdge(block.id, Edge.BOTTOM, -15)) },
+                onMinusSmall = { onAction(HomeAction.StepEdge(block.id, Edge.BOTTOM, -5)) },
+                onPlusSmall = { onAction(HomeAction.StepEdge(block.id, Edge.BOTTOM, 5)) },
+                onPlus = { onAction(HomeAction.StepEdge(block.id, Edge.BOTTOM, 15)) },
                 minusTag = "edit_end_minus",
                 plusTag = "edit_end_plus",
-                onMinus = { onAction(HomeAction.StepEdge(block.id, Edge.BOTTOM, -PlanEditor.SNAP)) },
-                onPlus = { onAction(HomeAction.StepEdge(block.id, Edge.BOTTOM, PlanEditor.SNAP)) },
-                modifier = Modifier.weight(1f),
             )
+        }
+    }
+}
+
+@Composable
+private fun Stepper(
+    label: String,
+    value: String,
+    onMinus: () -> Unit,
+    onMinusSmall: () -> Unit,
+    onPlusSmall: () -> Unit,
+    onPlus: () -> Unit,
+    minusTag: String,
+    plusTag: String,
+    modifier: Modifier = Modifier,
+) {
+    val c = AppTheme.colors
+    Column(modifier) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = c.textSecondary)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            StepButton("−15", minusTag, onMinus)
+            StepButton("−5", "${minusTag}_small", onMinusSmall)
+            Text(value, style = MaterialTheme.typography.titleSmall.merge(AppType.numbers), color = c.textPrimary)
+            StepButton("+5", "${plusTag}_small", onPlusSmall)
+            StepButton("+15", plusTag, onPlus)
         }
     }
 }
