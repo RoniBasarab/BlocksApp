@@ -18,9 +18,10 @@ Rules that hold everywhere:
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `App.kt` | Hilt application; warms the orchestrator so Home never waits on restore | DayOrchestrator, Hilt |
+| `App.kt` | Hilt application; warms the orchestrator and registers a `ProcessLifecycleOwner` foreground observer (2.2.0) | DayOrchestrator, Hilt |
 | `MainActivity.kt` | The single activity; hosts the Compose graph, asks for notification permission | AppNav, NotificationPort |
 | `navigation/AppNav.kt` | Serializable nav keys and the top-level graph | feature routes |
+| `app/src/main/res/layout/widget_now.xml` | The widget layout (`<ImageView>` accent — RemoteViews can't inflate a plain `<View>`) | R.layout.widget_now |
 
 ## core/alarms
 
@@ -33,7 +34,7 @@ Rules that hold everywhere:
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `core/daystate/DayOrchestrator.kt` | Single writer of the day's state: owns today's plan, applies events and plan edits, persists, pushes alarm/notification/history | DayStateMachine, ScheduleEngine, HistoryManager, PrefsStorage |
+| `core/daystate/DayOrchestrator.kt` | Single writer of the day's state: owns today's plan, applies events and plan edits, persists, pushes alarm/notification/history; `liveRecord()`/`correctPast()`/`onAppForeground()` (2.2.0) | DayStateMachine, ScheduleEngine, HistoryManager, PrefsStorage |
 | `core/daystate/DayState.kt` | `DayState` and `DayEvent` — the persisted vocabulary of a day | Model, ScheduleEngine |
 | `core/daystate/DayStateMachine.kt` | Every legal transition as one pure function | DayState, DayEvent |
 | `core/daystate/NotificationActionMapping.kt` | Maps notification buttons onto day events; new actions fail to compile unmapped | NotificationModel, DayStateMachine |
@@ -85,11 +86,12 @@ Rules that hold everywhere:
 
 | path | what it does | talks to |
 | --- | --- | --- |
+| `core/schedule/AlertPlanner.kt` | The pure rules for when an alert fires (5-min warning, Pomodoro breaks/starts, nags until the user reacts) | Model |
 | `core/schedule/PlanConversion.kt` | Converts `BlockSpec` to and from the editor's `PlanBlock`; preview and commit share it | Model, PlanEditor |
-| `core/schedule/PlanEditor.kt` | The pure rules for reshaping today's plan (add, resize, retype, insert); free time absorbs, work blocks push, kid time stays | Model |
+| `core/schedule/PlanEditor.kt` | The pure rules for reshaping today's plan (add, resize, retype, insert); free time absorbs, work blocks push, kid time stays; `END_AND_TYPE` lets a running work block also become another work type (2.2.0) | Model |
 | `core/schedule/RecordConversion.kt` | `toRecordRows`/`withRows`: day record ↔ editable rows for correcting a past day | Model, RecordEditor |
 | `core/schedule/RecordEditor.kt` | The pure rules for editing a past day's rows: `fixMode`, `apply` (SetEnd/Retype/MarkDone, `MIN_LENGTH`/`LAST_MINUTE` limits), `snap` | Model |
-| `core/schedule/ScheduleEngine.kt` | Resolves template + date into concrete blocks and segments | Model, Clock, TimeZone |
+| `core/schedule/ScheduleEngine.kt` | Resolves template + date into concrete blocks and segments; `nextWakeUp(anchor)` anchors the Pomodoro cursor on the open segment's actual start (2.2.0) | Model, Clock, TimeZone |
 | `core/schedule/SegmentBook.kt` | Builds the segment list History renders; rehydrates it after process death | ScheduleEngine, Model, PrefsStorage |
 | `core/schedule/TimelineQueries.kt` | `ScheduleEngine` extensions that read the published plan: `timelineAt`, `currentBlock`, `pomodoroStatus`, `pomodoroPhases` | ScheduleEngine, Model |
 

@@ -10,20 +10,19 @@ With a phone attached, run them with:
 These four cannot be automated reliably (they depend on the launcher, the reboot flow, the keyguard
 and the system DND state), so Roni runs them by hand.
 
-**Check on the phone (2.1.0).** Use the debug app for steps that move the clock (Settings → Developer tools).
+**Check on the phone (2.2.0).** Use the debug app for steps that move the clock (Settings → Developer tools).
 
-1. Settings → Developer tools: one row opens the dialog; nothing overlaps.
-2. Test a day: Sun/Tue/Wed at 10:00 → Home starts on Coding.
-3. −1 hour and +1 hour move the clock both ways.
-4. Tap a later Free block → Add a block: Coding → a 30-minute Coding block appears and is selected; drag its bottom handle.
-5. Tap a past block, then kid time: each says why it can't move.
-6. Kid asleep, then pick Game: Dishes and Game appear on the calendar, kid time ends at the tap, the card counts down to 22:30.
-7. End day: the recap asks "How was today?"; pick Good: the chip appears.
-8. In the recap, tap Coding: move its end with −5; tap a missed block: "It happened" shortens the block that ran into it.
-9. History → an older day: the same corrections work.
-10. Weekly: go back past your data, then forward again.
-11. Add the widget: it shows the block and a running countdown; tap Next in the app and the widget follows.
-12. Release app (`com.roni.blocks`): pick a template, swipe the app away, reopen: it comes back.
+1. Add the widget: it shows the block and a countdown.
+2. Developer tools: move the clock +1 hour, then Real time: Home's minutes left correct themselves within a second.
+3. Tap kid time: a dialog says why, in full.
+4. On Coding, tap Done early: the card and the notification say "Free time · Done early … then the Pomodoro doesn't restart.
+5. Coding's notification: "Focus 1/2", "Break at …", counting down to the break.
+6. Lock the phone 6 minutes before a block ends: a sound at 5 minutes left, at the end, and every 5 minutes until you open the app.
+7. Settings → Alert sound: pick another sound; the next alert uses it.
+8. Tap the running block: change its type and its end (±15).
+9. Tap a past block today: move its end; the calendar shows "Done HH:MM–HH:MM".
+10. History: correcting has −15 and +15.
+11. Release app (`com.roni.blocks`): pick a template, swipe the app away, reopen: the day is still there.
 
 ## Setup for every test
 
