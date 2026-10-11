@@ -36,6 +36,8 @@ import com.roni.blocks.designsystem.Spacing
 
 private val EditTypes = listOf(BlockType.Cv, BlockType.Coding, BlockType.Gym, BlockType.Free)
 
+private val WorkTypes = listOf(BlockType.Cv, BlockType.Coding, BlockType.Gym)
+
 private fun typeKey(type: BlockType): String = when (type) {
     BlockType.Cv -> "Cv"
     BlockType.Coding -> "Coding"
@@ -81,7 +83,8 @@ fun EditCard(
                 }
                 BlockEdit.TYPE_ONLY -> {
                     TypeChips(block, onAction)
-                    Caption("Free time fills the gaps. Pick a type to turn it into a block you can resize.")
+                    AddBlockRow(block, onAction)
+                    Caption("Pick a type to turn this free time into a block, or add a 30-minute block at its start.")
                 }
                 BlockEdit.END_ONLY -> {
                     Steppers(block, showStart = false, showEnd = true, onAction = onAction)
@@ -112,6 +115,30 @@ private fun TypeChips(block: CalendarBlockUi, onAction: (HomeAction) -> Unit) {
                     .clickable { onAction(HomeAction.Retype(block.id, type)) }
                     .padding(vertical = Spacing.s)
                     .testTag("edit_type_${typeKey(type)}"),
+            )
+        }
+    }
+}
+
+@Composable
+private fun AddBlockRow(block: CalendarBlockUi, onAction: (HomeAction) -> Unit) {
+    val c = AppTheme.colors
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Add a block:", style = MaterialTheme.typography.labelMedium, color = c.textSecondary)
+        WorkTypes.forEach { type ->
+            Text(
+                blockTitle(type),
+                style = MaterialTheme.typography.labelLarge,
+                color = c.textPrimary,
+                modifier = Modifier
+                    .clip(AppShapes.chip)
+                    .background(c.surfaceRaised)
+                    .clickable { onAction(HomeAction.Insert(block.id, type)) }
+                    .padding(horizontal = Spacing.m, vertical = Spacing.s)
+                    .testTag("edit_add_${typeKey(type)}"),
             )
         }
     }

@@ -1,5 +1,6 @@
 package com.roni.blocks.feature.home
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -57,6 +58,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
@@ -73,6 +75,7 @@ import com.roni.blocks.core.schedule.Edge
 import com.roni.blocks.core.schedule.PlanBlock
 import com.roni.blocks.core.schedule.PlanEdit
 import com.roni.blocks.core.schedule.PlanEditor
+import com.roni.blocks.core.schedule.isEditable
 import com.roni.blocks.core.schedule.toBlockSpecs
 import com.roni.blocks.core.schedule.toPlanBlocks
 import com.roni.blocks.core.daystate.DayOrchestrator
@@ -92,6 +95,7 @@ import com.roni.blocks.core.model.EVENING_DISHES_ID
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.Template
+import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
@@ -119,9 +123,12 @@ import javax.inject.Inject
 import kotlin.time.Clock
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
@@ -162,6 +169,14 @@ private val day: DayOrchestrator,
     private var preview: List<PlanBlock>? = null
     private var draggingId: String? = null
     private var eveningSheetOpen = false
+
+    /** The block a just-finished insert should select, so its handles show. */
+    private var insertedBlockId: String? = null
+
+    private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 1)
+
+    /** One-shot toasts: why a tap on a block did nothing. */
+    val messages: SharedFlow<String> = _messages.asSharedFlow()
 
     val minuteOfDay: StateFlow<Int> =
         ticker.minutes.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
@@ -265,6 +280,10 @@ private val day: DayOrchestrator,
             }
             is HomeAction.StepEdge -> stepEdge(action.id, action.edge, action.byMin)
             is HomeAction.Retype -> commitEdit(PlanEdit.Retype(action.id, action.type))
+            is HomeAction.Insert -> insertBlock(action.id, action.type)
+            is HomeAction.LockedBlockTapped ->
+                _state.value.blocks.firstOrNull { it.id == action.id }
+                    ?.let { _messages.tryEmit(lockedReason(it)) }
             HomeAction.SwapTemplate,
             HomeAction.History,
             HomeAction.Settings,
@@ -296,6 +315,46 @@ private val day: DayOrchestrator,
         val block = day.todayPlan.value?.blocks?.firstOrNull { it.id == id } ?: return
         val edgeMin = if (edge == Edge.TOP) block.start.hour * 60 + block.start.minute else block.end.hour * 60 + block.end.minute
         commitEdit(PlanEdit.Resize(id, edge, edgeMin + byMin))
+    }
+
+    private fun insertBlock(id: String, type: BlockType) {
+        val free = day.todayPlan.value?.blocks?.firstOrNull { it.id == id } ?: return
+        val nowMin = clock.now().minuteOfDay(zone)
+        val start = maxOf(free.start.hour * 60 + free.start.minute, snapUp(nowMin + PlanEditor.SNAP))
+        viewModelScope.launch {
+            if (!day.editPlan(PlanEdit.Insert(id, type))) return@launch
+            insertedBlockId = day.todayPlan.value?.blocks?.firstOrNull {
+                it.type == type && it.start.hour * 60 + it.start.minute == start
+            }?.id
+            preview = null
+            draggingId = null
+            publish(day.state.value)
+        }
+    }
+
+    /**
+     * The reason a tapped block offers no handles. Mirrors the refusals of [PlanEditor.editMode],
+     * most specific first, so the toast matches what the user sees.
+     */
+    private fun lockedReason(tapped: CalendarBlockUi): String {
+        val dayState = day.state.value
+        val screen = _state.value
+        val template = day.todayPlan.value?.templateId ?: dayState.templateId()
+        val index = screen.blocks.indexOfFirst { it.id == tapped.id }
+        val currentIndex = screen.currentBlockId?.let { id -> screen.blocks.indexOfFirst { it.id == id } } ?: -1
+        if (!tapped.type.isEditable()) return LOCKED_KID_TIME
+        if (dayState == DayState.NotStarted) return LOCKED_PICK_TEMPLATE
+        if (currentIndex >= 0 && index in 0 until currentIndex) return LOCKED_OVER
+        if (currentIndex < 0) {
+            if (dayState == DayState.KidTime && template != TemplateId.FRI_SAT) return LOCKED_OVER
+            if (dayState == DayState.KidTime) return LOCKED_DAY_BLOCK_RUNNING
+            return LOCKED_OVER
+        }
+        if (index == currentIndex) {
+            return if (day.currentForEditing()?.endEditable == false) LOCKED_FINISHED_EARLY else LOCKED_FREE_RUNNING
+        }
+        val nowMin = clock.now().minuteOfDay(zone)
+        return if (tapped.endMin <= snapUp(nowMin + PlanEditor.SNAP)) LOCKED_WILL_MISS else LOCKED_OVER
     }
 
     private fun publish(dayState: DayState) {
@@ -355,6 +414,7 @@ private val day: DayOrchestrator,
             eveningChoicePending = dayState.isDishesSlot,
             eveningSheetOpen = eveningSheetOpen,
             draggingId = draggingId,
+            selectId = insertedBlockId,
         )
     }
 
@@ -568,6 +628,16 @@ private val day: DayOrchestrator,
     }
 }
 
+private const val LOCKED_KID_TIME = "Kid time and the evening can't be moved."
+private const val LOCKED_OVER = "This block is over. You can correct what happened in the day's recap once the day ends."
+private const val LOCKED_PICK_TEMPLATE = "Pick a template first; then you can change the day."
+private const val LOCKED_DAY_BLOCK_RUNNING = "Blocks can be changed while a day block is running."
+private const val LOCKED_FINISHED_EARLY = "You finished this block early; the rest is free time."
+private const val LOCKED_FREE_RUNNING = "This free time is running. Change the block after it instead."
+private const val LOCKED_WILL_MISS = "This block can't start before it ends, so it will count as missed."
+
+private fun snapUp(min: Int): Int = ((min + PlanEditor.SNAP - 1) / PlanEditor.SNAP) * PlanEditor.SNAP
+
 @Composable
 fun HomeRoute(
     onMenu: (NavKey) -> Unit,
@@ -575,6 +645,7 @@ fun HomeRoute(
     onTab: (NavKey) -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
+    val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
     val minute by viewModel.minuteOfDay.collectAsStateWithLifecycle()
     val countdown by viewModel.countdownText.collectAsStateWithLifecycle()
@@ -583,6 +654,10 @@ fun HomeRoute(
     val minuteOfDay = { minute }
     val countdownText = { countdown }
     val progressValue = { progress }
+
+    LaunchedEffect(viewModel) {
+        viewModel.messages.collect { message -> Toast.makeText(context, message, Toast.LENGTH_SHORT).show() }
+    }
 
     ScreenScaffold(bottomBar = { AppBottomBar(AppTab.HOME) { onTab(tabKey(it)) } }) { _ ->
         HomeScreen(
@@ -622,6 +697,10 @@ fun HomeScreen(
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     val selected = state.blocks.firstOrNull { it.id == selectedId }?.takeIf { it.edit != BlockEdit.NONE }
 
+    LaunchedEffect(state.selectId) {
+        state.selectId?.let { selectedId = it }
+    }
+
     LaunchedEffect(state.currentBlockId) {
         val start = state.blocks.firstOrNull { it.id == state.currentBlockId }?.startMin
             ?: return@LaunchedEffect
@@ -660,7 +739,14 @@ fun HomeScreen(
                     minuteOfDay = minuteOfDay,
                     scrollState = scroll,
                     bottomPadding = NowCardReservedHeight,
-                    onBlockClick = { clicked -> selectedId = if (selectedId == clicked) null else clicked },
+                    onBlockClick = { clicked ->
+                        val block = state.blocks.firstOrNull { it.id == clicked }
+                        if (block != null && block.edit == BlockEdit.NONE) {
+                            onAction(HomeAction.LockedBlockTapped(clicked))
+                        } else {
+                            selectedId = if (selectedId == clicked) null else clicked
+                        }
+                    },
                     selectedBlockId = selected?.id,
                     draggingId = state.draggingId,
                     onAction = onAction,

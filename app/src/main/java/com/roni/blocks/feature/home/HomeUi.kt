@@ -63,6 +63,7 @@ data class HomeState(
     val eveningChoicePending: Boolean = false,
     val eveningSheetOpen: Boolean = false,
     val draggingId: String? = null,
+    val selectId: String? = null,
 )
 
 sealed interface HomeAction {
@@ -82,13 +83,15 @@ sealed interface HomeAction {
     data object DragCancelled : HomeAction
     data class StepEdge(val id: String, val edge: Edge, val byMin: Int) : HomeAction
     data class Retype(val id: String, val type: BlockType) : HomeAction
+    data class Insert(val id: String, val type: BlockType) : HomeAction
+    data class LockedBlockTapped(val id: String) : HomeAction
 
     val affectsOverlays: Boolean
         get() = this is ChooseEvening || this is PickEvening
 
     val affectsCalendar: Boolean
         get() = this is DragEdge || this is DragDone || this is DragCancelled ||
-            this is StepEdge || this is Retype
+            this is StepEdge || this is Retype || this is Insert
 }
 
 val NowCardReservedHeight: Dp = 220.dp

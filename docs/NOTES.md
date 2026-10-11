@@ -156,5 +156,14 @@
 - Deviation from the file's sketch: the preset chip is `DebugChip` (was `ClockChip`), and the already-dead `ClockChips`/`DemoBusyTrailing` were deleted (orphaned when the demo rows left the list); a raw `DebugButton` overload was added so the ±15 min stepper reuses the same button style.
 - Test: `DebugTimeControllerTest.testDay_startsTheTemplateAtTheChosenTime` (Running on `SUN_TUE_WED`, on `sun_tue_wed.coding_am`, clock within a minute of 10:40). Full suite 197 tests, 1 failed — still the pre-existing `evening_canBeReachedWithoutWaiting`.
 
+## Slice 5: add a block, and say why a block is locked
+
+- The `TYPE_ONLY` edit card (a later free block) gained an "Add a block:" row with CV · Coding · Gym; it sends `HomeAction.Insert(id, type)` → `orchestrator.editPlan(PlanEdit.Insert(id, type))`. The caption is now "Pick a type to turn this free time into a block, or add a 30-minute block at its start."
+- After an insert, the new block is selected so its handles show. The id travels back on `HomeState.selectId`; `HomeScreen` consumes it in a `LaunchedEffect(state.selectId)`. The value is found by matching the inserted type at the block's computed start, which covers both `edit-N` (a piece was carved off) and the free block's own id (the whole block was retyped).
+- Locked taps: a block whose `edit == NONE` no longer just fails to select — `HomeScreen` sends `HomeAction.LockedBlockTapped(id)`. `lockedReason()` (a pure private function beside `currentForEditing()`'s callers, not in a composable) mirrors `PlanEditor.editMode`'s refusals, most specific first, and returns one of the seven messages. `HomeViewModel` exposes them as a `SharedFlow<String>`; `HomeRoute` shows each as a short `Toast`.
+- The "once kid time or the evening started on a Sun–Thu day" vs "while the day is in kid time (Fri/Sat morning)" split is decided by the template (`todayPlan.templateId`), because `DayState` alone can't tell morning kid time from evening kid time.
+- Tests: `HomeViewModelTest.insertIntoFreeTime_selectsTheNewBlock`, `lockedTap_onAPastBlock_saysItsOver`, `lockedTap_onKidTime_saysKidTimeCannotMove`.
+
+
 
 

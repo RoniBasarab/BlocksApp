@@ -9,6 +9,7 @@ import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.daystate.DayState
 import com.roni.blocks.core.daystate.EndReason
 import com.roni.blocks.core.logging.AppLogger
+import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.EVENING_CHOICE_ID
@@ -34,6 +35,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -227,6 +229,46 @@ class HomeViewModelTest {
         assertEquals(22 * 60 + 30, choice.endMin)
         val kid = requireNotNull(blocks.firstOrNull { it.id == "sun_tue_wed.kid_time" })
         assertEquals("kid time ends when it was tapped", 21 * 60 + 12, kid.endMin)
+    }
+
+    @Test
+    fun insertIntoFreeTime_selectsTheNewBlock() = runBlocking {
+        startDayInsideCoding()
+
+        viewModel.onAction(HomeAction.Insert("sun_tue_wed.free_midday", BlockType.Cv))
+
+        withTimeout(5_000) { viewModel.state.first { s -> s.blocks.any { it.id == "edit-1" } } }
+        val inserted = viewModel.state.value.blocks.first { it.id == "edit-1" }
+        assertEquals(BlockType.Cv, inserted.type)
+        assertEquals(11 * 60 + 30, inserted.startMin)
+        assertEquals("edit-1", viewModel.state.value.selectId)
+    }
+
+    @Test
+    fun lockedTap_onAPastBlock_saysItsOver() = runBlocking {
+        startDayInsideCoding()
+        val messages = mutableListOf<String>()
+        val job = launch(Dispatchers.Unconfined) { viewModel.messages.collect { messages += it } }
+
+        viewModel.onAction(HomeAction.LockedBlockTapped("sun_tue_wed.cv"))
+
+        assertEquals(
+            "This block is over. You can correct what happened in the day's recap once the day ends.",
+            messages.single(),
+        )
+        job.cancel()
+    }
+
+    @Test
+    fun lockedTap_onKidTime_saysKidTimeCannotMove() = runBlocking {
+        startDayInsideCoding()
+        val messages = mutableListOf<String>()
+        val job = launch(Dispatchers.Unconfined) { viewModel.messages.collect { messages += it } }
+
+        viewModel.onAction(HomeAction.LockedBlockTapped("sun_tue_wed.kid_time"))
+
+        assertEquals("Kid time and the evening can't be moved.", messages.single())
+        job.cancel()
     }
 
     private suspend fun startDayInsideCoding() {
