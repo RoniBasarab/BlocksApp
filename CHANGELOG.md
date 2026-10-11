@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.0
+- Walks: tap Walk to step out for 30 minutes (adjustable). It rings like a timer at half time ("Turn back now") and when you should be home, then you're back to what you were doing.
+- Next before the next block's time starts it now with its own length; free time in between is skipped.
+- Next into kid time starts kid time (with Kid asleep).
+- Fixed: a block started early counted down to its planned end (327 min left) and its Pomodoro to the wrong time.
+
 ## 2.2.1
 - Fixed: the "done early" card and the notification said "then then" before the next block.
 - Fixed: the running notification now names the next block for every block type, not only work blocks.

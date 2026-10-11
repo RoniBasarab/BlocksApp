@@ -38,6 +38,7 @@ Rules that hold everywhere:
 | `core/daystate/DayState.kt` | `DayState` and `DayEvent` — the persisted vocabulary of a day | Model, ScheduleEngine |
 | `core/daystate/DayStateMachine.kt` | Every legal transition as one pure function | DayState, DayEvent |
 | `core/daystate/NotificationActionMapping.kt` | Maps notification buttons onto day events; new actions fail to compile unmapped | NotificationModel, DayStateMachine |
+| `core/daystate/WalkPreview.kt` | What the walk start sheet shows before it is committed (2.3.0): turn-back, home, and what runs after | DayOrchestrator |
 
 ## core/debug
 
@@ -81,14 +82,15 @@ Rules that hold everywhere:
 | `core/notifications/NotificationActionReceiver.kt` | Pause/Next buttons on a notification | DayOrchestrator, NotificationActionMapping |
 | `core/notifications/NotificationModel.kt` | Channel/action enums and `NotificationModelMapper` (block → notification text) | ScheduleEngine, DayState, TimeFormatter |
 | `core/notifications/NotificationRenderer.kt` | `NotificationPort` plus the real renderer; the port exists so tests can fake it | NotificationModel, AppVisibility, DismissalStore |
+| `core/notifications/WalkRinger.kt` | `WalkRinger` plus the alarm-clock walk ringer (2.3.0): half-time and home rings, even on silent | NotificationRenderer, TimeFormatter |
 
 ## core/schedule
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `core/schedule/AlertPlanner.kt` | The pure rules for when an alert fires (5-min warning, Pomodoro breaks/starts, nags until the user reacts) | Model |
+| `core/schedule/AlertPlanner.kt` | The pure rules for when an alert fires (5-min warning, Pomodoro breaks/starts, nags until the user reacts); walk rings at half time and the end (2.3.0) | Model |
 | `core/schedule/PlanConversion.kt` | Converts `BlockSpec` to and from the editor's `PlanBlock`; preview and commit share it | Model, PlanEditor |
-| `core/schedule/PlanEditor.kt` | The pure rules for reshaping today's plan (add, resize, retype, insert); free time absorbs, work blocks push, kid time stays; `END_AND_TYPE` lets a running work block also become another work type (2.2.0) | Model |
+| `core/schedule/PlanEditor.kt` | The pure rules for reshaping today's plan (add, resize, retype, insert); free time absorbs, work blocks push, kid time stays; `END_AND_TYPE` lets a running work block also become another work type (2.2.0); walks: `walkEnd`/`insertWalk`/`shortenWalk` (2.3.0) | Model |
 | `core/schedule/RecordConversion.kt` | `toRecordRows`/`withRows`: day record ↔ editable rows for correcting a past day | Model, RecordEditor |
 | `core/schedule/RecordEditor.kt` | The pure rules for editing a past day's rows: `fixMode`, `apply` (SetEnd/Retype/MarkDone, `MIN_LENGTH`/`LAST_MINUTE` limits), `snap` | Model |
 | `core/schedule/ScheduleEngine.kt` | Resolves template + date into concrete blocks and segments; `nextWakeUp(anchor)` anchors the Pomodoro cursor on the open segment's actual start (2.2.0) | Model, Clock, TimeZone |
@@ -146,9 +148,9 @@ Rules that hold everywhere:
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `feature/home/Home.kt` | Home screen, `HomeViewModel` (publishes the calendar and previews plan edits), top bar, now-card dialogs, edit card | DayOrchestrator, HistoryManager, TemplateManager, DebugTimeController |
-| `feature/home/HomeUi.kt` | `HomeState` and the calendar/block UI models | Compose, designsystem |
-| `feature/home/HomeSheets.kt` | Bottom sheets: evening choice, template swap, the recap's `CorrectBlockSheet` | DayOrchestrator, TemplateManager |
+| `feature/home/Home.kt` | Home screen, `HomeViewModel` (publishes the calendar, the now/walk cards and previews plan edits), top bar, now-card dialogs, edit card | DayOrchestrator, HistoryManager, TemplateManager, DebugTimeController |
+| `feature/home/HomeUi.kt` | `HomeState` and the calendar/block/now-card/walk UI models | Compose, designsystem |
+| `feature/home/HomeSheets.kt` | Bottom sheets: evening choice, walk start (`WalkSheet`, 2.3.0), template swap, the recap's `CorrectBlockSheet` | DayOrchestrator, TemplateManager |
 | `feature/home/NowCardDialogs.kt` | The now-card's dialog states and confirmations | DayOrchestrator |
 | `feature/home/DayRecap.kt` | A finished day as a readable recap: summary card (+ check-in card until it's answered), one row per block | designsystem, Compose |
 | `feature/home/CalendarMapper.kt` | Pure model→view mapping for the calendar; no clock, no context | DayCalendar |
