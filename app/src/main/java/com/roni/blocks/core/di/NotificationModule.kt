@@ -7,6 +7,8 @@ import com.roni.blocks.core.notifications.NotificationPort
 import com.roni.blocks.core.notifications.NotificationRenderer
 import com.roni.blocks.core.notifications.PrefsDismissalStore
 import com.roni.blocks.core.notifications.ProcessAppVisibility
+import com.roni.blocks.core.widget.WidgetPort
+import com.roni.blocks.core.widget.WidgetUpdater
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -25,6 +27,10 @@ object NotificationModule {
     @Provides
     @Singleton
     fun notificationPort(renderer: NotificationRenderer): NotificationPort = renderer
+
+    @Provides
+    @Singleton
+    fun widgetPort(updater: WidgetUpdater): WidgetPort = updater
 
     @Provides
     @Singleton

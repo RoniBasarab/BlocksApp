@@ -16,7 +16,9 @@ import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.model.TodayPlan
 import com.roni.blocks.core.notifications.ActionEvent
 import com.roni.blocks.core.notifications.NotificationModelMapper
+import com.roni.blocks.core.notifications.NotificationModel
 import com.roni.blocks.core.notifications.NotificationPort
+import com.roni.blocks.core.widget.WidgetPort
 import com.roni.blocks.core.schedule.CurrentBlock
 import com.roni.blocks.core.schedule.DayBook
 import com.roni.blocks.core.schedule.PlanEdit
@@ -68,6 +70,9 @@ class DayOrchestrator @Inject constructor(
     private val alarms: AlarmScheduler,
     private val notificationMapper: NotificationModelMapper,
     private val notificationRenderer: NotificationPort,
+    private val widgetUpdater: WidgetPort = object : WidgetPort {
+        override fun update(model: NotificationModel?) {}
+    },
     private val clock: Clock,
     private val zone: TimeZone,
     private val logger: AppLogger,
@@ -406,6 +411,7 @@ class DayOrchestrator @Inject constructor(
         history.writeDay(record)
         rebuildWeek(today)
         notificationRenderer.render(null, transition = true)
+        widgetUpdater.update(null)
         alarms.cancel()
         if (_state.value != DayState.Off && _state.value != DayState.Ended) {
             _state.value = DayState.Ended
@@ -437,7 +443,18 @@ class DayOrchestrator @Inject constructor(
         val wake = engine.nextWakeUp(_state.value, today, now, template, index)
         if (wake == null) alarms.cancel() else alarms.schedule(wake)
         val timeline = engine.timelineAt(template, today, zone, _segments.value, now)
-        notificationRenderer.render(notificationMapper.from(_state.value, timeline, now), transition)
+        val model = notificationMapper.from(_state.value, timeline, now)
+        notificationRenderer.render(model, transition)
+        widgetUpdater.update(model)
+    }
+
+    /** Re-draws only the home-screen widget with the model [sideEffects] would compute right now. */
+    suspend fun refreshWidget() {
+        val now = clock.now()
+        val today = today()
+        val template = currentTemplate()
+        val timeline = engine.timelineAt(template, today, zone, _segments.value, now)
+        widgetUpdater.update(notificationMapper.from(_state.value, timeline, now))
     }
 
     /**

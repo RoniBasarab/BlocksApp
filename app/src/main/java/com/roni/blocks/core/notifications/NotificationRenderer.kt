@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
-import com.roni.blocks.MainActivity
 import com.roni.blocks.R
 import com.roni.blocks.core.time.SystemTimeMapper
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -132,19 +131,7 @@ class NotificationRenderer @Inject constructor(
             setSound(if (sound) android.provider.Settings.System.DEFAULT_NOTIFICATION_URI else null, null)
         }
 
-    private fun openApp(): PendingIntent {
-        val intent = Intent(Intent.ACTION_MAIN).apply {
-            addCategory(Intent.CATEGORY_LAUNCHER)
-            setClass(context, MainActivity::class.java)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        }
-        return PendingIntent.getActivity(
-            context,
-            REQUEST_OPEN,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-    }
+    private fun openApp(): PendingIntent = openAppIntent(context)
 
     private fun actionIntent(action: NotificationActionModel, index: Int): PendingIntent {
         val intent = Intent(context, NotificationActionReceiver::class.java)
@@ -178,7 +165,6 @@ class NotificationRenderer @Inject constructor(
         const val EVENING = "evening"
         private const val LEGACY_STATUS = "status"
         private const val LEGACY_ALERTS = "day_alerts"
-        private const val REQUEST_OPEN = 0
         private const val REQUEST_ACTION = 20
         private const val REQUEST_DISMISSED = 60
     }

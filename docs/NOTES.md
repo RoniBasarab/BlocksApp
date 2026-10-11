@@ -182,6 +182,15 @@
 - Positional-args casualty: `DayRecord` gained `checkIn` between `flags` and `plannedBlocks`, so `DayOrchestrator.flush`'s positional `DayRecord(...)` call had to name `plannedBlocks`.
 - Test: `CorrectDayTest.checkIn_isStoredOnTheDay` (`setCheckIn(monday, GOOD)` → `readDay.checkIn == GOOD` and the recap's chips contain "Felt good"). Full suite green.
 
+## Slice 8: home-screen widget
+
+- `core/widget/BlocksWidget.kt`: `@AndroidEntryPoint` AppWidgetProvider following the alarm-receiver shape (`goAsync` + `withTimeout(9_000)` + `ensureRestored()` then `orchestrator.refreshWidget()`; never paints itself).
+- `core/widget/WidgetUpdater.kt`: `@Singleton`, `@ApplicationContext` + `SystemTimeMapper`; `update(model)` is the spec verbatim — ids come fresh from `AppWidgetManager.getAppWidgetIds(ComponentName(...))` each time (no widget ids in prefs), `model == null` shows the static "Blocks / No day running" state, chronometer base = `elapsedRealtime() + (systemMillis(end) - now)` so the debug clock's countdown stays right.
+- `WidgetPort` interface injected into `DayOrchestrator` with a no-op default in the constructor (so the six hand-built orchestrator tests compile unchanged); bound in `NotificationModule` like `NotificationPort`. `sideEffects()` and `flush()` (null) now also paint the widget; new `refreshWidget()` computes the model the `sideEffects()` way and calls only the widget.
+- Shared `openAppIntent(context)` extracted to `core/notifications/AppIntent.kt` (launcher-style MainActivity intent); `NotificationRenderer.openApp()` delegates to it and the redundant `REQUEST_OPEN` const is gone.
+- Resources: `widget_now.xml` (root/accent/title/text/chronometer per spec), `drawable/widget_bg.xml` (`#312F2C`, 16dp corners), `xml/widget_info.xml` (min 180×40dp, 3×1 cells, horizontal resize, updatePeriod 0, description @string), manifest receiver with `APPWIDGET_UPDATE` filter + provider meta-data (exported=false, system delivers the broadcast).
+- No named test (Android glue); full suite green (`exit=0`).
+
 
 
 
