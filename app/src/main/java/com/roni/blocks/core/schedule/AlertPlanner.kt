@@ -1,7 +1,7 @@
 package com.roni.blocks.core.schedule
 
 /** Why the notification makes a sound (2.2.0). */
-enum class AlertKind { WARNING, ENDED, NAG, BREAK, FOCUS }
+enum class AlertKind { WARNING, ENDED, NAG, BREAK, FOCUS, TURN_BACK, WALK_DONE }
 
 /** One sound at [atSec] (epoch seconds). */
 data class Alert(val atSec: Long, val kind: AlertKind)
@@ -60,4 +60,19 @@ object AlertPlanner {
             add(Alert(t, AlertKind.FOCUS))
         }
     }
+
+    /**
+     * A walk rings twice (2.3.0): at half time, to turn back (the way home takes as long as the way out), and at the
+     * end. A walk gets no warning and no nags: it ends by itself.
+     */
+    fun walkAlerts(startSec: Long, endSec: Long): List<Alert> =
+        listOf(Alert(startSec + (endSec - startSec) / 2, AlertKind.TURN_BACK), Alert(endSec, AlertKind.WALK_DONE))
+
+    /** The walk alert that is due at [nowSec] (the latest one in the last [graceSec] seconds), or null. */
+    fun dueWalk(startSec: Long, endSec: Long, nowSec: Long, graceSec: Long = 90): Alert? =
+        walkAlerts(startSec, endSec).lastOrNull { it.atSec <= nowSec && it.atSec > nowSec - graceSec }
+
+    /** The next walk alert after [afterSec], or null when both have rung. */
+    fun nextWalk(startSec: Long, endSec: Long, afterSec: Long): Alert? =
+        walkAlerts(startSec, endSec).firstOrNull { it.atSec > afterSec }
 }

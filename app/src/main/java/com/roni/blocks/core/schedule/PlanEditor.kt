@@ -247,6 +247,127 @@ object PlanEditor {
         return "edit-${last + 1}"
     }
 
+    const val WALK_DEFAULT = 30
+    const val WALK_MIN = 10
+    const val WALK_MAX = 60
+
+    /**
+     * Next was pressed before the next block's planned start (2.3.0). Next means "start the next thing": free time in
+     * between is skipped (it leaves the plan), the first block that isn't free time starts now and keeps its length,
+     * and the time it leaves behind becomes free time. Kid time itself just starts now. The
+     * current block ends now. Returns null when the next block is already due (the normal Next handles it).
+     */
+    fun startEarly(plan: List<PlanBlock>, currentId: String, nowMin: Int): List<PlanBlock>? {
+        val blocks = plan.sortedBy { it.startMin }.toMutableList()
+        val cur = blocks.indexOfFirst { it.id == currentId }
+        if (cur < 0) return null
+        val first = blocks.getOrNull(cur + 1) ?: return null
+        if (first.startMin <= nowMin) return null
+        var land = cur + 1
+        while (blocks[land].type == BlockType.Free && land + 1 < blocks.size) land++
+        val target = blocks[land]
+        repeat(land - cur - 1) { blocks.removeAt(cur + 1) }                        // the free time in between is skipped
+        val li = cur + 1
+        val start = maxOf(nowMin, blocks[cur].startMin)
+        if (!target.type.isEditable()) {                                            // kid time starts now
+            blocks[li] = target.copy(startMin = start)
+            return endCurrent(blocks, cur, start)
+        }
+        val end = start + target.length                                            // earlier, so it can't reach kid time
+        blocks[li] = target.copy(startMin = start, endMin = end)
+        if (end < target.endMin) freeAfter(blocks, li, end, target.endMin)
+        return endCurrent(blocks, cur, start)
+    }
+
+    /** The block Next lands on from [currentId]: the first one after it that isn't free time (or the last one). */
+    fun nextStop(plan: List<PlanBlock>, currentId: String): PlanBlock? {
+        val blocks = plan.sortedBy { it.startMin }
+        val cur = blocks.indexOfFirst { it.id == currentId }
+        if (cur < 0) return null
+        val after = blocks.drop(cur + 1)
+        return after.firstOrNull { it.type != BlockType.Free } ?: after.lastOrNull()
+    }
+
+    /** The current block ends at [at]; a block that never really ran (it would end where it starts) leaves the plan. */
+    private fun endCurrent(blocks: MutableList<PlanBlock>, cur: Int, at: Int): List<PlanBlock> {
+        if (at <= blocks[cur].startMin) blocks.removeAt(cur) else blocks[cur] = blocks[cur].copy(endMin = at)
+        return blocks
+    }
+
+    /** The walk would start now and end at most here: kid time (or 22:30) is a wall. Null when no walk fits. */
+    fun walkEnd(plan: List<PlanBlock>, currentId: String, nowMin: Int, minutes: Int): Int? {
+        val blocks = plan.sortedBy { it.startMin }
+        val cur = blocks.indexOfFirst { it.id == currentId }
+        if (cur < 0 || !blocks[cur].type.isEditable()) return null
+        val wall = blocks.drop(cur + 1).firstOrNull { !it.type.isEditable() }?.startMin ?: DAY_END
+        val end = minOf(nowMin + minutes.coerceIn(WALK_MIN, WALK_MAX), wall)
+        return end.takeIf { it - nowMin >= WALK_MIN }
+    }
+
+    /**
+     * A walk starts now (2.3.0): the current block stops, the walk takes [minutes] (cut at kid time), then the rest of
+     * the current block resumes; a walk longer than that eats the start of the blocks after it. A leftover work piece
+     * under 10 minutes becomes free time, and so does the whole leftover when [doneEarly] (the block was already finished). The walk's id is `walk-<startMin>`; the resumed piece is `<id>@<startMin>`.
+     */
+    fun insertWalk(plan: List<PlanBlock>, currentId: String, nowMin: Int, minutes: Int, doneEarly: Boolean = false): List<PlanBlock>? {
+        val end = walkEnd(plan, currentId, nowMin, minutes) ?: return null
+        val blocks = plan.sortedBy { it.startMin }
+        val cur = blocks.indexOfFirst { it.id == currentId }
+        val c = blocks[cur]
+        val out = blocks.take(cur).toMutableList()
+        if (nowMin > c.startMin) out += c.copy(endMin = nowMin)
+        out += PlanBlock(uniqueId("walk-$nowMin", blocks), BlockType.Walk, nowMin, end)
+        val after = mutableListOf<PlanBlock>()
+        if (end < c.endMin) after += c.copy(id = uniqueId("${c.id}@$end", blocks), type = if (doneEarly) BlockType.Free else c.type, startMin = end)
+        for (b in blocks.drop(cur + 1)) {
+            when {
+                b.endMin <= end -> Unit                                             // covered by the walk
+                b.startMin < end -> after += b.copy(startMin = end)                 // starts when the walk ends
+                else -> after += b
+            }
+        }
+        val tidy = after.map { if (it.type.isWork && it.length < MIN_WORK) it.copy(type = BlockType.Free) else it }
+        return out + mergeFree(tidy)
+    }
+
+    /**
+     * "Turn back now" (2.3.0): the way home takes as long as the way out did, so the walk ends at [newEndMin]. The
+     * block after it starts that much sooner; if it can't move (kid time), the freed time is free time.
+     */
+    fun shortenWalk(plan: List<PlanBlock>, walkId: String, newEndMin: Int): List<PlanBlock>? {
+        val blocks = plan.sortedBy { it.startMin }.toMutableList()
+        val w = blocks.indexOfFirst { it.id == walkId }
+        if (w < 0 || blocks[w].type != BlockType.Walk) return null
+        val walk = blocks[w]
+        if (newEndMin >= walk.endMin || newEndMin <= walk.startMin) return null
+        blocks[w] = walk.copy(endMin = newEndMin)
+        val next = blocks.getOrNull(w + 1)
+        if (next != null && next.type.isEditable() && next.startMin == walk.endMin) blocks[w + 1] = next.copy(startMin = newEndMin)
+        else blocks.add(w + 1, PlanBlock(uniqueId("$walkId~free", blocks), BlockType.Free, newEndMin, walk.endMin))
+        return blocks
+    }
+
+    /** [base], or base+1, base+2… when a block already has it (a second walk can land on the same minute). */
+    private fun uniqueId(base: String, blocks: List<PlanBlock>): String {
+        if (blocks.none { it.id == base }) return base
+        var n = 1
+        while (blocks.any { it.id == "$base+$n" }) n++
+        return "$base+$n"
+    }
+
+    private fun mergeFree(blocks: List<PlanBlock>): List<PlanBlock> {
+        val out = mutableListOf<PlanBlock>()
+        for (b in blocks) {
+            val last = out.lastOrNull()
+            if (last != null && last.type == BlockType.Free && b.type == BlockType.Free && last.endMin == b.startMin) {
+                out[out.lastIndex] = last.copy(endMin = b.endMin)
+            } else {
+                out += b
+            }
+        }
+        return out
+    }
+
     fun snap(m: Int): Int = ((m + SNAP / 2) / SNAP) * SNAP
     private fun snapUp(m: Int): Int = ((m + SNAP - 1) / SNAP) * SNAP
 }
