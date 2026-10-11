@@ -70,6 +70,8 @@ data class WalkCardUi(
     val turnBackAt: String,
     val homeAt: String,
     val nextLabel: String?,
+    /** A standalone walk (2.4.0): "End walk" closes it without touching the day. */
+    val standalone: Boolean = false,
 )
 
 @Immutable
@@ -86,6 +88,8 @@ data class HomeState(
     val recap: DayRecapUi? = null,
     val nowCard: NowCardUi? = null,
     val walkCard: WalkCardUi? = null,
+    /** The top-bar walk icon is visible whenever a walk fits right now (2.4.0). */
+    val walkEnabled: Boolean = false,
     val walkSheet: WalkSheetUi? = null,
     val eveningChoicePending: Boolean = false,
     val eveningSheetOpen: Boolean = false,
@@ -104,6 +108,8 @@ sealed interface HomeAction {
     data object StartWalk : HomeAction
     data object DismissWalkSheet : HomeAction
     data object TurnBack : HomeAction
+    /** "End walk" on a standalone walk (2.4.0): logs it and closes the timer, leaving the day alone. */
+    data object EndWalk : HomeAction
     data object Resume : HomeAction
     data object KidAsleep : HomeAction
     data object ChooseEvening : HomeAction
