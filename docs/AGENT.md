@@ -2,14 +2,14 @@
 
 Read this first, every session. The current task is named in the first paragraph.
 
-You're the working agent for Blocks, an Android app (Kotlin, Compose, Hilt) in this repo. Implement docs/Task-8.md (target 2.1.0) exactly, on a branch task8 from master. The owner's tokens are limited: be fast, decisive and brief.
+You're the working agent for Blocks, an Android app (Kotlin, Compose, Hilt) in this repo. Implement docs/Task-9.md (target 2.2.0) exactly, on a branch task9 from master. The owner's tokens are limited: be fast, decisive and brief.
 
 START
-1. One command: git branch --show-current ; git log --oneline master..task8 2>$null ; git status --short
-   - No task8 branch yet: git checkout -b task8, then Slice 0. On this first run the new docs/ files and the four editor files under core/schedule show as untracked or modified: that's expected, Slice 0 commits them before it cleans anything.
-   - Commits named "task8 slice N" are finished slices; continue with the lowest one missing.
-   - Modified files mean a previous session stopped mid-slice: run that slice's tests; if green or a quick fix, finish and commit it; otherwise git stash push -m "partial" and redo the slice. Never stash before the "task8 prep" commit exists: the new docs would go with it.
-2. Read docs/Task-8.md lines 1-54 once (slice map, decisions, rules). Then read only the current slice's lines from the map. Open CODEMAP.md (docs/CODEMAP.md once Slice 0 moved it) when you need to find a file; docs/NOTES.md only to look up an earlier decision. Don't read SUMMARY.md or the specs.
+1. One command: git branch --show-current ; git log --oneline master..task9 2>$null ; git status --short
+   - No task9 branch yet: git checkout -b task9, then Slice 0. On this first run the new docs/ files and the four files under core/schedule show as untracked or modified: that's expected, Slice 0 commits them first.
+   - Commits named "task9 slice N" are finished slices; continue with the lowest one missing.
+   - Modified files mean a previous session stopped mid-slice: run that slice's tests; if green or a quick fix, finish and commit it; otherwise git stash push -m "partial" and redo the slice. Never stash before the "task9 prep" commit exists: the new docs would go with it.
+2. Read docs/Task-9.md lines 1-64 once (slice map, findings, decisions, rules). Then read only the current slice's lines from the map. Open docs/CODEMAP.md when you need to find a file; docs/NOTES.md only to look up an earlier decision. Don't read SUMMARY.md or the specs.
 
 FINDING THINGS: GREP FIRST
 - Search the repo with git grep -n "<name>" (add -- "*.kt" to narrow). It answers in a second; reading files to search, writing Python or PowerShell scripts to search, or searching the web is slower. Never do those for anything inside the repo.
@@ -22,28 +22,36 @@ SHELL: WINDOWS POWERSHELL 5.1
 - Edit with your file tools. If you ever write a file from PowerShell, add -Encoding UTF8. "A?" in console output is just PowerShell showing a non-ASCII character.
 - Don't check versions, the environment, or git between steps. The build works; the commit line shows the hash.
 
-GRADLE: ALWAYS THIS FORM (only errors and the exit code; exit=0 means green)
-   ./gradlew :app:testDebugUnitTest --tests "<classes>" --offline --console=plain 2>&1 | Select-String -Pattern '^e: |FAILED|Exception|expected' -Context 0,3 | Select-Object -First 25 ; "exit=$LASTEXITCODE"
+GRADLE: ALWAYS THIS FORM (no quotes around the --tests value; several classes: --tests A --tests B; the full suite: no --tests)
+   cmd /c "gradlew.bat :app:testDebugUnitTest --tests <class> --offline --console=plain > %TEMP%\g.txt 2>&1" ; "exit=$LASTEXITCODE" ; Select-String -CaseSensitive -Path $env:TEMP\g.txt -Pattern '^e: |FAILED' -Context 0,3 | Select-Object -First 25
+- Output goes to a file through cmd, never through a PowerShell pipe: the Gradle daemon can hold a pipe open until the shell times out, and PowerShell wraps Gradle's stderr in NativeCommandError noise.
+- exit=0 is the whole answer. Lines starting with w: are warnings: never read them, never fix them.
 - No tests in the slice: :app:compileDebugKotlin in place of :app:testDebugUnitTest --tests "...".
 - Why did a test fail? Read the result instead of rerunning:
    Select-String -Path app\build\test-results\testDebugUnitTest\*.xml -Pattern '<failure' -Context 1,4 | Select-Object -First 3
 - One build per fix. If a build is still running after 10 minutes, it's stuck: ./gradlew --stop, then run it once more.
 - Never wait on anything external: no sleep loops, no polling, no waiting for a device. If adb devices doesn't list a phone, skip the phone checks.
 
+READING A RESULT: ONE LOOK, ONE DECISION
+- exit=0 means every test passed, including the ones you just added. Passing tests print nothing; that's normal. Don't check that they ran, don't rerun, move to the next step.
+- exit is not 0: fix what the error lines say. That's the only other case.
+- A shell timeout or warning after BUILD SUCCESSFUL changes nothing: the build is green.
+- Once a result is in, don't reopen it ("wait, but..."). Doubting a green build costs more than the rare miss the final gate would catch anyway.
+
 EACH SLICE
 1. Read the slice. git grep what you'll change.
 2. Make all the slice's edits, code and its named tests, before building. Paste the task's code and adapt names; don't rewrite it.
 3. Build and test the slice; fix until exit=0. Then the full suite once: the same command without --tests.
-4. git add -A ; git commit -m "task8 slice N: <title>" 2>&1 | Select-Object -First 1
+4. git add -A ; git commit -m "task9 slice N: <title>" 2>&1 | Select-Object -First 1
 5. One line: "Slice N done: <hash>". Start the next slice at once.
 
 ALWAYS
 - Stay in flow: decide and act, at most two sentences of thinking between commands. Don't verify what the compiler or the tests verify; warnings and unused imports are fine.
 - Keep going until the final report. Stop early only for a real blocker, and say exactly what it is. Don't ask questions; log choices in docs/NOTES.md in one line each.
 - Time-box: after ~15 minutes on one problem, take the simplest option that passes the named tests, note it in docs/NOTES.md, and move on.
-- Code marked verified (PlanEditor.kt, RecordEditor.kt and their tests) is final: don't edit it.
+- Code marked verified (PlanEditor.kt, AlertPlanner.kt, RecordEditor.kt and their tests) is final: don't edit it.
 - If an existing test checks something the task changes on purpose, update or delete it and list it in the report. Add only the tests the task names.
 - Real names win: if a name in the task doesn't exist, use the real one. Don't refactor beyond the slice.
 - If an edit mangles a file: git checkout -- <file>, then redo the edit.
 - Phone: only com.roni.blocks.debug. Never install over, clear, force-stop or uninstall com.roni.blocks.
-- Finish with Slice 9: final gate, merge task8 into master, tag v2.1.0, push, and the short final report.
+- Finish with Slice 5: final gate, merge task9 into master, tag v2.2.0, push, the short final report, then stop. Don't re-verify finished slices or close old todo lists by re-checking them; mark them done and end.

@@ -18,10 +18,13 @@ sealed interface PlanEdit {
     data class Insert(override val blockId: String, val type: BlockType) : PlanEdit
 }
 
-/** What a block offers in the UI. */
-enum class BlockEdit { NONE, END_ONLY, FULL, TYPE_ONLY }
+/**
+ * What a block offers in the UI. END_AND_TYPE is the running work block: its end moves and it can become
+ * another work type (2.2.0). END_ONLY is any other running block: free time, or a block Next finished early.
+ */
+enum class BlockEdit { NONE, END_ONLY, END_AND_TYPE, FULL, TYPE_ONLY }
 
-/** The block the day is on. `endEditable` is false once Next ended it early (its leftover is free time). */
+/** The block the day is on. `endEditable` is false once Next ended it early: its leftover is free time, so its end still moves but its type doesn't. */
 data class CurrentBlock(val id: String, val endEditable: Boolean)
 
 /**
@@ -44,7 +47,7 @@ object PlanEditor {
         if (cur < 0 || i < cur) return BlockEdit.NONE                              // past blocks are read-only
         val b = blocks[i]
         if (!b.type.isEditable()) return BlockEdit.NONE
-        if (i == cur) return if (current.endEditable && b.type.isWork) BlockEdit.END_ONLY else BlockEdit.NONE
+        if (i == cur) return if (current.endEditable && b.type.isWork) BlockEdit.END_AND_TYPE else BlockEdit.END_ONLY
         if (b.endMin <= snapUp(nowMin + SNAP)) return BlockEdit.NONE                // over before it could start: it will be missed
         return if (b.type == BlockType.Free) BlockEdit.TYPE_ONLY else BlockEdit.FULL
     }
@@ -52,9 +55,9 @@ object PlanEditor {
     fun apply(plan: List<PlanBlock>, edit: PlanEdit, nowMin: Int, current: CurrentBlock?): List<PlanBlock>? {
         val mode = editMode(plan, edit.blockId, nowMin, current)
         val allowed = when (edit) {
-            is PlanEdit.Retype -> mode == BlockEdit.FULL || mode == BlockEdit.TYPE_ONLY
+            is PlanEdit.Retype -> mode == BlockEdit.FULL || mode == BlockEdit.TYPE_ONLY || (mode == BlockEdit.END_AND_TYPE && edit.type.isWork)
             is PlanEdit.Insert -> mode == BlockEdit.TYPE_ONLY && edit.type.isWork
-            is PlanEdit.Resize -> mode == BlockEdit.FULL || (mode == BlockEdit.END_ONLY && edit.edge == Edge.BOTTOM)
+            is PlanEdit.Resize -> mode == BlockEdit.FULL || ((mode == BlockEdit.END_ONLY || mode == BlockEdit.END_AND_TYPE) && edit.edge == Edge.BOTTOM)
         }
         if (!allowed || current == null) return null
         val blocks = plan.sortedBy { it.startMin }.toMutableList()
@@ -64,11 +67,18 @@ object PlanEditor {
             is PlanEdit.Retype -> retype(blocks, i, edit.type)
             is PlanEdit.Insert -> insert(blocks, i, edit.type, nowMin)
             is PlanEdit.Resize -> when (edit.edge) {
-                Edge.BOTTOM -> moveEnd(blocks, i, snap(edit.toMin), nowMin)
+                Edge.BOTTOM -> if (pullsNext(blocks, i, cur, snap(edit.toMin))) {
+                    moveStart(blocks, i + 1, cur, snap(edit.toMin), nowMin)                 // running free time ends sooner: the next block starts sooner
+                } else {
+                    moveEnd(blocks, i, snap(edit.toMin), nowMin)
+                }
                 Edge.TOP -> moveStart(blocks, i, cur, snap(edit.toMin), nowMin)
             }
         }
     }
+
+    private fun pullsNext(blocks: List<PlanBlock>, i: Int, cur: Int, to: Int): Boolean =
+        i == cur && blocks[i].type == BlockType.Free && to < blocks[i].endMin && blocks.getOrNull(i + 1)?.type?.isWork == true
 
     private fun moveEnd(blocks: MutableList<PlanBlock>, i: Int, to: Int, nowMin: Int): List<PlanBlock>? {
         val b = blocks[i]
