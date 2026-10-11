@@ -64,6 +64,7 @@ data class HomeState(
     val eveningSheetOpen: Boolean = false,
     val draggingId: String? = null,
     val selectId: String? = null,
+    val use24: Boolean = true,
 )
 
 sealed interface HomeAction {

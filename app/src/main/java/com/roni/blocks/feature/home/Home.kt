@@ -75,6 +75,7 @@ import com.roni.blocks.core.schedule.Edge
 import com.roni.blocks.core.schedule.PlanBlock
 import com.roni.blocks.core.schedule.PlanEdit
 import com.roni.blocks.core.schedule.PlanEditor
+import com.roni.blocks.core.schedule.RecordEdit
 import com.roni.blocks.core.schedule.isEditable
 import com.roni.blocks.core.schedule.toBlockSpecs
 import com.roni.blocks.core.schedule.toPlanBlocks
@@ -357,6 +358,11 @@ private val day: DayOrchestrator,
         return if (tapped.endMin <= snapUp(nowMin + PlanEditor.SNAP)) LOCKED_WILL_MISS else LOCKED_OVER
     }
 
+    fun correctRecord(edit: RecordEdit) {
+        val date = clock.now().toLocalDateTime(zone).date
+        viewModelScope.launch { history.correctDay(date, edit, zone) }
+    }
+
     private fun publish(dayState: DayState) {
         val now = clock.now()
         val minute = now.minuteOfDay(zone)
@@ -415,6 +421,7 @@ private val day: DayOrchestrator,
             eveningSheetOpen = eveningSheetOpen,
             draggingId = draggingId,
             selectId = insertedBlockId,
+            use24 = timeFormatter.use24.value,
         )
     }
 
@@ -668,6 +675,7 @@ fun HomeRoute(
             suppressedConfirmations = suppressed,
             onSuppressConfirmation = viewModel::onSuppressConfirmation,
             onAskAgain = viewModel::onAskAgain,
+            onCorrect = viewModel::correctRecord,
             onAction = { action ->
                 when (action) {
                     HomeAction.SwapTemplate -> onSwap()
@@ -690,12 +698,14 @@ fun HomeScreen(
     suppressedConfirmations: Set<NowButtonId> = emptySet(),
     onSuppressConfirmation: (NowButtonId) -> Unit = {},
     onAskAgain: (NowButtonId) -> Unit = {},
+    onCorrect: (RecordEdit) -> Unit = {},
 ) {
     SideEffect { RecompositionCounter.hit("HomeScreen") }
     val scroll = rememberScrollState()
     val density = LocalDensity.current
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     val selected = state.blocks.firstOrNull { it.id == selectedId }?.takeIf { it.edit != BlockEdit.NONE }
+    var correcting by remember { mutableStateOf<RecapRow?>(null) }
 
     LaunchedEffect(state.selectId) {
         state.selectId?.let { selectedId = it }
@@ -729,6 +739,7 @@ fun HomeScreen(
                     s = recap,
                     bottomPadding = Spacing.l,
                     modifier = Modifier.weight(1f).testTag("home_calendar"),
+                    onRowTap = { correcting = it },
                 )
             } else {
                 DayCalendar(
@@ -783,6 +794,14 @@ fun HomeScreen(
 
     if (state.eveningChoicePending || state.eveningSheetOpen) {
         EveningChoiceSheet(onPick = { onAction(HomeAction.PickEvening(it)) })
+    }
+    correcting?.let { row ->
+        CorrectBlockSheet(
+            row = row,
+            use24 = state.use24,
+            onEdit = onCorrect,
+            onDismiss = { correcting = null },
+        )
     }
 }
 

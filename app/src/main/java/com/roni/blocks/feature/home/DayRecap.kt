@@ -2,6 +2,7 @@ package com.roni.blocks.feature.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -34,6 +35,9 @@ import com.roni.blocks.core.model.MissReason
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.isWork
+import com.roni.blocks.core.schedule.RecordEditor
+import com.roni.blocks.core.schedule.RowFix
+import com.roni.blocks.core.schedule.toRecordRows
 import com.roni.blocks.designsystem.AppCard
 import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.AppType
@@ -61,6 +65,9 @@ data class RecapRow(
     val badges: ImmutableList<RecapBadge>,
     val note: String?,
     val missed: Boolean,
+    val segmentIndex: Int? = null,
+    val fix: RowFix = RowFix.NONE,
+    val endMin: Int? = null,
 )
 
 @Immutable
@@ -90,6 +97,7 @@ object DayRecapMapper {
         }
 
         val plans = planBlocks(record, zone)
+        val recordRows = record.toRecordRows(zone)
         val stopMin = if (DayFlag.EMERGENCY_STOP in record.flags) {
             record.segments.mapNotNull { it.actualEnd?.minuteOfDay(zone) }.maxOrNull()
         } else {
@@ -111,6 +119,8 @@ object DayRecapMapper {
             if (happened != null) {
                 val start = happened.actualStart.minuteOfDay(zone)
                 val end = happened.actualEnd!!.minuteOfDay(zone)
+                val rowType = happened.type
+                val happenedIndex = record.segments.indexOf(happened)
                 val ranOver = (end - plan.endMin).coerceAtLeast(0)
                 val paused = pausesWithin(record, start, end, zone)
                 val lateBy = start - plan.startMin
@@ -131,21 +141,25 @@ object DayRecapMapper {
                     startMin = start,
                     ranOver = ranOver,
                     paused = paused,
-                    workedMin = if (plan.type.isWork) (end - start - paused).coerceAtLeast(0) else 0,
+                    workedMin = if (rowType.isWork) (end - start - paused).coerceAtLeast(0) else 0,
                     row = RecapRow(
                         id = rowId(plan),
-                        type = plan.type,
-                        title = recapTitle(plan.type),
+                        type = rowType,
+                        title = recapTitle(rowType),
                         range = rangeLabel(start, end, use24),
                         duration = durationText(end - start),
                         badges = badges.toPersistentList(),
                         note = notes.joinToString(" ").ifEmpty { null },
                         missed = false,
+                        segmentIndex = happenedIndex,
+                        fix = RecordEditor.fixMode(recordRows, happenedIndex),
+                        endMin = end,
                     ),
                 )
                 prevHappened = plan
                 prevRanOver = ranOver
             } else if (consumed != null) {
+                val consumedIndex = record.segments.indexOf(consumed)
                 val note = when (consumed.missReason) {
                     MissReason.LATE_START -> record.segments
                         .filter { it.kind == SegmentKind.PLANNED && it.actualEnd != null }
@@ -168,6 +182,8 @@ object DayRecapMapper {
                         badges = persistentListOf(RecapBadge("Missed", RecapTone.MUTED)),
                         note = note,
                         missed = true,
+                        segmentIndex = consumedIndex,
+                        fix = RecordEditor.fixMode(recordRows, consumedIndex),
                     ),
                 )
             }
@@ -224,6 +240,7 @@ object DayRecapMapper {
             }
             if (DayFlag.PLAN_EDITED in record.flags) add(RecapBadge("Plan changed", RecapTone.NEUTRAL))
             if (DayFlag.TEMPLATE_SWAPPED in record.flags) add(RecapBadge("Template swapped", RecapTone.NEUTRAL))
+            if (DayFlag.CORRECTED in record.flags) add(RecapBadge("Corrected", RecapTone.NEUTRAL))
         }
 
         val headline: String
@@ -349,10 +366,11 @@ fun RecapSummaryCard(s: DayRecapUi) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun RecapRowCard(r: RecapRow) {
+fun RecapRowCard(r: RecapRow, onClick: (() -> Unit)? = null) {
     val c = AppTheme.colors
     val accent = r.type?.let { blockColors(it).accent } ?: c.textMuted
-    AppCard(Modifier.fillMaxWidth().alpha(if (r.missed) 0.55f else 1f).testTag("recap_row")) {
+    val tappable = if (onClick != null && r.fix != RowFix.NONE) Modifier.clickable { onClick() } else Modifier
+    AppCard(Modifier.fillMaxWidth().alpha(if (r.missed) 0.55f else 1f).then(tappable).testTag("recap_row")) {
         Column(
             Modifier
                 .drawBehind { drawRoundRect(accent, size = Size(4.dp.toPx(), size.height), cornerRadius = CornerRadius(2.dp.toPx())) }
@@ -399,13 +417,15 @@ fun RecapPill(b: RecapBadge) {
 }
 
 @Composable
-fun RecapList(s: DayRecapUi, bottomPadding: Dp, modifier: Modifier = Modifier) {
+fun RecapList(s: DayRecapUi, bottomPadding: Dp, modifier: Modifier = Modifier, onRowTap: (RecapRow) -> Unit = {}) {
     LazyColumn(
         modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(start = Spacing.l, top = Spacing.s, end = Spacing.l, bottom = bottomPadding),
         verticalArrangement = Arrangement.spacedBy(Spacing.s),
     ) {
         item(key = "recap_summary") { RecapSummaryCard(s) }
-        items(items = s.rows, key = { it.id }) { row -> RecapRowCard(row) }
+        items(items = s.rows, key = { it.id }) { row ->
+            RecapRowCard(row, onClick = if (row.fix != RowFix.NONE) ({ onRowTap(row) }) else null)
+        }
     }
 }

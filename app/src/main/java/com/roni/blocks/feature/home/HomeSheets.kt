@@ -27,12 +27,18 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Choice
+import com.roni.blocks.core.schedule.RecordEdit
+import com.roni.blocks.core.schedule.RowFix
 import com.roni.blocks.designsystem.AppShapes
 import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.Metrics
@@ -134,5 +140,105 @@ private fun eveningIcon(choice: Choice): ImageVector = when (choice) {
     Choice.PROJECT -> Icons.Outlined.Code
     Choice.READ -> Icons.AutoMirrored.Outlined.MenuBook
     Choice.CHILL -> Icons.Outlined.Weekend
+}
+
+private const val CORRECT_SNAP = 5
+
+private val correctableTypes = listOf(BlockType.Cv, BlockType.Coding, BlockType.Gym, BlockType.Free)
+
+/**
+ * Corrects one block of a past day (2.1.0). [RowFix.END_AND_TYPE] fixes when a done block ended and what it
+ * became; [RowFix.MARK_DONE] marks a missed block as happened. Each tap commits at once through [onEdit].
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CorrectBlockSheet(
+    row: RecapRow,
+    use24: Boolean,
+    onEdit: (RecordEdit) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val index = row.segmentIndex ?: return
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        shape = AppShapes.sheet,
+        containerColor = AppTheme.colors.surface,
+        dragHandle = null,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(Spacing.l),
+            verticalArrangement = Arrangement.spacedBy(Spacing.s),
+        ) {
+            when (row.fix) {
+                RowFix.END_AND_TYPE -> CorrectEndBody(row, index, use24, onEdit, onDismiss)
+                RowFix.MARK_DONE -> CorrectMissingBody(row, index, onEdit, onDismiss)
+                RowFix.NONE -> Unit
+            }
+        }
+    }
+}
+
+@Composable
+private fun CorrectEndBody(
+    row: RecapRow,
+    index: Int,
+    use24: Boolean,
+    onEdit: (RecordEdit) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = AppTheme.colors
+    var endMin by remember(row.id) { mutableStateOf(row.endMin ?: 0) }
+    Text("Correct ${row.title} ${row.range}", style = MaterialTheme.typography.titleLarge, color = colors.textPrimary)
+    Text("Ended at", style = MaterialTheme.typography.bodyMedium, color = colors.textSecondary)
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.m),
+    ) {
+        TextButton(onClick = {
+            endMin = (endMin - CORRECT_SNAP).coerceAtLeast(0)
+            onEdit(RecordEdit.SetEnd(index, endMin))
+        }) { Text("\u22125") }
+        Text(label(endMin, use24), style = MaterialTheme.typography.titleLarge)
+        TextButton(onClick = {
+            endMin += CORRECT_SNAP
+            onEdit(RecordEdit.SetEnd(index, endMin))
+        }) { Text("+5") }
+    }
+    Text("What did you do?", style = MaterialTheme.typography.bodyMedium, color = colors.textSecondary)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+        correctableTypes.forEach { type ->
+            TextButton(onClick = { onEdit(RecordEdit.Retype(index, type)) }) { Text(blockTitle(type)) }
+        }
+    }
+    TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Done") }
+}
+
+@Composable
+private fun CorrectMissingBody(
+    row: RecapRow,
+    index: Int,
+    onEdit: (RecordEdit) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = AppTheme.colors
+    Text(
+        "${row.title} ${row.range} was missed",
+        style = MaterialTheme.typography.titleLarge,
+        color = colors.textPrimary,
+    )
+    Text(
+        "Did it happen after all? The block that ran into it is shortened to make room.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = colors.textSecondary,
+    )
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
+        TextButton(onClick = {
+            onEdit(RecordEdit.MarkDone(index))
+            onDismiss()
+        }) { Text("It happened") }
+        TextButton(onClick = onDismiss) { Text("Cancel") }
+    }
 }
 

@@ -164,6 +164,16 @@
 - The "once kid time or the evening started on a Sun–Thu day" vs "while the day is in kid time (Fri/Sat morning)" split is decided by the template (`todayPlan.templateId`), because `DayState` alone can't tell morning kid time from evening kid time.
 - Tests: `HomeViewModelTest.insertIntoFreeTime_selectsTheNewBlock`, `lockedTap_onAPastBlock_saysItsOver`, `lockedTap_onKidTime_saysKidTimeCannotMove`.
 
+## Slice 6: correct a past day
+
+- `DayFlag.CORRECTED` added; `core/schedule/RecordConversion.kt` is the spec's `toRecordRows`/`withRows` verbatim; `HistoryManager.correctDay(date, edit, zone)` reads the day, runs `RecordEditor.apply` (default `LAST_MINUTE` limit), writes the corrected record, then rebuilds that week's aggregate from the stored days of the week. False when the editor returns null.
+- **Deviation, one extra field:** `RecapRow` carries `segmentIndex` and `fix` as specified, plus `endMin: Int?` — the sheet needs the numeric end to render "Ended at HH:MM" and to step it by ±5; the spec names only the two fields. Null for stop/evening-skipped rows and missed rows.
+- `DayRecapMapper` now takes a happened row's type, title and worked minutes from the segment (`happened.type`), not the plan block, so a "What did you do?" retype shows in the recap; fix comes from `RecordEditor.fixMode` on the record's own rows. "Corrected" (NEUTRAL) chip added when the day carries the flag.
+- Both recap screens refresh on their own: `HistoryDetailViewModel` switched from one-shot `readDay` to `observeDay(date)` (a `Job` is cancelled on reload); Home's ended recap already observed today's record. Both routes own a `ModalBottomSheet` `CorrectBlockSheet` (HomeSheets.kt) opened by tapping a fixable row; `RecapRowCard` is tappable exactly when `fix != NONE`, `RecapList` forwards taps.
+- Sheet interpretation of "each tap commits at once": the ±5 stepper and the type chips call `onEdit(...)` immediately (SetEnd / Retype), keeping a local end value so the label updates without waiting for the re-emit; "Done" only dismisses. `MARK_DONE` commits and closes. Home commits via `HomeViewModel.correctRecord` (date = today); History via `HistoryDetailViewModel.correct`.
+- Spec-mandated note: if today's record is corrected and the day is then restarted with a swap afterwards, the next flush rewrites the record — acceptable, the correction is a record edit, not a plan edit.
+- Test: `CorrectDayTest.correctDay_marksAMissedBlockDone_andFlagsTheDay` (Monday record: Coding 09:30–12:17, `free_pre_gym` consumed 11:30–12:00, Gym 12:17–14:01; MarkDone → free is PLANNED 11:30–12:00 with no miss reason, Coding ends 11:30, `CORRECTED` in flags, week aggregate rewritten with Coding = 120m). Full suite green (`exit=0`, includes the previously-flaky evening test).
+
 
 
 

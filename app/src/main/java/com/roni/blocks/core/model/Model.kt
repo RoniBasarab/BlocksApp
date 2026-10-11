@@ -45,6 +45,7 @@ enum class DayFlag {
     EMERGENCY_STOP,
     TEMPLATE_SWAPPED,
     PLAN_EDITED,
+    CORRECTED,
 }
 
 @Serializable

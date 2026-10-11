@@ -24,6 +24,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -35,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.SegmentKind
+import com.roni.blocks.core.schedule.RecordEdit
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.debtMinutes
 import com.roni.blocks.core.time.TimeFormatter
@@ -52,12 +56,15 @@ import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.TextSecondary
 import com.roni.blocks.designsystem.blockColors
 import com.roni.blocks.designsystem.templateDisplay
+import com.roni.blocks.feature.home.CorrectBlockSheet
 import com.roni.blocks.feature.home.DayRecapMapper
 import com.roni.blocks.feature.home.DayRecapUi
 import com.roni.blocks.feature.home.RecapList
+import com.roni.blocks.feature.home.RecapRow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlin.time.Clock
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -93,6 +100,7 @@ data class HistoryUiState(
 data class HistoryDetailUi(
     val title: String,
     val recap: DayRecapUi,
+    val use24: Boolean = true,
 )
 
 /** Content only; the top bar lives in [HistoryRoute]. */
@@ -292,19 +300,29 @@ class HistoryDetailViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow<HistoryDetailUi?>(null)
     val state: StateFlow<HistoryDetailUi?> = _state.asStateFlow()
+    private var loadedDate: LocalDate? = null
+    private var job: Job? = null
 
     fun load(dateKey: String) {
-        viewModelScope.launch {
+        job?.cancel()
+        job = viewModelScope.launch {
             val date = runCatching { LocalDate.parse(dateKey) }.getOrNull() ?: return@launch
-            val record = history.readDay(date) ?: run {
-                _state.value = null
-                return@launch
+            loadedDate = date
+            history.observeDay(date).collect { record ->
+                _state.value = record?.let {
+                    HistoryDetailUi(
+                        title = "${weekdayFull(it.date.dayOfWeek)} ${it.date.dayOfMonth} ${monthName(it.date.monthNumber)}",
+                        recap = DayRecapMapper.map(it, timeFormatter.use24.value),
+                        use24 = timeFormatter.use24.value,
+                    )
+                }
             }
-            _state.value = HistoryDetailUi(
-                title = "${weekdayFull(record.date.dayOfWeek)} ${record.date.dayOfMonth} ${monthName(record.date.monthNumber)}",
-                recap = DayRecapMapper.map(record, timeFormatter.use24.value),
-            )
         }
+    }
+
+    fun correct(edit: RecordEdit) {
+        val date = loadedDate ?: return
+        viewModelScope.launch { history.correctDay(date, edit, zone) }
     }
 }
 
@@ -329,6 +347,7 @@ fun HistoryRoute(onBack: () -> Unit, onDay: (String) -> Unit, viewModel: History
 fun HistoryDetailRoute(date: String?, onBack: () -> Unit, viewModel: HistoryDetailViewModel = hiltViewModel()) {
     LaunchedEffect(date) { date?.let { viewModel.load(it) } }
     val detail by viewModel.state.collectAsStateWithLifecycle()
+    var correcting by remember { mutableStateOf<RecapRow?>(null) }
     ScreenScaffold(
         topBar = {
             BackTopBar(title = detail?.title.orEmpty(), onBack = onBack)
@@ -339,8 +358,17 @@ fun HistoryDetailRoute(date: String?, onBack: () -> Unit, viewModel: HistoryDeta
                 s = d.recap,
                 bottomPadding = Spacing.l + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
                 modifier = Modifier.fillMaxSize().padding(padding),
+                onRowTap = { correcting = it },
             )
         }
+    }
+    correcting?.let { row ->
+        CorrectBlockSheet(
+            row = row,
+            use24 = detail?.use24 ?: true,
+            onEdit = viewModel::correct,
+            onDismiss = { correcting = null },
+        )
     }
 }
 

@@ -8,6 +8,10 @@ import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.model.isWork
+import com.roni.blocks.core.schedule.RecordEdit
+import com.roni.blocks.core.schedule.RecordEditor
+import com.roni.blocks.core.schedule.toRecordRows
+import com.roni.blocks.core.schedule.withRows
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
@@ -17,6 +21,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
 import kotlinx.datetime.minus
 import kotlinx.serialization.Serializable
 
@@ -58,6 +63,19 @@ class HistoryManager @Inject constructor(
     /** Re-reads [date] after every write; emits the same record again only when it changed. */
     fun observeDay(date: LocalDate): Flow<DayRecord?> =
         version.map { readDay(date) }.distinctUntilChanged()
+
+    /**
+     * Corrects the stored record of a day that already happened (2.1.0) and rebuilds that day's week.
+     * False when [date] has no record, or the edit isn't allowed or changes nothing.
+     */
+    suspend fun correctDay(date: LocalDate, edit: RecordEdit, zone: TimeZone): Boolean {
+        val record = readDay(date) ?: return false
+        val rows = RecordEditor.apply(record.toRecordRows(zone), edit) ?: return false
+        writeDay(record.withRows(rows, zone))
+        val week = weekStart(date)
+        writeWeek(aggregateWeek(week, days().filter { weekStart(it.date) == week }))
+        return true
+    }
 
     suspend fun writeWeek(aggregate: WeekAggregate) {
         prefs.write(PrefsFile.HISTORY, weekKey(aggregate.weekStart), aggregate, WeekAggregate.serializer())
