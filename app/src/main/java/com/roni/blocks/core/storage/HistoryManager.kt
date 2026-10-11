@@ -1,6 +1,7 @@
 package com.roni.blocks.core.storage
 
 import com.roni.blocks.core.model.BlockType
+import com.roni.blocks.core.model.CheckIn
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
 import com.roni.blocks.core.model.LocalDateSerializer
@@ -75,6 +76,11 @@ class HistoryManager @Inject constructor(
         val week = weekStart(date)
         writeWeek(aggregateWeek(week, days().filter { weekStart(it.date) == week }))
         return true
+    }
+
+    suspend fun setCheckIn(date: LocalDate, checkIn: CheckIn) {
+        val record = readDay(date) ?: return
+        writeDay(record.copy(checkIn = checkIn))
     }
 
     suspend fun writeWeek(aggregate: WeekAggregate) {

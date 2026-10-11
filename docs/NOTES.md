@@ -174,6 +174,14 @@
 - Spec-mandated note: if today's record is corrected and the day is then restarted with a swap afterwards, the next flush rewrites the record — acceptable, the correction is a record edit, not a plan edit.
 - Test: `CorrectDayTest.correctDay_marksAMissedBlockDone_andFlagsTheDay` (Monday record: Coding 09:30–12:17, `free_pre_gym` consumed 11:30–12:00, Gym 12:17–14:01; MarkDone → free is PLANNED 11:30–12:00 with no miss reason, Coding ends 11:30, `CORRECTED` in flags, week aggregate rewritten with Coding = 120m). Full suite green (`exit=0`, includes the previously-flaky evening test).
 
+## Slice 7: evening check-in
+
+- `CheckIn.GOOD/OK/ROUGH/SKIPPED` in `Model.kt`; `DayRecord.checkIn: CheckIn? = null` (serialized with a default, so old stored records read back with null). `HistoryManager.setCheckIn` is read-copy-writeDay only — no week rebuild, check-in isn't aggregated.
+- The check-in card lives inside `RecapList` as the first item (`recap_checkin` tag) when the mapped day isn't an Off day and hasn't answered; heading comes from a new `checkInTitle` param on `DayRecapMapper.map` (default "How was today?", History detail passes "How was this day?"). One tap stores it and the card disappears on the observeDay re-emit.
+- Chips after answering: "Felt good" (GOOD), "Felt OK" (NEUTRAL), "Felt rough" (MUTED); `SKIPPED` shows nothing, and the History list row suffix (a `checkInWord` helper) skips it too — "· Good" / "· OK" / "· Rough" after the template name.
+- Positional-args casualty: `DayRecord` gained `checkIn` between `flags` and `plannedBlocks`, so `DayOrchestrator.flush`'s positional `DayRecord(...)` call had to name `plannedBlocks`.
+- Test: `CorrectDayTest.checkIn_isStoredOnTheDay` (`setCheckIn(monday, GOOD)` → `readDay.checkIn == GOOD` and the recap's chips contain "Felt good"). Full suite green.
+
 
 
 

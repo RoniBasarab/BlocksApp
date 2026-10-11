@@ -402,7 +402,7 @@ class DayOrchestrator @Inject constructor(
         val template = _state.value.templateId() ?: prefs.read(PrefsFile.DAY, TEMPLATE, TemplateId.serializer())
         val plan = _todayPlan.value
         val finalFlags = if (plan?.edited == true) flags + DayFlag.PLAN_EDITED else flags
-        val record = DayRecord(today, template, _segments.value, finalFlags, plan?.blocks?.ifEmpty { null })
+        val record = DayRecord(today, template, _segments.value, finalFlags, plannedBlocks = plan?.blocks?.ifEmpty { null })
         history.writeDay(record)
         rebuildWeek(today)
         notificationRenderer.render(null, transition = true)

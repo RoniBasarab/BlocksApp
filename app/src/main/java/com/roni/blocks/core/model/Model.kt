@@ -49,6 +49,14 @@ enum class DayFlag {
 }
 
 @Serializable
+enum class CheckIn {
+    GOOD,
+    OK,
+    ROUGH,
+    SKIPPED,
+}
+
+@Serializable
 enum class MissReason {
     OVERRUN,
     LATE_START,
@@ -135,6 +143,7 @@ data class DayRecord(
     val template: TemplateId?,
     val segments: List<Segment>,
     val flags: Set<DayFlag> = emptySet(),
+    val checkIn: CheckIn? = null,
     val plannedBlocks: List<BlockSpec>? = null,
     val demo: Boolean = false,
 )

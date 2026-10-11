@@ -87,6 +87,7 @@ import com.roni.blocks.core.daystate.templateId
 import com.roni.blocks.core.debug.RecompositionCounter
 import com.roni.blocks.core.model.BlockSpec
 import com.roni.blocks.core.model.BlockType
+import com.roni.blocks.core.model.CheckIn
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
 import com.roni.blocks.core.model.isWork
@@ -361,6 +362,11 @@ private val day: DayOrchestrator,
     fun correctRecord(edit: RecordEdit) {
         val date = clock.now().toLocalDateTime(zone).date
         viewModelScope.launch { history.correctDay(date, edit, zone) }
+    }
+
+    fun checkIn(pick: CheckIn) {
+        val date = clock.now().toLocalDateTime(zone).date
+        viewModelScope.launch { history.setCheckIn(date, pick) }
     }
 
     private fun publish(dayState: DayState) {
@@ -676,6 +682,7 @@ fun HomeRoute(
             onSuppressConfirmation = viewModel::onSuppressConfirmation,
             onAskAgain = viewModel::onAskAgain,
             onCorrect = viewModel::correctRecord,
+            onCheckIn = viewModel::checkIn,
             onAction = { action ->
                 when (action) {
                     HomeAction.SwapTemplate -> onSwap()
@@ -699,6 +706,7 @@ fun HomeScreen(
     onSuppressConfirmation: (NowButtonId) -> Unit = {},
     onAskAgain: (NowButtonId) -> Unit = {},
     onCorrect: (RecordEdit) -> Unit = {},
+    onCheckIn: (CheckIn) -> Unit = {},
 ) {
     SideEffect { RecompositionCounter.hit("HomeScreen") }
     val scroll = rememberScrollState()
@@ -740,6 +748,7 @@ fun HomeScreen(
                     bottomPadding = Spacing.l,
                     modifier = Modifier.weight(1f).testTag("home_calendar"),
                     onRowTap = { correcting = it },
+                    onCheckIn = onCheckIn,
                 )
             } else {
                 DayCalendar(

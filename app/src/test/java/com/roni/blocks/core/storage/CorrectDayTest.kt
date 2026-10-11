@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.roni.blocks.core.model.BlockType
+import com.roni.blocks.core.model.CheckIn
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
 import com.roni.blocks.core.model.MissReason
@@ -11,6 +12,7 @@ import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.schedule.RecordEdit
 import com.roni.blocks.core.time.at
+import com.roni.blocks.feature.home.DayRecapMapper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -103,5 +105,16 @@ class CorrectDayTest {
         val week = history.readWeek(history.weekStart(monday))
         assertNotNull(week)
         assertEquals(120, week!!.minutesByType["Coding"])
+    }
+
+    @Test
+    fun checkIn_isStoredOnTheDay() = runBlocking {
+        seedMondayRecord()
+
+        history.setCheckIn(monday, CheckIn.GOOD)
+
+        assertEquals(CheckIn.GOOD, history.readDay(monday)!!.checkIn)
+        val recap = DayRecapMapper.map(history.readDay(monday)!!, use24 = true)
+        assertTrue(recap.chips.any { it.text == "Felt good" })
     }
 }

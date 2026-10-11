@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
@@ -29,6 +30,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.roni.blocks.core.model.BlockType
+import com.roni.blocks.core.model.CheckIn
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
 import com.roni.blocks.core.model.MissReason
@@ -77,6 +79,7 @@ data class DayRecapUi(
     val caption: String,
     val chips: ImmutableList<RecapBadge>,
     val rows: ImmutableList<RecapRow>,
+    val checkInTitle: String? = null,
 )
 
 /**
@@ -84,7 +87,7 @@ data class DayRecapUi(
  * per planned block in time order. Pure: no clock, no context, no side effects.
  */
 object DayRecapMapper {
-    fun map(record: DayRecord, use24: Boolean): DayRecapUi {
+    fun map(record: DayRecord, use24: Boolean, checkInTitle: String = "How was today?"): DayRecapUi {
         val zone = TimeZone.currentSystemDefault()
         if (DayFlag.OFF_DAY in record.flags) {
             return DayRecapUi(
@@ -241,6 +244,9 @@ object DayRecapMapper {
             if (DayFlag.PLAN_EDITED in record.flags) add(RecapBadge("Plan changed", RecapTone.NEUTRAL))
             if (DayFlag.TEMPLATE_SWAPPED in record.flags) add(RecapBadge("Template swapped", RecapTone.NEUTRAL))
             if (DayFlag.CORRECTED in record.flags) add(RecapBadge("Corrected", RecapTone.NEUTRAL))
+            if (record.checkIn == CheckIn.GOOD) add(RecapBadge("Felt good", RecapTone.GOOD))
+            if (record.checkIn == CheckIn.OK) add(RecapBadge("Felt OK", RecapTone.NEUTRAL))
+            if (record.checkIn == CheckIn.ROUGH) add(RecapBadge("Felt rough", RecapTone.MUTED))
         }
 
         val headline: String
@@ -259,6 +265,7 @@ object DayRecapMapper {
             caption = caption,
             chips = chips.toPersistentList(),
             rows = rows.map { it.row }.toPersistentList(),
+            checkInTitle = if (DayFlag.OFF_DAY in record.flags || record.checkIn != null) null else checkInTitle,
         )
     }
 
@@ -417,12 +424,37 @@ fun RecapPill(b: RecapBadge) {
 }
 
 @Composable
-fun RecapList(s: DayRecapUi, bottomPadding: Dp, modifier: Modifier = Modifier, onRowTap: (RecapRow) -> Unit = {}) {
+fun RecapCheckInCard(title: String, onPick: (CheckIn) -> Unit) {
+    val c = AppTheme.colors
+    AppCard(Modifier.fillMaxWidth().testTag("recap_checkin")) {
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, color = c.textPrimary)
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                TextButton(onClick = { onPick(CheckIn.GOOD) }) { Text("Good") }
+                TextButton(onClick = { onPick(CheckIn.OK) }) { Text("OK") }
+                TextButton(onClick = { onPick(CheckIn.ROUGH) }) { Text("Rough") }
+                TextButton(onClick = { onPick(CheckIn.SKIPPED) }) { Text("Skip") }
+            }
+        }
+    }
+}
+
+@Composable
+fun RecapList(
+    s: DayRecapUi,
+    bottomPadding: Dp,
+    modifier: Modifier = Modifier,
+    onRowTap: (RecapRow) -> Unit = {},
+    onCheckIn: (CheckIn) -> Unit = {},
+) {
     LazyColumn(
         modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(start = Spacing.l, top = Spacing.s, end = Spacing.l, bottom = bottomPadding),
         verticalArrangement = Arrangement.spacedBy(Spacing.s),
     ) {
+        if (s.checkInTitle != null) {
+            item(key = "recap_checkin") { RecapCheckInCard(s.checkInTitle, onCheckIn) }
+        }
         item(key = "recap_summary") { RecapSummaryCard(s) }
         items(items = s.rows, key = { it.id }) { row ->
             RecapRowCard(row, onClick = if (row.fix != RowFix.NONE) ({ onRowTap(row) }) else null)

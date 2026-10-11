@@ -36,6 +36,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.roni.blocks.core.model.CheckIn
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.schedule.RecordEdit
@@ -275,7 +276,8 @@ class HistoryViewModel @Inject constructor(
             date = date.toString(),
             weekdayShort = date.dayOfWeek.name.take(3),
             dayNumber = date.dayOfMonth.toString(),
-            templateTitle = record.template?.let { id -> runCatching { templateDisplay(id).title }.getOrNull() }.orEmpty(),
+            templateTitle = (record.template?.let { id -> runCatching { templateDisplay(id).title }.getOrNull() }.orEmpty())
+                + (checkInWord(record.checkIn)?.let { " · $it" } ?: ""),
             strip = strip,
             summary = summary,
             chip = chunk,
@@ -312,12 +314,17 @@ class HistoryDetailViewModel @Inject constructor(
                 _state.value = record?.let {
                     HistoryDetailUi(
                         title = "${weekdayFull(it.date.dayOfWeek)} ${it.date.dayOfMonth} ${monthName(it.date.monthNumber)}",
-                        recap = DayRecapMapper.map(it, timeFormatter.use24.value),
+                        recap = DayRecapMapper.map(it, timeFormatter.use24.value, checkInTitle = "How was this day?"),
                         use24 = timeFormatter.use24.value,
                     )
                 }
             }
         }
+    }
+
+    fun checkIn(pick: CheckIn) {
+        val date = loadedDate ?: return
+        viewModelScope.launch { history.setCheckIn(date, pick) }
     }
 
     fun correct(edit: RecordEdit) {
@@ -359,6 +366,7 @@ fun HistoryDetailRoute(date: String?, onBack: () -> Unit, viewModel: HistoryDeta
                 bottomPadding = Spacing.l + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
                 modifier = Modifier.fillMaxSize().padding(padding),
                 onRowTap = { correcting = it },
+                onCheckIn = viewModel::checkIn,
             )
         }
     }
@@ -370,6 +378,13 @@ fun HistoryDetailRoute(date: String?, onBack: () -> Unit, viewModel: HistoryDeta
             onDismiss = { correcting = null },
         )
     }
+}
+
+private fun checkInWord(checkIn: CheckIn?): String? = when (checkIn) {
+    CheckIn.GOOD -> "Good"
+    CheckIn.OK -> "OK"
+    CheckIn.ROUGH -> "Rough"
+    null, CheckIn.SKIPPED -> null
 }
 
 private fun weekdayFull(day: DayOfWeek): String = when (day) {
