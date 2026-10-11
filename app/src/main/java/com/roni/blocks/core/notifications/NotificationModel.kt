@@ -194,7 +194,7 @@ class NotificationModelMapper @Inject constructor(
         val phase = pomodoro?.let { " · Focus ${it.index}/${it.total}" }.orEmpty()
         val text = if (end != null) {
             val until = "until ${hhmm(end)}"
-            if (nextName.isNotEmpty() && block.spec.type.isWork) "$until · then $nextName" else until
+            if (nextName.isNotEmpty()) "$until · then $nextName" else until
         } else {
             ""
         }

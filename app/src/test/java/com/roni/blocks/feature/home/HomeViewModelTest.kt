@@ -281,6 +281,7 @@ class HomeViewModelTest {
             nowCard.buttons.map { it.id },
         )
         assertEquals("Next: Free", nowCard.buttons.first { it.id == NowButtonId.NEXT }.label)
+        assertEquals("until 11:30 · then Free", nowCard.subtitle)
 
         val coding = viewModel.state.value.blocks.first { it.id == firstBlockId }
         assertEquals(0, coding.phases.size)

@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.1
+- Fixed: the "done early" card and the notification said "then then" before the next block.
+- Fixed: the running notification now names the next block for every block type, not only work blocks.
+- Fixed: correcting a past block kept closing the sheet after one ±5; it stays open until Done.
+
 ## 2.2.0
 - Sounds that get noticed: 5 minutes before a block ends, at the end, and every 5 minutes until you react; Pomodoro breaks too.
 - Done early: the screen and the notification show your free time and the real next block; the Pomodoro no longer restarts.

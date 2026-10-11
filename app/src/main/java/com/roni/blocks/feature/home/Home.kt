@@ -379,8 +379,13 @@ private val day: DayOrchestrator,
      */
     fun correctPast(edit: RecordEdit) {
         viewModelScope.launch {
-            day.correctPast(edit)
-            _correctingRow.value = null
+            val open = _correctingRow.value
+            val changed = day.correctPast(edit)
+            if (changed && open != null) {
+                _correctingRow.value = DayRecapMapper.map(day.liveRecord(), timeFormatter.use24.value)
+                    .rows
+                    .firstOrNull { it.id == open.id }
+            }
             publish(day.state.value)
         }
     }
@@ -567,7 +572,7 @@ private val day: DayOrchestrator,
                     val subtitle = buildString {
                         effectiveEndMin?.let { append("until ${timeFormatter.label(it)}") }
                         if (nextTitle != null) {
-                            if (isNotEmpty()) append(" · then ")
+                            if (isNotEmpty()) append(" · ")
                             append("then $nextTitle")
                         }
                     }
