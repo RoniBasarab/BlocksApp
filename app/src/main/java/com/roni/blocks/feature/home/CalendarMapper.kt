@@ -81,6 +81,7 @@ internal fun blockTitle(type: BlockType): String = when (type) {
     BlockType.Free -> "Free"
     BlockType.KidTime -> "Kid time"
     BlockType.Dishes -> "Dishes"
+    BlockType.Walk -> "Walk"
     is BlockType.EveningChoice -> when (type.choice) {
         Choice.GAME -> "Game"
         Choice.PROJECT -> "Project"

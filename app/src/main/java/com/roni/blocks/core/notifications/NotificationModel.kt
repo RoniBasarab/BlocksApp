@@ -301,6 +301,7 @@ private fun accent(type: BlockType?): Int = when {
         BlockType.Free -> FREE
         BlockType.KidTime -> KID_TIME
         BlockType.Dishes -> DISHES
+        BlockType.Walk -> WALK
         is BlockType.EveningChoice -> when (type.choice) {
             Choice.GAME -> CHOICE_GAME
             Choice.PROJECT -> CHOICE_PROJECT
@@ -317,6 +318,7 @@ private const val GYM = 0xFF8FB58A.toInt()
 private const val FREE = 0xFFD9C38A.toInt()
 private const val KID_TIME = 0xFF9C968C.toInt()
 private const val DISHES = 0xFF7FB3AE.toInt()
+private const val WALK = 0xFF8FC7C9.toInt()
 private const val CHOICE_GAME = 0xFFC98F7A.toInt()
 private const val CHOICE_PROJECT = 0xFF8C9BD1.toInt()
 private const val CHOICE_READ = 0xFFB8B77E.toInt()
@@ -329,6 +331,7 @@ internal fun blockName(type: BlockType): String = when (type) {
     BlockType.Free -> "Free"
     BlockType.KidTime -> "Kid time"
     BlockType.Dishes -> "Dishes"
+    BlockType.Walk -> "Walk"
     is BlockType.EveningChoice -> "Evening · ${choiceName(type.choice)}"
 }
 
