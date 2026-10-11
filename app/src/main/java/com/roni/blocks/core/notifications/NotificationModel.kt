@@ -29,6 +29,8 @@ enum class ActionEvent {
     START_NEXT,
     KID_ASLEEP,
     END_DAY,
+    /** "Turn back now" on a walk (2.3.0); handled directly by the orchestrator. */
+    TURN_BACK,
 }
 
 data class NotificationActionModel(
@@ -99,6 +101,40 @@ class NotificationModelMapper @Inject constructor(
         val end = timeline?.let { effectiveEnd(it, now) } ?: block.plannedEnd
         val open = timeline?.open
         val pomodoro = engine.pomodoroStatus(block, now, zone, open?.actualStart ?: block.plannedStart)
+
+        if (open != null && open.kind == com.roni.blocks.core.model.SegmentKind.PLANNED &&
+            open.type == BlockType.Walk && open.plannedEnd != null
+        ) {
+            val start = open.actualStart
+            val end = open.plannedEnd
+            val half = start + (end - start) / 2
+            val nextName = nextStopName(blocks, block)
+            return if (now < half) {
+                NotificationModel(
+                    key = "$id:walk",
+                    channel = NotificationChannelKind.DAY,
+                    title = "Walk · heading out",
+                    text = "Turn back at ${hhmm(half)} · home by ${hhmm(end)}",
+                    countdownTo = half,
+                    actions = listOf(
+                        NotificationActionModel("Turn back now", ActionEvent.TURN_BACK, id),
+                        NotificationActionModel("End walk", ActionEvent.START_NEXT, id),
+                    ),
+                    accentArgb = accent(BlockType.Walk),
+                )
+            } else {
+                val text = if (nextName.isNotEmpty()) "Home by ${hhmm(end)} · then $nextName" else "Home by ${hhmm(end)}"
+                NotificationModel(
+                    key = "$id:walk:home",
+                    channel = NotificationChannelKind.DAY,
+                    title = "Walk · heading home",
+                    text = text,
+                    countdownTo = end,
+                    actions = listOf(NotificationActionModel("End walk", ActionEvent.START_NEXT, id)),
+                    accentArgb = accent(BlockType.Walk),
+                )
+            }
+        }
 
         if (open != null && open.kind == com.roni.blocks.core.model.SegmentKind.SYNTHETIC_FREE && open.plannedEnd != null) {
             val nextName = nextStopName(blocks, block)

@@ -2,5 +2,6 @@
     <string name="app_name">Blocks</string>
     <string name="channel_day">Day</string>
     <string name="channel_evening">Evening</string>
+    <string name="channel_walk">Walk alarm</string>
     <string name="widget_description">Current block and time left</string>
 </resources>

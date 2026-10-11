@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import com.roni.blocks.core.logging.AppLogger
+import com.roni.blocks.core.notifications.openAppIntent
 import com.roni.blocks.core.time.SystemTimeMapper
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -27,8 +28,13 @@ class AlarmScheduler @Inject constructor(
 ) {
     private val alarms = context.getSystemService(AlarmManager::class.java)
 
-    fun schedule(at: Instant) {
-        alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, systemTime.systemMillis(at), pending())
+    fun schedule(at: Instant, clock: Boolean = false) {
+        val millis = systemTime.systemMillis(at)
+        if (clock) {
+            alarms.setAlarmClock(AlarmManager.AlarmClockInfo(millis, openAppIntent(context)), pending())
+        } else {
+            alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, pending())
+        }
         logger.info("alarm scheduled $at")
     }
 
