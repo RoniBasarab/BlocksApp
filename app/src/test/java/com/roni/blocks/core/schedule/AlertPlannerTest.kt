@@ -60,4 +60,15 @@ class AlertPlannerTest {
     fun pomodoroBoundaries_followTheRealStart() {
         assertEquals(pomodoro, AlertPlanner.pomodoroBoundaries(start, end, focusMin = 50, breakMin = 10))
     }
+
+    @Test
+    fun walk_ringsAtHalfTimeAndAtTheEnd() {
+        val start = t(10, 0, 30)
+        val end = t(10, 30, 30)
+        assertEquals(Alert(t(10, 15, 30), AlertKind.TURN_BACK), AlertPlanner.nextWalk(start, end, afterSec = start))
+        assertEquals(Alert(end, AlertKind.WALK_DONE), AlertPlanner.nextWalk(start, end, afterSec = t(10, 15, 30)))
+        assertNull(AlertPlanner.nextWalk(start, end, afterSec = end))
+        assertEquals(Alert(t(10, 15, 30), AlertKind.TURN_BACK), AlertPlanner.dueWalk(start, end, nowSec = t(10, 16, 0)))
+        assertNull(AlertPlanner.dueWalk(start, end, nowSec = t(10, 20, 0)))
+    }
 }

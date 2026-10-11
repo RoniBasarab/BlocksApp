@@ -153,8 +153,9 @@ class HomeViewModelTest {
         awaitRunningOrPaused { it.blockIndex() == 2 }
         val next = orchestrator.segments.value.last { it.actualEnd == null }
         assertEquals(SegmentKind.PLANNED, next.kind)
+        assertEquals(BlockType.Coding, next.type)
         assertEquals(LocalTime(10, 5).at(date, zone), next.actualStart)
-        assertEquals(LocalTime(14, 0).at(date, zone), requireNotNull(next.plannedEnd))
+        assertEquals("coding_pm starts early and keeps its 90-minute length", LocalTime(11, 35).at(date, zone), requireNotNull(next.plannedEnd))
     }
 
     @Test
@@ -277,11 +278,11 @@ class HomeViewModelTest {
         assertEquals("Free time", nowCard.title)
         assertEquals("Done early", nowCard.chip)
         assertEquals(
-            listOf(NowButtonId.NEXT, NowButtonId.EMERGENCY),
+            listOf(NowButtonId.NEXT, NowButtonId.WALK, NowButtonId.EMERGENCY),
             nowCard.buttons.map { it.id },
         )
-        assertEquals("Next: Free", nowCard.buttons.first { it.id == NowButtonId.NEXT }.label)
-        assertEquals("until 11:30 · then Free", nowCard.subtitle)
+        assertEquals("Next: Coding", nowCard.buttons.first { it.id == NowButtonId.NEXT }.label)
+        assertEquals("until 11:30 · then Coding", nowCard.subtitle)
 
         val coding = viewModel.state.value.blocks.first { it.id == firstBlockId }
         assertEquals(0, coding.phases.size)

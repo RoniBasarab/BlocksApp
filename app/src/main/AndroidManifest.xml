@@ -46,6 +46,9 @@
             </intent-filter>
         </receiver>
         <receiver
+            android:name=".core.notifications.WalkAlarmReceiver"
+            android:exported="false" />
+        <receiver
             android:name=".core.widget.BlocksWidget"
             android:exported="false">
             <intent-filter>

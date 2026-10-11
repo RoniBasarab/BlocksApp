@@ -5,11 +5,13 @@ import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.schedule.DayTimeline
+import com.roni.blocks.core.schedule.PlanEditor
 import com.roni.blocks.core.schedule.ResolvedBlock
 import com.roni.blocks.core.schedule.ScheduleEngine
 import com.roni.blocks.core.schedule.effectiveEnd
 import com.roni.blocks.core.schedule.landingBlockForStartNext
 import com.roni.blocks.core.schedule.pomodoroStatus
+import com.roni.blocks.core.schedule.toPlanBlock
 import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.core.time.minuteOfDay
 import javax.inject.Inject
@@ -27,6 +29,8 @@ enum class ActionEvent {
     START_NEXT,
     KID_ASLEEP,
     END_DAY,
+    /** "Turn back now" on a walk (2.3.0); handled directly by the orchestrator. */
+    TURN_BACK,
 }
 
 data class NotificationActionModel(
@@ -98,8 +102,42 @@ class NotificationModelMapper @Inject constructor(
         val open = timeline?.open
         val pomodoro = engine.pomodoroStatus(block, now, zone, open?.actualStart ?: block.plannedStart)
 
+        if (open != null && open.kind == com.roni.blocks.core.model.SegmentKind.PLANNED &&
+            open.type == BlockType.Walk && open.plannedEnd != null
+        ) {
+            val start = open.actualStart
+            val end = open.plannedEnd
+            val half = start + (end - start) / 2
+            val nextName = nextStopName(blocks, block)
+            return if (now < half) {
+                NotificationModel(
+                    key = "$id:walk",
+                    channel = NotificationChannelKind.DAY,
+                    title = "Walk · heading out",
+                    text = "Turn back at ${hhmm(half)} · home by ${hhmm(end)}",
+                    countdownTo = half,
+                    actions = listOf(
+                        NotificationActionModel("Turn back now", ActionEvent.TURN_BACK, id),
+                        NotificationActionModel("End walk", ActionEvent.START_NEXT, id),
+                    ),
+                    accentArgb = accent(BlockType.Walk),
+                )
+            } else {
+                val text = if (nextName.isNotEmpty()) "Home by ${hhmm(end)} · then $nextName" else "Home by ${hhmm(end)}"
+                NotificationModel(
+                    key = "$id:walk:home",
+                    channel = NotificationChannelKind.DAY,
+                    title = "Walk · heading home",
+                    text = text,
+                    countdownTo = end,
+                    actions = listOf(NotificationActionModel("End walk", ActionEvent.START_NEXT, id)),
+                    accentArgb = accent(BlockType.Walk),
+                )
+            }
+        }
+
         if (open != null && open.kind == com.roni.blocks.core.model.SegmentKind.SYNTHETIC_FREE && open.plannedEnd != null) {
-            val nextName = blocks.getOrNull(state.blockIndex + 1)?.let { blockName(it.spec.type) }.orEmpty()
+            val nextName = nextStopName(blocks, block)
             val text = if (nextName.isNotEmpty()) "until ${hhmm(open.plannedEnd)} · then $nextName" else "until ${hhmm(open.plannedEnd)}"
             return NotificationModel(
                 key = "$id:early",
@@ -136,7 +174,8 @@ class NotificationModelMapper @Inject constructor(
             NotificationActionModel("Done early", ActionEvent.START_NEXT, id),
         )
         val nonWorkActions = buildList {
-            if (nextName.isNotEmpty()) add(NotificationActionModel("Next: $nextName", ActionEvent.START_NEXT, id))
+            val landingNext = nextStopName(blocks, block)
+            if (landingNext.isNotEmpty()) add(NotificationActionModel("Next: $landingNext", ActionEvent.START_NEXT, id))
         }
 
         if (pomodoro != null && pomodoro.onBreak) {
@@ -279,6 +318,10 @@ class NotificationModelMapper @Inject constructor(
         }
     }
 
+    /** The first real block after [block]; the free time in between is skipped ("Next starts it now", 2.3.0). */
+    private fun nextStopName(blocks: List<ResolvedBlock>, block: ResolvedBlock): String =
+        PlanEditor.nextStop(blocks.map { it.spec.toPlanBlock() }, block.spec.id)?.let { blockName(it.type) }.orEmpty()
+
     private fun hhmm(instant: Instant): String = timeFormatter.label(instant.minuteOfDay(zone))
 
     private companion object {
@@ -301,6 +344,7 @@ private fun accent(type: BlockType?): Int = when {
         BlockType.Free -> FREE
         BlockType.KidTime -> KID_TIME
         BlockType.Dishes -> DISHES
+        BlockType.Walk -> WALK
         is BlockType.EveningChoice -> when (type.choice) {
             Choice.GAME -> CHOICE_GAME
             Choice.PROJECT -> CHOICE_PROJECT
@@ -317,6 +361,7 @@ private const val GYM = 0xFF8FB58A.toInt()
 private const val FREE = 0xFFD9C38A.toInt()
 private const val KID_TIME = 0xFF9C968C.toInt()
 private const val DISHES = 0xFF7FB3AE.toInt()
+private const val WALK = 0xFF8FC7C9.toInt()
 private const val CHOICE_GAME = 0xFFC98F7A.toInt()
 private const val CHOICE_PROJECT = 0xFF8C9BD1.toInt()
 private const val CHOICE_READ = 0xFFB8B77E.toInt()
@@ -329,6 +374,7 @@ internal fun blockName(type: BlockType): String = when (type) {
     BlockType.Free -> "Free"
     BlockType.KidTime -> "Kid time"
     BlockType.Dishes -> "Dishes"
+    BlockType.Walk -> "Walk"
     is BlockType.EveningChoice -> "Evening · ${choiceName(type.choice)}"
 }
 

@@ -83,6 +83,9 @@ sealed interface BlockType {
     data object Dishes : BlockType
 
     @Serializable
+    data object Walk : BlockType
+
+    @Serializable
     data class EveningChoice(val choice: Choice) : BlockType
 }
 

@@ -21,6 +21,8 @@ import com.roni.blocks.core.notifications.ActionEvent
 import com.roni.blocks.core.notifications.NotificationModel
 import com.roni.blocks.core.notifications.NotificationModelMapper
 import com.roni.blocks.core.notifications.NotificationPort
+import com.roni.blocks.core.notifications.WalkRinger
+import com.roni.blocks.core.schedule.AlertKind
 import com.roni.blocks.core.schedule.Edge
 import com.roni.blocks.core.schedule.PlanEdit
 import com.roni.blocks.core.schedule.ScheduleEngine
@@ -81,6 +83,8 @@ class DayOrchestratorTest {
         java.util.concurrent.CopyOnWriteArrayList()
     private val alerts: java.util.concurrent.CopyOnWriteArrayList<Boolean> =
         java.util.concurrent.CopyOnWriteArrayList()
+    private val ringerKinds: java.util.concurrent.CopyOnWriteArrayList<AlertKind> =
+        java.util.concurrent.CopyOnWriteArrayList()
 
     @Before
     fun setUp() {
@@ -91,10 +95,13 @@ class DayOrchestratorTest {
         history = HistoryManager(prefs)
         rendered.clear()
         transitions.clear()
+        ringerKinds.clear()
         orchestrator = newOrchestrator()
     }
 
-    private fun newOrchestrator(): DayOrchestrator = DayOrchestrator(
+    private fun newOrchestrator(
+        walkRinger: WalkRinger = RecordingWalkRinger(ringerKinds),
+    ): DayOrchestrator = DayOrchestrator(
         prefs = prefs,
         engine = engine,
         templates = TemplateManager(context),
@@ -102,6 +109,7 @@ class DayOrchestratorTest {
         alarms = AlarmScheduler(context, SystemTimeMapper.Identity, logger),
         notificationMapper = NotificationModelMapper(engine, zone, TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))),
         notificationRenderer = RecordingNotificationPort(rendered, transitions, alerts),
+        walkRinger = walkRinger,
         clock = clock,
         zone = zone,
         logger = logger,
@@ -119,13 +127,14 @@ class DayOrchestratorTest {
         orchestrator.handleNotificationAction(ActionEvent.START_NEXT, firstBlockId)
         assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 0), orchestrator.state.value)
 
-        // A second tap leaves the CV slot and moves on to the next block.
+        // A second tap leaves the CV slot: CV never actually ran (it was tapped in its first
+        // minute), so it drops out of the plan and coding_am starts now as the first block.
         orchestrator.handleNotificationAction(ActionEvent.START_NEXT, firstBlockId)
-        assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 1), orchestrator.state.value)
+        assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 0), orchestrator.state.value)
 
         // The same button is tapped again after the day already moved past that block.
         orchestrator.handleNotificationAction(ActionEvent.START_NEXT, firstBlockId)
-        assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 1), orchestrator.state.value)
+        assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 0), orchestrator.state.value)
     }
 
     @Test
@@ -133,7 +142,8 @@ class DayOrchestratorTest {
         orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
         orchestrator.handleNotificationAction(ActionEvent.START_NEXT, firstBlockId)
         orchestrator.handleNotificationAction(ActionEvent.START_NEXT, firstBlockId)
-        assertEquals(1, (orchestrator.state.value as DayState.Running).blockIndex)
+        // CV drops out (it never ran), so coding_am is now the first plan block, started at 9:00.
+        assertEquals(0, (orchestrator.state.value as DayState.Running).blockIndex)
         assertEquals(
             "the second tap must not open anything else",
             1,
@@ -321,6 +331,16 @@ class DayOrchestratorTest {
         override fun onDismissed(key: String) = Unit
 
         override fun sendTestNotification() = Unit
+    }
+
+    private class RecordingWalkRinger(
+        private val sink: java.util.concurrent.CopyOnWriteArrayList<AlertKind>,
+    ) : WalkRinger {
+        override fun ring(kind: AlertKind, homeAt: Instant, nextLabel: String?, nextEnd: Instant?) {
+            sink += kind
+        }
+
+        override fun stop() = Unit
     }
 
     @Test
@@ -639,6 +659,120 @@ class DayOrchestratorTest {
         assertTrue(
             "no nag at 11:45 should be scheduled",
             scheduled.none { LocalTime(11, 45).at(date, zone).toEpochMilliseconds() == it },
+        )
+    }
+
+    @Test
+    fun next_beforeTheNextBlock_startsItNowWithItsOwnLength() = runBlocking {
+        clock.now = LocalTime(10, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        awaitBlockIndex(1)
+
+        clock.now = LocalTime(10, 1).at(date, zone)
+        orchestrator.handle(DayEvent.Next("sun_tue_wed.coding_am"))
+
+        clock.now = LocalTime(10, 2).at(date, zone)
+        orchestrator.handle(DayEvent.Next("sun_tue_wed.coding_am"))
+
+        assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 2), orchestrator.state.value)
+        val plan = requireNotNull(orchestrator.todayPlan.value)
+        val codingPm = plan.blocks.first { it.id == "sun_tue_wed.coding_pm" }
+        assertEquals(LocalTime(10, 2), codingPm.start)
+        assertEquals(LocalTime(11, 32), codingPm.end)
+        assertTrue("the free time in between must be skipped", plan.blocks.none { it.id == "sun_tue_wed.free_midday" })
+        val open = orchestrator.segments.value.last { it.actualEnd == null }
+        assertEquals(BlockType.Coding, open.type)
+        assertEquals(LocalTime(11, 32).at(date, zone), requireNotNull(open.plannedEnd))
+    }
+
+    @Test
+    fun next_intoKidTime_startsKidTime() = runBlocking {
+        clock.now = LocalTime(10, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        awaitBlockIndex(1)
+
+        clock.now = LocalTime(10, 1).at(date, zone)
+        orchestrator.handle(DayEvent.Next("sun_tue_wed.coding_am"))
+        clock.now = LocalTime(10, 2).at(date, zone)
+        orchestrator.handle(DayEvent.Next("sun_tue_wed.coding_am"))
+        awaitBlockIndex(2)
+
+        clock.now = LocalTime(15, 40).at(date, zone)
+        // Past the edited coding_pm, lands on the planned free block; then Next from free time is kid time.
+        orchestrator.handle(DayEvent.Next("sun_tue_wed.coding_pm"))
+        orchestrator.handle(DayEvent.Next("sun_tue_wed.free_pm"))
+
+        assertEquals(DayState.KidTime, orchestrator.state.value)
+        val open = orchestrator.segments.value.last { it.actualEnd == null }
+        assertEquals(BlockType.KidTime, open.type)
+        assertEquals(LocalTime(15, 40).at(date, zone), requireNotNull(open.plannedStart))
+        assertEquals(
+            "kid time must be the only open segment",
+            1,
+            orchestrator.segments.value.count { it.actualEnd == null },
+        )
+    }
+
+    @Test
+    fun walk_onCoding_resumesCodingAfterwards() = runBlocking {
+        clock.now = LocalTime(10, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        awaitBlockIndex(1)
+
+        assertTrue("the walk must start", orchestrator.startWalk(30))
+
+        val running = orchestrator.state.value as DayState.Running
+        val plan = requireNotNull(orchestrator.todayPlan.value)
+        assertEquals("walk-600", plan.blocks[running.blockIndex].id)
+
+        val open = orchestrator.segments.value.last { it.actualEnd == null }
+        assertEquals(BlockType.Walk, open.type)
+        assertEquals(SegmentKind.PLANNED, open.kind)
+        assertEquals(LocalTime(10, 30).at(date, zone), requireNotNull(open.plannedEnd))
+
+        val resumed = plan.blocks.first { it.id == "sun_tue_wed.coding_am@630" }
+        assertEquals(LocalTime(10, 30), resumed.start)
+        assertEquals(LocalTime(11, 30), resumed.end)
+    }
+
+    @Test
+    fun walk_ringsAtHalfTimeAndAtTheEnd() = runBlocking {
+        clock.now = LocalTime(10, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        awaitBlockIndex(1)
+        assertTrue(orchestrator.startWalk(30))
+        ringerKinds.clear()
+
+        clock.now = LocalTime(10, 15, 5).at(date, zone)
+        orchestrator.onAlarm()
+        assertEquals(listOf(AlertKind.TURN_BACK), ringerKinds.toList())
+
+        clock.now = LocalTime(10, 30, 5).at(date, zone)
+        orchestrator.onAlarm()
+        assertEquals(listOf(AlertKind.TURN_BACK, AlertKind.WALK_DONE), ringerKinds.toList())
+
+        val running = orchestrator.state.value as DayState.Running
+        val plan = requireNotNull(orchestrator.todayPlan.value)
+        assertEquals("sun_tue_wed.coding_am@630", plan.blocks[running.blockIndex].id)
+    }
+
+    @Test
+    fun turnBack_bringsTheEndCloser() = runBlocking {
+        clock.now = LocalTime(10, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        awaitBlockIndex(1)
+        assertTrue(orchestrator.startWalk(30))
+
+        clock.now = LocalTime(10, 8).at(date, zone)
+        assertTrue("turning back before half time must work", orchestrator.turnBack())
+
+        val open = orchestrator.segments.value.last { it.actualEnd == null }
+        assertEquals(LocalTime(10, 16).at(date, zone), requireNotNull(open.plannedEnd))
+        val resumed = requireNotNull(orchestrator.todayPlan.value).blocks.first { it.id == "sun_tue_wed.coding_am@630" }
+        assertEquals(LocalTime(10, 16), resumed.start)
+        assertTrue(
+            "the next alarm is the walk's new end",
+            LocalTime(10, 16).at(date, zone).toEpochMilliseconds() in scheduledAlarms(),
         )
     }
 

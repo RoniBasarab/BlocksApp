@@ -16,4 +16,6 @@ internal fun ActionEvent.toDayEvent(expectedBlockId: String?): DayEvent = when (
     ActionEvent.START_NEXT -> DayEvent.Next(expectedBlockId.orEmpty())
     ActionEvent.KID_ASLEEP -> DayEvent.KidAsleep
     ActionEvent.END_DAY -> DayEvent.EndDay(EndReason.NORMAL)
+    // Never reached: the orchestrator handles TURN_BACK itself, before this mapping.
+    ActionEvent.TURN_BACK -> DayEvent.Next(expectedBlockId.orEmpty())
 }

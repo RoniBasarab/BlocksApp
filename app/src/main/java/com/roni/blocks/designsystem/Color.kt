@@ -69,6 +69,7 @@ fun blockColors(type: BlockType): BlockColors = when (type) {
     BlockType.Free -> BlockColors(Color(0xFF463E2C), Color(0xFFD9C38A))
     BlockType.KidTime -> BlockColors(Color(0xFF33312D), Color(0xFF9C968C))
     BlockType.Dishes -> BlockColors(Color(0xFF2A3E3D), Color(0xFF7FB3AE))
+    BlockType.Walk -> BlockColors(Color(0xFF2B3A3F), Color(0xFF8FC7C9))
     is BlockType.EveningChoice -> when (type.choice) {
         Choice.GAME -> BlockColors(Color(0xFF47332E), Color(0xFFC98F7A))
         Choice.PROJECT -> BlockColors(Color(0xFF333A52), Color(0xFF8C9BD1))

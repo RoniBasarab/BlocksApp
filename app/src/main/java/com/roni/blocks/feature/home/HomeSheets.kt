@@ -15,10 +15,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.SportsEsports
+import androidx.compose.material.icons.outlined.WbTwilight
 import androidx.compose.material.icons.outlined.Weekend
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -35,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.style.TextAlign
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.schedule.RecordEdit
@@ -239,6 +244,98 @@ private fun CorrectMissingBody(
             onDismiss()
         }) { Text("It happened") }
         TextButton(onClick = onDismiss) { Text("Cancel") }
+    }
+}
+
+/**
+ * Starts a walk (2.3.0): pick how long, see when to turn back and be home, then go. The -5/+5
+ * limits and every label come from [WalkSheetUi], built from the same preview the walk commits with.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun WalkSheet(
+    ui: WalkSheetUi,
+    onStep: (Int) -> Unit,
+    onStart: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = AppTheme.colors
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        shape = AppShapes.sheet,
+        containerColor = colors.surface,
+        dragHandle = null,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(Spacing.l),
+            verticalArrangement = Arrangement.spacedBy(Spacing.s),
+        ) {
+            Text("Take a walk", style = MaterialTheme.typography.titleLarge, color = colors.textPrimary)
+            Row(
+                Modifier.fillMaxWidth().padding(top = Spacing.s),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.m),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                WalkStepButton("\u22125", ui.canShrink, Modifier.weight(1f)) { onStep(-5) }
+                Text(
+                    "${ui.minutes} min",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = colors.textPrimary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(2f),
+                )
+                WalkStepButton("+5", ui.canGrow, Modifier.weight(1f)) { onStep(5) }
+            }
+            WalkSheetRow(Icons.Outlined.WbTwilight, "Turn back at ${ui.turnBackAt}")
+            WalkSheetRow(
+                Icons.Outlined.Home,
+                if (ui.cappedByKidTime) "Home by ${ui.homeAt}, before kid time" else "Home by ${ui.homeAt}",
+            )
+            ui.afterTitle?.let { after ->
+                Text(
+                    buildString {
+                        append("Then $after")
+                        ui.afterEnd?.let { append(" until $it") }
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.textSecondary,
+                    modifier = Modifier.padding(start = Spacing.l),
+                )
+            }
+            Text(
+                "Rings like a timer at half time and at the end, even on silent.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.textSecondary,
+                modifier = Modifier.padding(top = Spacing.s),
+            )
+            Button(
+                onClick = onStart,
+                modifier = Modifier.fillMaxWidth().padding(top = Spacing.s),
+                shape = AppShapes.chip,
+            ) { Text("Start walk") }
+        }
+    }
+}
+
+@Composable
+private fun WalkStepButton(label: String, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    FilledTonalButton(onClick = onClick, enabled = enabled, modifier = modifier, shape = AppShapes.chip) {
+        Text(label)
+    }
+}
+
+@Composable
+private fun WalkSheetRow(icon: ImageVector, text: String) {
+    val colors = AppTheme.colors
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(Metrics.iconSm))
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.textPrimary,
+            modifier = Modifier.padding(start = Spacing.s),
+        )
     }
 }
 

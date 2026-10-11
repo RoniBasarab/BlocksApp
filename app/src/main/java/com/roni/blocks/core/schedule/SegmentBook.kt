@@ -143,7 +143,7 @@ object SegmentBook {
     fun enterKidTime(book: DayBook, template: Template, date: LocalDate, zone: TimeZone): DayBook {
         val kid = resolve(template, date, zone, book.shift).first { it.spec.type == BlockType.KidTime }
         val closed = book.segments.map { segment ->
-            if (segment.actualEnd == null && segment.kind == SegmentKind.PLANNED) segment.copy(actualEnd = kid.plannedStart) else segment
+            if (segment.actualEnd == null) segment.copy(actualEnd = kid.plannedStart) else segment
         }
         return book.copy(segments = closed + open(kid, kid.plannedStart), index = template.blocks.indexOfFirst { it.type == BlockType.KidTime })
     }

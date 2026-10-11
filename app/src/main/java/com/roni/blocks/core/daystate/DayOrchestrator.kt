@@ -14,6 +14,7 @@ import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.Template
 import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.model.TodayPlan
+import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.schedule.RecordEdit
 import com.roni.blocks.core.schedule.toRecordRows
 import com.roni.blocks.core.schedule.withRows
@@ -21,6 +22,8 @@ import com.roni.blocks.core.notifications.ActionEvent
 import com.roni.blocks.core.notifications.NotificationModelMapper
 import com.roni.blocks.core.notifications.NotificationModel
 import com.roni.blocks.core.notifications.NotificationPort
+import com.roni.blocks.core.notifications.WalkRinger
+import com.roni.blocks.core.notifications.blockName
 import com.roni.blocks.core.widget.WidgetPort
 import com.roni.blocks.core.schedule.CurrentBlock
 import com.roni.blocks.core.schedule.DayBook
@@ -50,6 +53,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.builtins.ListSerializer
@@ -76,6 +80,11 @@ class DayOrchestrator @Inject constructor(
     private val notificationRenderer: NotificationPort,
     private val widgetUpdater: WidgetPort = object : WidgetPort {
         override fun update(model: NotificationModel?) {}
+    },
+    /** The walk timer (2.3.0); a no-op by default so hand-built tests compile. */
+    private val walkRinger: WalkRinger = object : WalkRinger {
+        override fun ring(kind: com.roni.blocks.core.schedule.AlertKind, homeAt: Instant, nextLabel: String?, nextEnd: Instant?) {}
+        override fun stop() {}
     },
     private val clock: Clock,
     private val zone: TimeZone,
@@ -156,6 +165,10 @@ class DayOrchestrator @Inject constructor(
         val current = _state.value.currentBlockId()
         if (expectedBlockId != null && expectedBlockId != current) {
             logger.info("stale $event for $expectedBlockId, now ${current ?: "-"}")
+            return
+        }
+        if (event == ActionEvent.TURN_BACK) {
+            turnBack()
             return
         }
         apply(event.toDayEvent(expectedBlockId))
@@ -275,11 +288,144 @@ class DayOrchestrator @Inject constructor(
         return true
     }
 
+    /**
+     * The walk the start sheet would take (2.3.0): when to turn back, when Roni is home, and what
+     * runs after the walk. Uses the same [PlanEditor] calls [startWalk] commits with, so the sheet
+     * and the walk agree. Null when no walk fits: not running, a walk already on, or under ten
+     * minutes before kid time.
+     */
+    fun walkPreview(minutes: Int): WalkPreview? {
+        val state = _state.value
+        if (state !is DayState.Running) return null
+        val plan = _todayPlan.value ?: return null
+        val currentId = state.currentBlockId() ?: return null
+        val open = book.segments.lastOrNull { it.actualEnd == null }
+        if (open?.type == BlockType.Walk) return null
+        val now = clock.now()
+        val nowMin = now.toLocalDateTime(zone).let { it.hour * 60 + it.minute }
+        val today = today()
+        val end = PlanEditor.walkEnd(plan.blocks.toPlanBlocks(), currentId, nowMin, minutes) ?: return null
+        val inserted = PlanEditor.insertWalk(
+            plan.blocks.toPlanBlocks(),
+            currentId,
+            nowMin,
+            minutes,
+            doneEarly = open?.kind == SegmentKind.SYNTHETIC_FREE,
+        ) ?: return null
+        val after = inserted.sortedBy { it.startMin }.firstOrNull { it.startMin == end && it.type != BlockType.Walk }
+        val turnBackMin = nowMin + (end - nowMin) / 2
+        return WalkPreview(
+            turnBackAt = LocalTime(turnBackMin / 60, turnBackMin % 60).at(today, zone),
+            homeAt = LocalTime(end / 60, end % 60).at(today, zone),
+            afterTitle = after?.let { blockName(it.type) },
+            afterEnd = after?.let { LocalTime(it.endMin / 60, it.endMin % 60).at(today, zone) },
+        )
+    }
+
+    /**
+     * Starts a walk now (2.3.0): the current block stops, the walk runs for [minutes] (cut at kid
+     * time), and the current block resumes after it. A user action: it counts as Roni reacting. A
+     * longer walk eats the start of the blocks after it. False when no walk fits.
+     */
+    suspend fun startWalk(minutes: Int): Boolean {
+        ensureRestored()
+        val state = _state.value
+        if (state !is DayState.Running) return false
+        val plan = _todayPlan.value ?: return false
+        val currentId = state.currentBlockId() ?: return false
+        val open = book.segments.lastOrNull { it.actualEnd == null }
+        if (open?.type == BlockType.Walk) return false
+        val now = clock.now()
+        val nowMin = now.toLocalDateTime(zone).let { it.hour * 60 + it.minute }
+        val edited = PlanEditor.insertWalk(
+            plan.blocks.toPlanBlocks(),
+            currentId,
+            nowMin,
+            minutes,
+            doneEarly = open?.kind == SegmentKind.SYNTHETIC_FREE,
+        ) ?: return false
+        val blocks = edited.toBlockSpecs(plan.blocks)
+        val walkIndex = blocks.indexOfFirst { it.type == BlockType.Walk }
+        val walk = blocks.getOrNull(walkIndex) ?: return false
+        _todayPlan.value = plan.copy(blocks = blocks, edited = true)
+        val closed = book.segments.map { if (it.actualEnd == null) it.copy(actualEnd = now) else it }
+        val walkSegment = Segment(
+            type = BlockType.Walk,
+            kind = SegmentKind.PLANNED,
+            plannedStart = now,
+            plannedEnd = walk.end.at(today(), zone),
+            actualStart = now,
+            actualEnd = null,
+            blockId = walk.id,
+        )
+        book = book.copy(segments = closed + walkSegment, index = walkIndex)
+        _segments.value = book.segments
+        _state.value = state.copy(blockIndex = walkIndex)
+        reactedAt = now
+        persist()
+        sideEffects()
+        logger.info("walk started for $minutes min at $now")
+        return true
+    }
+
+    /**
+     * "Turn back now" on a walk before half time (2.3.0): the way home takes as long as the way out
+     * did, so the walk ends at now + (now - its start). The open segment takes that end to the
+     * second; the plan takes it rounded up to the minute. False when nothing is walking or half
+     * time has passed.
+     */
+    suspend fun turnBack(): Boolean {
+        ensureRestored()
+        val state = _state.value
+        if (state !is DayState.Running) return false
+        val plan = _todayPlan.value ?: return false
+        val open = book.segments.lastOrNull { it.actualEnd == null } ?: return false
+        val walkEnd = open.plannedEnd
+        if (open.type != BlockType.Walk || open.kind != SegmentKind.PLANNED || walkEnd == null) return false
+        val now = clock.now()
+        val half = open.actualStart + (walkEnd - open.actualStart) / 2
+        if (now >= half) return false
+        val newEnd = now + (now - open.actualStart)
+        val local = newEnd.toLocalDateTime(zone)
+        val newEndMin = local.hour * 60 + local.minute + if (local.second > 0 || local.nanosecond > 0) 1 else 0
+        val walkId = open.blockId ?: return false
+        val edited = PlanEditor.shortenWalk(plan.blocks.toPlanBlocks(), walkId, newEndMin) ?: return false
+        _todayPlan.value = plan.copy(blocks = edited.toBlockSpecs(plan.blocks), edited = true)
+        book = book.copy(
+            segments = book.segments.map {
+                if (it.actualEnd == null && it.type == BlockType.Walk) it.copy(plannedEnd = newEnd) else it
+            },
+        )
+        _segments.value = book.segments
+        reactedAt = now
+        persist()
+        sideEffects()
+        logger.info("turn back at $now, walk ends $newEnd")
+        return true
+    }
+
     suspend fun onAlarm() {
         ensureRestored()
         applyRollover()
-        if (applyOneMissedTransition()) return
         val now = clock.now()
+        // A walk rings before anything else: its end is a transition too, so the ring has to be
+        // worked out while the walk is still the open segment.
+        val walk = openWalk()
+        val walkEnd = walk?.plannedEnd
+        if (walk != null && walkEnd != null) {
+            com.roni.blocks.core.schedule.AlertPlanner
+                .dueWalk(walk.actualStart.epochSeconds, walkEnd.epochSeconds, now.epochSeconds)
+                ?.let { due ->
+                    val (label, end) = walkNext(walk)
+                    walkRinger.ring(due.kind, walkEnd, label, end)
+                }
+        }
+        if (applyOneMissedTransition()) return
+        if (walk != null && walkEnd != null && now < walkEnd) {
+            // Still walking: the walk ringer owns the sound, so the day notification stays quiet.
+            sideEffects()
+            return
+        }
         val template = currentTemplate()
         val open = _segments.value.lastOrNull { it.actualEnd == null }
         val anchor = if (open?.kind == SegmentKind.PLANNED) open.actualStart else null
@@ -377,6 +523,15 @@ class DayOrchestrator @Inject constructor(
                 logger.info("dropping Next for ${event.expectedBlockId}, current is ${current ?: "-"}")
                 return
             }
+            if (startNextEarly(now)) {
+                reactedAt = now
+                _state.value = DayState.KidTime
+                _segments.value = book.segments
+                persist()
+                logger.info("Next started kid time at $now")
+                sideEffects(transition = true)
+                return
+            }
         }
         val next = DayStateMachine.transition(_state.value, event, now)
         if (next == null) {
@@ -417,6 +572,33 @@ class DayOrchestrator @Inject constructor(
         } else {
             sideEffects(transition = true)
         }
+    }
+
+    /**
+     * "Next starts the next thing now" (2.3.0): pressed from free time, or from a block finished
+     * early, the first real block after it starts now and keeps its length; the free time in between
+     * is skipped. Returns true when the landing block is kid time, which the caller runs as
+     * [DayEvent.KidTimeStarted] instead of Next. A [DayEvent.Next] from a work block that is not over
+     * yet is "Done early" and is left to [SegmentBook.next].
+     */
+    private fun startNextEarly(now: Instant): Boolean {
+        val plan = _todayPlan.value ?: return false
+        val currentId = _state.value.currentBlockId() ?: return false
+        val open = book.segments.lastOrNull { it.actualEnd == null }
+        val doneEarly = open != null && open.kind == SegmentKind.PLANNED && open.type.isWork &&
+            open.plannedEnd != null && now < open.plannedEnd!!
+        if (doneEarly) return false
+        val nowMin = now.toLocalDateTime(zone).let { it.hour * 60 + it.minute }
+        val edited = PlanEditor.startEarly(plan.blocks.toPlanBlocks(), currentId, nowMin) ?: return false
+        _todayPlan.value = plan.copy(blocks = edited.toBlockSpecs(plan.blocks), edited = true)
+        val landing = edited.indexOfFirst { it.startMin == nowMin && it.id != currentId }
+        if (landing < 0) return false
+        if (edited[landing].type == BlockType.KidTime) {
+            book = SegmentBook.enterKidTime(book, currentTemplate() ?: return false, today(), zone)
+            return true
+        }
+        book = book.copy(index = landing - 1)
+        return false
     }
 
     /**
@@ -531,9 +713,18 @@ class DayOrchestrator @Inject constructor(
         val index = (_state.value as? DayState.Running)?.blockIndex ?: 0
         val anchor = wakeAnchor()
         val wake = engine.nextWakeUp(_state.value, today, now, template, index, anchor)
-        val nextAlert = nextAlertTime(now, template, index, anchor)
+        // While a walk runs the day's own alert is irrelevant: the walk rings at half time and at
+        // the end, and those alarms must survive Doze (clock = true).
+        val walk = openWalk()
+        val nextAlert = if (walk?.plannedEnd != null) {
+            com.roni.blocks.core.schedule.AlertPlanner
+                .nextWalk(walk.actualStart.epochSeconds, walk.plannedEnd!!.epochSeconds, now.epochSeconds)
+                ?.let { Instant.fromEpochSeconds(it.atSec) }
+        } else {
+            nextAlertTime(now, template, index, anchor)
+        }
         val alarmAt = listOfNotNull(wake, nextAlert).minOrNull()
-        if (alarmAt == null) alarms.cancel() else alarms.schedule(alarmAt)
+        if (alarmAt == null) alarms.cancel() else alarms.schedule(alarmAt, clock = walk != null)
         val timeline = engine.timelineAt(template, today, zone, _segments.value, now)
         val model = notificationMapper.from(_state.value, timeline, now)
         notificationRenderer.render(model, transition, alert)
@@ -549,6 +740,18 @@ class DayOrchestrator @Inject constructor(
     private fun wakeAnchor(): Instant? {
         val open = _segments.value.lastOrNull { it.actualEnd == null } ?: return null
         return if (open.kind == SegmentKind.SYNTHETIC_FREE) null else open.actualStart
+    }
+
+    /** The open walk segment, or null when nothing is walking (2.3.0). */
+    private fun openWalk(): Segment? =
+        book.segments.lastOrNull { it.actualEnd == null && it.kind == SegmentKind.PLANNED && it.type == BlockType.Walk }
+
+    /** What runs after [walk]: its title and end, for the "Walk done" ring. */
+    private fun walkNext(walk: Segment): Pair<String?, Instant?> {
+        val plan = _todayPlan.value ?: return null to null
+        val i = plan.blocks.indexOfFirst { it.id == walk.blockId }
+        val next = plan.blocks.getOrNull(i + 1) ?: return null to null
+        return blockName(next.type) to next.end.at(today(), zone)
     }
 
     /** The next sound to play, or null when no alert is needed. */
@@ -580,6 +783,7 @@ class DayOrchestrator @Inject constructor(
      */
     suspend fun onAppForeground() {
         ensureRestored()
+        walkRinger.stop()
         reactedAt = clock.now()
         persist()
         sideEffects()
@@ -694,6 +898,13 @@ class DayOrchestrator @Inject constructor(
             val kidStart = template.blocks.firstOrNull { it.type == BlockType.KidTime }?.start
             if (kidStart != null && now >= kidStart.at(today, zone)) {
                 apply(DayEvent.KidTimeStarted)
+                return true
+            }
+            // A walk ends by itself when its planned end passes (2.3.0): "Next", exactly as free
+            // time after "Done early". A walk has no warning and no nags.
+            val walk = book.segments.lastOrNull { it.actualEnd == null && it.kind == SegmentKind.PLANNED && it.type == BlockType.Walk }
+            if (walk?.plannedEnd != null && now >= walk.plannedEnd) {
+                apply(DayEvent.Next(_state.value.currentBlockId().orEmpty()))
                 return true
             }
             val freeEnd = book.segments.lastOrNull { it.kind == SegmentKind.SYNTHETIC_FREE && it.actualEnd == null }?.plannedEnd
