@@ -10,19 +10,13 @@ With a phone attached, run them with:
 These four cannot be automated reliably (they depend on the launcher, the reboot flow, the keyguard
 and the system DND state), so Roni runs them by hand.
 
-**Check on the phone (2.2.0).** Use the debug app for steps that move the clock (Settings → Developer tools).
+**Check on the phone (2.4.0).** Use the debug app for steps that move the clock (Settings → Developer tools).
 
-1. Add the widget: it shows the block and a countdown.
-2. Developer tools: move the clock +1 hour, then Real time: Home's minutes left correct themselves within a second.
-3. Tap kid time: a dialog says why, in full.
-4. On Coding, tap Done early: the card and the notification say "Free time · Done early … then the Pomodoro doesn't restart.
-5. Coding's notification: "Focus 1/2", "Break at …", counting down to the break.
-6. Lock the phone 6 minutes before a block ends: a sound at 5 minutes left, at the end, and every 5 minutes until you open the app.
-7. Settings → Alert sound: pick another sound; the next alert uses it.
-8. Tap the running block: change its type and its end (±15).
-9. Tap a past block today: move its end; the calendar shows "Done HH:MM–HH:MM".
-10. History: correcting has −15 and +15.
-11. Release app (`com.roni.blocks`): pick a template, swipe the app away, reopen: the day is still there.
+1. At night (kid time, evening, or after the day ended): the walk icon is in the top bar; start a 10-minute walk.
+2. With the phone on silent and the screen off, it rings and vibrates at 5 minutes ("Turn back now") and at 10 ("Walk done").
+3. Turn back now at minute 2: the walk ends at minute 4.
+4. History → today: "Walks" lists it.
+5. During a day block, Walk still inserts into the day (2.3.0 behavior).
 
 ## Setup for every test
 

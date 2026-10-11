@@ -34,11 +34,11 @@ Rules that hold everywhere:
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `core/daystate/DayOrchestrator.kt` | Single writer of the day's state: owns today's plan, applies events and plan edits, persists, pushes alarm/notification/history; `liveRecord()`/`correctPast()`/`onAppForeground()` (2.2.0) | DayStateMachine, ScheduleEngine, HistoryManager, PrefsStorage |
+| `core/daystate/DayOrchestrator.kt` | Single writer of the day's state: owns today's plan, applies events and plan edits, persists, pushes alarm/notification/history; `liveRecord()`/`correctPast()`/`onAppForeground()` (2.2.0); standalone walks `walkSession`/`walkPreview`/`startWalk`/`turnBack`/`endWalk` (2.4.0) | DayStateMachine, ScheduleEngine, HistoryManager, PrefsStorage |
 | `core/daystate/DayState.kt` | `DayState` and `DayEvent` — the persisted vocabulary of a day | Model, ScheduleEngine |
 | `core/daystate/DayStateMachine.kt` | Every legal transition as one pure function | DayState, DayEvent |
 | `core/daystate/NotificationActionMapping.kt` | Maps notification buttons onto day events; new actions fail to compile unmapped | NotificationModel, DayStateMachine |
-| `core/daystate/WalkPreview.kt` | What the walk start sheet shows before it is committed (2.3.0): turn-back, home, and what runs after | DayOrchestrator |
+| `core/daystate/WalkPreview.kt` | What the walk start sheet shows before it is committed (2.3.0): turn-back, home, and what runs after; the standalone form has no "then" (2.4.0) | DayOrchestrator |
 
 ## core/debug
 
@@ -71,7 +71,7 @@ Rules that hold everywhere:
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `core/model/Model.kt` | `Template`, `TemplateId`, `BlockSpec`, `TodayPlan`, `Segment`, `DayRecord` — the persisted shapes | kotlinx.serialization |
+| `core/model/Model.kt` | `Template`, `TemplateId`, `BlockSpec`, `TodayPlan`, `Segment`, `DayRecord` — the persisted shapes; `WalkSession`/`WalkLog` for standalone walks (2.4.0) | kotlinx.serialization |
 
 ## core/notifications
 
@@ -80,7 +80,7 @@ Rules that hold everywhere:
 | `core/notifications/AppVisibility.kt` | Whether any part of the app is on screen, so notices stay quiet when already visible | ActivityLifecycleCallbacks |
 | `core/notifications/DismissalStore.kt` | Remembers swiped-away notices; a real transition clears the memory | PrefsStorage |
 | `core/notifications/NotificationActionReceiver.kt` | Pause/Next buttons on a notification | DayOrchestrator, NotificationActionMapping |
-| `core/notifications/NotificationModel.kt` | Channel/action enums and `NotificationModelMapper` (block → notification text) | ScheduleEngine, DayState, TimeFormatter |
+| `core/notifications/NotificationModel.kt` | Channel/action enums and `NotificationModelMapper` (block → notification text); `walk()` builds the standalone walk notification (2.4.0) | ScheduleEngine, DayState, TimeFormatter |
 | `core/notifications/NotificationRenderer.kt` | `NotificationPort` plus the real renderer; the port exists so tests can fake it | NotificationModel, AppVisibility, DismissalStore |
 | `core/notifications/WalkRinger.kt` | `WalkRinger` plus the alarm-clock walk ringer (2.3.0): half-time and home rings, even on silent | NotificationRenderer, TimeFormatter |
 
@@ -101,7 +101,7 @@ Rules that hold everywhere:
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `core/storage/HistoryManager.kt` | The only reader/writer of days and week aggregates; a version flow lets Home observe writes | PrefsStorage, Model |
+| `core/storage/HistoryManager.kt` | The only reader/writer of days and week aggregates; a version flow lets Home observe writes; `addWalk`/`walks`/`observeWalks` for standalone walks (2.4.0) | PrefsStorage, Model |
 | `core/storage/PrefsStorage.kt` | SharedPreferences wrapper split into DAY / SETTINGS / HISTORY files | android.content.SharedPreferences |
 | `core/storage/TemplateManager.kt` | Loads and saves the built-in templates | PrefsStorage, assets |
 
@@ -148,14 +148,14 @@ Rules that hold everywhere:
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `feature/home/Home.kt` | Home screen, `HomeViewModel` (publishes the calendar, the now/walk cards and previews plan edits), top bar, now-card dialogs, edit card | DayOrchestrator, HistoryManager, TemplateManager, DebugTimeController |
-| `feature/home/HomeUi.kt` | `HomeState` and the calendar/block/now-card/walk UI models | Compose, designsystem |
+| `feature/home/Home.kt` | Home screen, `HomeViewModel` (publishes the calendar, the now/walk cards and previews plan edits), top bar, now-card dialogs, edit card; walk icon in top bar, standalone walk card support (2.4.0) | DayOrchestrator, HistoryManager, TemplateManager, DebugTimeController |
+| `feature/home/HomeUi.kt` | `HomeState` and the calendar/block/now-card/walk UI models (`WalkCardUi.standalone`, `walkEnabled`) | Compose, designsystem |
 | `feature/home/HomeSheets.kt` | Bottom sheets: evening choice, walk start (`WalkSheet`, 2.3.0), template swap, the recap's `CorrectBlockSheet` | DayOrchestrator, TemplateManager |
 | `feature/home/NowCardDialogs.kt` | The now-card's dialog states and confirmations | DayOrchestrator |
 | `feature/home/DayRecap.kt` | A finished day as a readable recap: summary card (+ check-in card until it's answered), one row per block | designsystem, Compose |
 | `feature/home/CalendarMapper.kt` | Pure model→view mapping for the calendar; no clock, no context | DayCalendar |
 | `feature/home/DayCalendar.kt` | The Home calendar grid and its hour geometry | designsystem |
-| `feature/history/History.kt` | History list and the day-detail recap, plus both ViewModels | HistoryManager, DayRecapMapper |
+| `feature/history/History.kt` | History list and the day-detail recap, plus both ViewModels; day detail shows "Walks" section for standalone walks (2.4.0) | HistoryManager, DayRecapMapper |
 | `feature/weekly/Weekly.kt` | Weekly screen: planned vs actual per type as bars, week navigation | HistoryManager |
 | `feature/insights/Insights.kt` | Insights screen: last complete week vs the one before | HistoryManager |
 | `feature/templatepicker/TemplatePicker.kt` | Template picker with a live preview of the rest of today | DayOrchestrator, TemplateManager |
