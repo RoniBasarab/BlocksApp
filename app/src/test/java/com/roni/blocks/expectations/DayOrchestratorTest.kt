@@ -52,6 +52,7 @@ import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.plus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
@@ -859,7 +860,56 @@ class DayOrchestratorTest {
     }
 
     @Test
-    fun secondWalk_startsTheNewWalk() = runBlocking {
+    fun standaloneWalk_turnBackAfterFiveMinutes_isHomeFiveMinutesLater() = runBlocking {
+        clock.now = LocalTime(21, 0, 0).at(date, zone)
+        assertTrue(orchestrator.startWalk(30))
+
+        clock.now = LocalTime(21, 5, 0).at(date, zone)
+        assertTrue(orchestrator.turnBack())
+        assertEquals(LocalTime(21, 10).at(date, zone), requireNotNull(orchestrator.walkSession.value).end)
+
+        ringerKinds.clear()
+        clock.now = LocalTime(21, 10, 5).at(date, zone)
+        orchestrator.onAlarm()
+        assertEquals(listOf(AlertKind.WALK_DONE), ringerKinds.toList())
+        val walks = history.walks(date)
+        assertEquals(1, walks.size)
+        assertEquals(LocalTime(21, 0).at(date, zone), walks.first().start)
+        assertEquals(LocalTime(21, 10).at(date, zone), walks.first().end)
+        assertEquals(null, orchestrator.walkSession.value)
+    }
+
+    @Test
+    fun standaloneWalk_secondTurnBack_changesNothing() = runBlocking {
+        clock.now = LocalTime(21, 0, 0).at(date, zone)
+        assertTrue(orchestrator.startWalk(30))
+        clock.now = LocalTime(21, 5, 0).at(date, zone)
+        assertTrue(orchestrator.turnBack())
+
+        clock.now = LocalTime(21, 6, 0).at(date, zone)
+        assertFalse(orchestrator.turnBack())
+        assertEquals(LocalTime(21, 10).at(date, zone), requireNotNull(orchestrator.walkSession.value).end)
+    }
+
+    @Test
+    fun standaloneWalk_endThenStartAgain_isAFreshWalk() = runBlocking {
+        clock.now = LocalTime(21, 0, 0).at(date, zone)
+        assertTrue(orchestrator.startWalk(30))
+
+        clock.now = LocalTime(21, 2, 0).at(date, zone)
+        orchestrator.endWalk()
+        val logged = history.walks(date).single()
+        assertEquals("the finished walk logs two minutes", 2L, (logged.end - logged.start).inWholeMinutes)
+
+        clock.now = LocalTime(21, 2, 10).at(date, zone)
+        assertTrue(orchestrator.startWalk(30))
+        val session = requireNotNull(orchestrator.walkSession.value)
+        assertEquals(LocalTime(21, 2, 10).at(date, zone), session.start)
+        assertEquals(LocalTime(21, 32, 10).at(date, zone), session.end)
+    }
+
+    @Test
+    fun dayBlockWalk_endThenStartAgain_isAFreshWalk() = runBlocking {
         clock.now = LocalTime(10, 0, 5).at(date, zone)
         orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
         awaitBlockIndex(1)
@@ -877,20 +927,24 @@ class DayOrchestratorTest {
         assertEquals(BlockType.Walk, open.type)
         assertEquals("walk-602", open.blockId)
         assertEquals(LocalTime(10, 32).at(date, zone), requireNotNull(open.plannedEnd))
+        val session = requireNotNull(orchestrator.walkSession.value)
+        assertEquals(open.actualStart, session.start)
+        assertEquals(open.plannedEnd, session.end)
         val running = orchestrator.state.value as DayState.Running
         val plan = requireNotNull(orchestrator.todayPlan.value)
         assertEquals("walk-602", plan.blocks[running.blockIndex].id)
     }
 
     @Test
-    fun turnBack_afterFiveMinutes_takesFiveMinutesHome() = runBlocking {
+    fun walk_survivesProcessDeath() = runBlocking {
         clock.now = LocalTime(21, 0, 0).at(date, zone)
         assertTrue(orchestrator.startWalk(30))
+        val before = requireNotNull(orchestrator.walkSession.value)
 
-        clock.now = LocalTime(21, 5, 0).at(date, zone)
-        assertTrue(orchestrator.turnBack())
+        val restored = newOrchestrator()
+        restored.ensureRestored()
 
-        assertEquals(LocalTime(21, 10).at(date, zone), requireNotNull(orchestrator.walkSession.value).end)
+        assertEquals(before, restored.walkSession.value)
     }
 
     @Test

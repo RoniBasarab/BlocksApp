@@ -116,6 +116,9 @@ import com.roni.blocks.core.time.DebugTimeController
 import com.roni.blocks.core.time.Ticker
 import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.core.time.minuteOfDay
+import com.roni.blocks.core.walk.WalkClock
+import com.roni.blocks.core.walk.WalkPhase
+import com.roni.blocks.core.walk.WalkView
 import com.roni.blocks.designsystem.AppBottomBar
 import com.roni.blocks.designsystem.AppCard
 import com.roni.blocks.designsystem.AppChip
@@ -223,19 +226,11 @@ private val day: DayOrchestrator,
         combine(_state, minuteOfDay) { s, minute -> progressOf(s, minute) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0f)
 
-    /** mm:ss to the next walk ring, for the WalkCard ring's middle. */
-    val walkCountdown: StateFlow<String> =
-        combine(_state, minuteOfDay, secondOfDay) { s, minute, second -> walkCountdownText(s, minute, second) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
-
-    val walkProgress: StateFlow<Float> =
-        combine(_state, minuteOfDay, secondOfDay) { s, minute, second -> walkProgressOf(s, minute, second) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0f)
-
-    /** Which way the walk goes right now (2.5.0): home once the turn-back second has passed. */
-    val walkHeadingHome: StateFlow<Boolean> =
-        combine(_state, minuteOfDay, secondOfDay) { s, minute, second -> walkHeadingHomeOf(s, minute, second) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    /** The walk card's clock (2.6.0): one [WalkView] with text, progress and phase, refreshed every second. */
+    val walkView: StateFlow<WalkView?> =
+        combine(_state, secondOfDay) { s, _ ->
+            s.walkCard?.let { WalkClock.view(it.startSec, it.endSec, clock.now().epochSeconds) }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** "5,240 steps" for the top bar (2.5.0): the saved total plus the live reading; never written. */
     val stepsLabel: StateFlow<String?> =
@@ -627,7 +622,7 @@ private val day: DayOrchestrator,
         val walkCard = if (walkSession != null) {
             val startSec = walkSession.start.epochSeconds
             val endSec = walkSession.end.epochSeconds
-            val turnSec = startSec + (endSec - startSec) / 2
+            val turnSec = WalkClock.turnSec(startSec, endSec)
             val turnBackMin = Instant.fromEpochSeconds(turnSec).minuteOfDay(zone)
             val afterTitle = walk?.let { wb ->
                 blocks.firstOrNull { it.id == wb.blockId }?.let { walkBlock ->
@@ -676,7 +671,7 @@ private val day: DayOrchestrator,
             eveningSheetOpen = false
             eveningAutoOpened = false
         }
-        if (walkCard != null || dayState !is DayState.Running) walkSheet = null
+        if (walkCard != null) walkSheet = null
 
         _state.value = HomeState(
             weekdayShort = now.toLocalDateTime(zone).dayOfWeek.name.take(3),
@@ -977,27 +972,6 @@ private val day: DayOrchestrator,
         val span = (block.endMin - block.startMin).coerceAtLeast(1)
         return ((minute - block.startMin).toFloat() / span).coerceIn(0f, 1f)
     }
-
-    /** mm:ss to the next ring: the turn-back while walking out, the end while walking home. */
-    private fun walkCountdownText(s: HomeState, minute: Int, second: Int): String {
-        val walk = s.walkCard ?: return ""
-        val nowSec = minute * 60L + second
-        val target = if (nowSec >= walk.turnSec) walk.endSec else walk.turnSec
-        val remaining = (target - nowSec).coerceAtLeast(0)
-        return "%02d:%02d".format(remaining / 60, remaining % 60)
-    }
-
-    private fun walkProgressOf(s: HomeState, minute: Int, second: Int): Float {
-        val walk = s.walkCard ?: return 0f
-        val span = (walk.endSec - walk.startSec).coerceAtLeast(1L)
-        val nowSec = minute * 60L + second
-        return ((nowSec - walk.startSec).toFloat() / span).coerceIn(0f, 1f)
-    }
-
-    private fun walkHeadingHomeOf(s: HomeState, minute: Int, second: Int): Boolean {
-        val walk = s.walkCard ?: return false
-        return minute * 60L + second >= walk.turnSec
-    }
 }
 
 private const val STEP_DECLINED = "step_declined"
@@ -1037,9 +1011,7 @@ fun HomeRoute(
     val minute by viewModel.minuteOfDay.collectAsStateWithLifecycle()
     val countdown by viewModel.countdownText.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
-    val walkCountdown by viewModel.walkCountdown.collectAsStateWithLifecycle()
-    val walkProgress by viewModel.walkProgress.collectAsStateWithLifecycle()
-    val walkHeadingHome by viewModel.walkHeadingHome.collectAsStateWithLifecycle()
+    val walkView by viewModel.walkView.collectAsStateWithLifecycle()
     val suppressed by viewModel.suppressedConfirmations.collectAsStateWithLifecycle()
     val stepsLabel by viewModel.stepsLabel.collectAsStateWithLifecycle()
     val stepPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -1069,9 +1041,7 @@ fun HomeRoute(
             onCorrect = viewModel::correctRecord,
             onCorrectPast = viewModel::correctPast,
             onCheckIn = viewModel::checkIn,
-            walkCountdown = { walkCountdown },
-            walkProgress = { walkProgress },
-            walkHeadingHome = { walkHeadingHome },
+            walkView = { walkView },
             stepsLabel = stepsLabel,
             onAction = { action ->
                 when (action) {
@@ -1120,9 +1090,7 @@ fun HomeScreen(
     onCorrect: (RecordEdit) -> Unit = {},
     onCorrectPast: (RecordEdit) -> Unit = {},
     onCheckIn: (CheckIn) -> Unit = {},
-    walkCountdown: () -> String = { "" },
-    walkProgress: () -> Float = { 0f },
-    walkHeadingHome: () -> Boolean = { false },
+    walkView: () -> WalkView? = { null },
     stepsLabel: String? = null,
 ) {
     SideEffect { RecompositionCounter.hit("HomeScreen") }
@@ -1174,9 +1142,7 @@ fun HomeScreen(
                     state.walkCard?.let { ui ->
                         WalkCard(
                             ui = ui,
-                            countdownText = walkCountdown,
-                            progress = walkProgress,
-                            headingHome = walkHeadingHome,
+                            view = walkView,
                             onAction = onAction,
                             modifier = Modifier.padding(horizontal = Spacing.l, vertical = Spacing.s),
                         )
@@ -1227,9 +1193,7 @@ fun HomeScreen(
             } else state.walkCard?.let { ui ->
                 WalkCard(
                     ui = ui,
-                    countdownText = walkCountdown,
-                    progress = walkProgress,
-                    headingHome = walkHeadingHome,
+                    view = walkView,
                     onAction = onAction,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -1522,24 +1486,23 @@ fun NowCard(
 @Composable
 fun WalkCard(
     ui: WalkCardUi,
-    countdownText: () -> String,
-    progress: () -> Float,
-    headingHome: () -> Boolean,
+    view: () -> WalkView?,
     onAction: (HomeAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     SideEffect { RecompositionCounter.hit("WalkCard") }
     val c = AppTheme.colors
     val accent = c.block(BlockType.Walk).accent
-    val home = headingHome()
+    val v = view()
+    val home = v?.phase == WalkPhase.HOME || v?.phase == WalkPhase.DONE
 
     AppCard(modifier.fillMaxWidth().testTag("walk_card")) {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(WalkRingSize), contentAlignment = Alignment.Center) {
-                    WalkRing(progress = progress, modifier = Modifier.fillMaxSize())
+                    WalkRing(progress = { v?.progress ?: 0f }, modifier = Modifier.fillMaxSize())
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CountdownText(countdownText, c.textPrimary)
+                        CountdownText({ v?.text ?: "" }, c.textPrimary)
                         Text(
                             if (home) "to home" else "to turn",
                             style = MaterialTheme.typography.labelSmall,
@@ -1569,7 +1532,7 @@ fun WalkCard(
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-                if (!home) {
+                if (v?.phase == WalkPhase.OUT) {
                     NowSecondaryButton(
                         button = NowButton(NowButtonId.WALK, "Turn back now", NowButtonStyle.SECONDARY),
                         onClick = { onAction(HomeAction.TurnBack) },
