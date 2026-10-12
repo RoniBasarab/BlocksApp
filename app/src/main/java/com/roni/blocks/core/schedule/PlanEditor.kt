@@ -252,40 +252,35 @@ object PlanEditor {
     const val WALK_MAX = 60
 
     /**
-     * Next was pressed before the next block's planned start (2.3.0). Next means "start the next thing": free time in
-     * between is skipped (it leaves the plan), the first block that isn't free time starts now and keeps its length,
-     * and the time it leaves behind becomes free time. Kid time itself just starts now. The
-     * current block ends now. Returns null when the next block is already due (the normal Next handles it).
+     * Next was pressed before the next block's planned start (2.3.0; 2.6.0: no skipping). Next means "the next block,
+     * now": the current block ends now and the very next block starts now. A work block keeps its length and the time it
+     * leaves behind becomes free time; free time simply starts sooner and ends where it did; kid time just starts now.
+     * Nothing leaves the plan except a current block that never ran (Next in the minute it started).
+     * Returns null when the next block is already due (the normal Next handles it).
      */
     fun startEarly(plan: List<PlanBlock>, currentId: String, nowMin: Int): List<PlanBlock>? {
         val blocks = plan.sortedBy { it.startMin }.toMutableList()
         val cur = blocks.indexOfFirst { it.id == currentId }
         if (cur < 0) return null
-        val first = blocks.getOrNull(cur + 1) ?: return null
-        if (first.startMin <= nowMin) return null
-        var land = cur + 1
-        while (blocks[land].type == BlockType.Free && land + 1 < blocks.size) land++
-        val target = blocks[land]
-        repeat(land - cur - 1) { blocks.removeAt(cur + 1) }                        // the free time in between is skipped
-        val li = cur + 1
+        val next = blocks.getOrNull(cur + 1) ?: return null
+        if (next.startMin <= nowMin) return null
         val start = maxOf(nowMin, blocks[cur].startMin)
-        if (!target.type.isEditable()) {                                            // kid time starts now
-            blocks[li] = target.copy(startMin = start)
-            return endCurrent(blocks, cur, start)
+        when {
+            !next.type.isEditable() || next.type == BlockType.Free -> blocks[cur + 1] = next.copy(startMin = start)
+            else -> {
+                val end = start + next.length                                       // earlier, so it can't reach kid time
+                blocks[cur + 1] = next.copy(startMin = start, endMin = end)
+                freeAfter(blocks, cur + 1, end, next.endMin)
+            }
         }
-        val end = start + target.length                                            // earlier, so it can't reach kid time
-        blocks[li] = target.copy(startMin = start, endMin = end)
-        if (end < target.endMin) freeAfter(blocks, li, end, target.endMin)
         return endCurrent(blocks, cur, start)
     }
 
-    /** The block Next lands on from [currentId]: the first one after it that isn't free time (or the last one). */
+    /** The block Next lands on from [currentId]: simply the next one. */
     fun nextStop(plan: List<PlanBlock>, currentId: String): PlanBlock? {
         val blocks = plan.sortedBy { it.startMin }
         val cur = blocks.indexOfFirst { it.id == currentId }
-        if (cur < 0) return null
-        val after = blocks.drop(cur + 1)
-        return after.firstOrNull { it.type != BlockType.Free } ?: after.lastOrNull()
+        return if (cur < 0) null else blocks.getOrNull(cur + 1)
     }
 
     /** The current block ends at [at]; a block that never really ran (it would end where it starts) leaves the plan. */

@@ -29,7 +29,7 @@ class StartEarlyWalkTest {
             "cv Cv 09:00-09:30 | coding_am Coding 09:30-10:02 | free_midday Free 10:02-10:03 | coding_pm Coding 10:03-11:33 | " +
                 "free_pm Free 11:33-16:20 | kid_time KidTime 16:20-22:30",
             r.show(),
-        )
+        )   // a work block keeps its length; the time it leaves becomes free time
     }
 
     @Test
@@ -51,15 +51,16 @@ class StartEarlyWalkTest {
     }
 
     @Test
-    fun next_fromFreeTime_skipsTheFreeTimeAhead() {
-        // done early on coding_am at 10:01, Next at 10:02: free_midday is skipped and coding_pm starts now
+    fun next_fromDoneEarly_goesToTheVeryNextBlock_evenFreeTime() {
+        // Roni (12 Oct): Next on Coding must go to the next block, not jump to the next Coding, and nothing disappears
         val r = PlanEditor.startEarly(day, "coding_am", t(10, 2))!!
         assertEquals(
-            "cv Cv 09:00-09:30 | coding_am Coding 09:30-10:02 | coding_pm Coding 10:02-11:32 | free_pm Free 11:32-16:20 | kid_time KidTime 16:20-22:30",
+            "cv Cv 09:00-09:30 | coding_am Coding 09:30-10:02 | free_midday Free 10:02-14:00 | coding_pm Coding 14:00-15:30 | " +
+                "free_pm Free 15:30-16:20 | kid_time KidTime 16:20-22:30",
             r.show(),
         )
-        assertEquals("coding_pm", PlanEditor.nextStop(day, "coding_am")!!.id)
-        assertEquals("kid_time", PlanEditor.nextStop(day, "coding_pm")!!.id)
+        assertEquals("free_midday", PlanEditor.nextStop(day, "coding_am")!!.id)
+        assertEquals("free_pm", PlanEditor.nextStop(day, "coding_pm")!!.id)
     }
 
     @Test

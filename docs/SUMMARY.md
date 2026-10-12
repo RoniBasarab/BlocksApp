@@ -13,7 +13,7 @@ Why it exists: Roni is job-hunting and his unstructured days were drifting (even
 - Code: `C:\Blocks App` on Roni's Windows machine. A git repo; `master` holds released work, tagged `vX.Y.Z`. Remote `origin` = `github.com/RoniBasarab/BlocksApp`. Keep it private (§17).
 - All spec and task files live in the repo root (committed from Task-6 on).
 - Timezone Asia/Jerusalem. The work week is Sunday–Thursday; the weekend is Friday–Saturday.
-- Released: **2.4.0** (Task-11: walks at any time). In progress: **2.5.0** (Task-12): walk fixes, a step counter, the evening.
+- Released: **2.5.0** (Task-12: walk fixes, steps, the evening). In progress: **2.6.0** (Task-13): a walk that works, a calendar that never overlaps, Next to the very next block.
 - All docs live in `docs/` (from Task-8 on); the root holds only the build files, `README.md` and `CHANGELOG.md`.
 
 ## 2. People and roles
@@ -60,7 +60,7 @@ Roni starts fresh sessions for both agents at handoffs, so everything they need 
 |---|---|---|
 | `SUMMARY.md` | This file: the handoff | Current |
 | `AGENT.md` | The working agent's standing instructions; Roni's prompt is just "Read docs/AGENT.md and do what it says." | Updated by the planning agent for each task |
-| `Task-12.md` | The current task (2.5.0), with a slice map of line ranges | Ready to hand over |
+| `Task-13.md` | The current task (2.6.0), with a slice map of line ranges | Ready to hand over |
 | `schedule-spec.md`, `architecture.md`, `visuals.md` | Behavior, code, look | Describe 2.1.0; 2.2.0 changes are in Task-9 and §10 here |
 | `CODEMAP.md` | One row per source file | The real file map; task files use its names |
 | `NOTES.md` | The working agent's decision log | Must not contradict the code |
@@ -178,22 +178,20 @@ Coding uses Pomodoro 50/10, counted from the block's actual start. Phase switche
 - Task-7's first sessions were far slower than earlier 12-slice tasks and ran out of quota. The logs show why: it read the whole doc set up front (~150k characters, re-sent on every call), ran `git log` seven times between edits, kept retrying `&&` in PowerShell 5.1, and used Python one-liners to search files. Each needless call re-sends the whole context. The prompt in §18 now covers each of these.
 - When a task hands over pure logic, the planning agent compiles and tests it first and marks it *verified* (§17). Task-7's `PlanEditor` was checked against every named test plus 40,000 random edit sequences.
 
-## 9. Current state (12 Oct 2026)
+## 9. Current state (12 Oct 2026, evening)
 
-**Released, 2.4.0:** tag `v2.4.0`. Walks start from the top bar at any time; outside day blocks they're standalone timers logged in `walks_<date>`.
+**Released, 2.5.0:** tag `v2.5.0`. Roni found it broken in use (12 Oct). In Task-13:
+- The walk timer mixed epoch seconds with seconds of the day (`29862554:24`), and "heading home" was never true. `WalkClock` (*verified*) is now the only walk time math.
+- The top-bar walk icon was dead: `publish()` cleared the sheet outside day blocks.
+- Calendar text overlapped: short blocks always tried to fit a title, and walk labels drew over block titles. `CalendarLayout` (*verified*) turns blocks under ~13 min into slivers with label pills, lays out pill rows without overlap, and moves block text out of their way.
+- Next skipping free time (Task-10's design) is reverted: Next goes to the very next block.
+- The step permission card is gone: permissions are asked at launch.
 
-**Roni's findings on 2.4.0, in Task-12:**
-- A second walk right after the first took the first walk's times: `startWalk` picked the first Walk block in the plan.
-- The walk card counted in whole minutes and decided "heading home" only when Home published.
-- Wish: walks too short to be a block show as a "Walked N min" line inside the block.
-- Evening: Dishes vanished when the activity was picked at once (picking ended Dishes), the activity couldn't be switched, and it seemed to replace kid time. 2.5.0: kid time kept until Kid asleep, Dishes 20 min (editable, skippable), the picked activity starts by itself after Dishes and can be switched (each activity its own block).
-- Wish: count steps all day. The hardware step counter is read at checkpoints (open, alarms, midnight, boot, walk start/end); `StepBook` (*verified*) does the arithmetic. No service, about zero battery.
-
-**Storage (asked 12 Oct):** stay on SharedPreferences for now. Move to Room (tables keeping the JSON: `days`, `walks`, `steps`, plus a one-time import) when long-range charts or frequent history writes arrive, or history passes ~1 MB. Do it as its own release.
+**Lesson for the planning agent:** anything with arithmetic or geometry (times, layouts, plans) goes into the task as verified pure code with tests. Every 2.3–2.5 regression Roni hit was in logic the working agent wrote from prose.
 
 **The repo is public** (Roni opened it so the planning agent could read it). The docs describe his family's routine; he was told he can switch it back to private.
 
-**Waiting on Roni:** extract the Task-12 files into the repo and start the working agent with "Read docs/AGENT.md and do what it says." Before installing release, a keystore (`keystore.properties` in the root) and a backup of it.
+**Waiting on Roni:** extract the Task-13 files into the repo and start the working agent with "Read docs/AGENT.md and do what it says." Before installing release, a keystore (`keystore.properties` in the root) and a backup of it.
 
 **Deviation to remember:** Roni once asked for "minutes left, updated once a minute" in the notification. It uses the system chronometer instead (it shows negative time while running over). He hasn't objected.
 
