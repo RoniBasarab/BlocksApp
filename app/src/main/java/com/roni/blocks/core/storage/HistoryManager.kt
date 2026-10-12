@@ -27,6 +27,7 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.minus
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 
 @Serializable
 data class WeekAggregate(
@@ -80,6 +81,19 @@ class HistoryManager @Inject constructor(
     /** Re-reads [date]'s walks after every write, like [observeDay]. */
     fun observeWalks(date: LocalDate): Flow<List<WalkLog>> =
         version.map { walks(date) }.distinctUntilChanged()
+
+    /** The day's total step count (2.5.0), written at every checkpoint; null before the first reading. */
+    suspend fun setSteps(date: LocalDate, total: Long) {
+        prefs.write(PrefsFile.HISTORY, stepsKey(date), total, Long.serializer())
+        version.value++
+    }
+
+    suspend fun steps(date: LocalDate): Long? =
+        prefs.read(PrefsFile.HISTORY, stepsKey(date), Long.serializer())
+
+    /** Re-reads [date]'s step total after every write, like [observeDay]. */
+    fun observeSteps(date: LocalDate): Flow<Long?> =
+        version.map { steps(date) }.distinctUntilChanged()
 
     /**
      * Corrects the stored record of a day that already happened (2.1.0) and rebuilds that day's week.
@@ -189,6 +203,7 @@ class HistoryManager @Inject constructor(
     private fun dayKey(date: LocalDate) = "record_$date"
     private fun weekKey(date: LocalDate) = "agg_week_$date"
     private fun walkKey(date: LocalDate) = "walks_$date"
+    private fun stepsKey(date: LocalDate) = "steps_$date"
 }
 
 fun missedGym(template: TemplateId?, segments: List<Segment>): Boolean {

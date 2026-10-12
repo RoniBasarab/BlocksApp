@@ -161,6 +161,8 @@ data class WalkSession(
     @Serializable(with = InstantSerializer::class) val start: Instant,
     @Serializable(with = InstantSerializer::class) val end: Instant,
     @Serializable(with = LocalDateSerializer::class) val date: LocalDate,
+    /** The step-counter reading at the walk's start (2.5.0); null when steps aren't available. */
+    val startCounter: Long? = null,
 )
 
 /** A finished walk, stored per date in history (2.4.0). */
@@ -168,6 +170,8 @@ data class WalkSession(
 data class WalkLog(
     @Serializable(with = InstantSerializer::class) val start: Instant,
     @Serializable(with = InstantSerializer::class) val end: Instant,
+    /** Steps during the walk (2.5.0); null when the phone restarted or has no sensor. */
+    val steps: Long? = null,
 )
 
 object LocalTimeSerializer : KSerializer<LocalTime> {

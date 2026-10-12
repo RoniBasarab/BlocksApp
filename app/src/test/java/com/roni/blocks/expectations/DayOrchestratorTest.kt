@@ -27,6 +27,7 @@ import com.roni.blocks.core.schedule.AlertKind
 import com.roni.blocks.core.schedule.Edge
 import com.roni.blocks.core.schedule.PlanEdit
 import com.roni.blocks.core.schedule.ScheduleEngine
+import com.roni.blocks.core.steps.StepSensor
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
@@ -80,6 +81,7 @@ class DayOrchestratorTest {
     private lateinit var prefs: PrefsStorage
     private lateinit var engine: ScheduleEngine
     private lateinit var logger: AppLogger
+    private lateinit var stepSensor: FakeStepSensor
     private val rendered: java.util.concurrent.CopyOnWriteArrayList<NotificationModel?> =
         java.util.concurrent.CopyOnWriteArrayList()
     private val transitions: java.util.concurrent.CopyOnWriteArrayList<Boolean> =
@@ -96,6 +98,7 @@ class DayOrchestratorTest {
         logger = AppLogger(context)
         engine = ScheduleEngine(clock, zone)
         history = HistoryManager(prefs)
+        stepSensor = FakeStepSensor()
         rendered.clear()
         transitions.clear()
         ringerKinds.clear()
@@ -104,6 +107,7 @@ class DayOrchestratorTest {
 
     private fun newOrchestrator(
         walkRinger: WalkRinger = RecordingWalkRinger(ringerKinds),
+        stepSensor: StepSensor = this.stepSensor,
     ): DayOrchestrator = DayOrchestrator(
         prefs = prefs,
         engine = engine,
@@ -113,6 +117,7 @@ class DayOrchestratorTest {
         notificationMapper = NotificationModelMapper(engine, zone, TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))),
         notificationRenderer = RecordingNotificationPort(rendered, transitions, alerts),
         walkRinger = walkRinger,
+        stepSensor = stepSensor,
         clock = clock,
         zone = zone,
         logger = logger,
@@ -344,6 +349,12 @@ class DayOrchestratorTest {
         }
 
         override fun stop() = Unit
+    }
+
+    /** A step counter whose single reading the test sets; empty when [next] is null (2.5.0). */
+    private class FakeStepSensor(var next: Long? = null) : StepSensor {
+        override suspend fun read(): Long? = next
+        override fun live(): kotlinx.coroutines.flow.Flow<Long> = kotlinx.coroutines.flow.emptyFlow()
     }
 
     @Test
@@ -880,6 +891,40 @@ class DayOrchestratorTest {
         assertTrue(orchestrator.turnBack())
 
         assertEquals(LocalTime(21, 10).at(date, zone), requireNotNull(orchestrator.walkSession.value).end)
+    }
+
+    @Test
+    fun steps_addUpThroughTheDay_andCloseAtMidnight() = runBlocking {
+        clock.now = LocalTime(9, 0).at(date, zone)
+        stepSensor.next = 52_000
+        orchestrator.onAppForeground()
+
+        clock.now = LocalTime(12, 0).at(date, zone)
+        stepSensor.next = 53_500
+        orchestrator.onAlarm()
+
+        val nextDay = date.plus(1, DateTimeUnit.DAY)
+        clock.now = LocalTime(0, 0, 5).at(nextDay, zone)
+        stepSensor.next = 54_000
+        orchestrator.onAlarm()
+
+        assertEquals(2_000L, history.steps(date))
+        assertEquals(0L, orchestrator.todaySteps.value)
+    }
+
+    @Test
+    fun walk_logsItsSteps() = runBlocking {
+        clock.now = LocalTime(21, 0).at(date, zone)
+        stepSensor.next = 60_000
+        assertTrue(orchestrator.startWalk(30))
+
+        clock.now = LocalTime(21, 30).at(date, zone)
+        stepSensor.next = 63_200
+        orchestrator.endWalk()
+
+        val walks = history.walks(date)
+        assertEquals(1, walks.size)
+        assertEquals(3_200L, walks.first().steps)
     }
 
     private suspend fun awaitBlockIndex(expected: Int) {

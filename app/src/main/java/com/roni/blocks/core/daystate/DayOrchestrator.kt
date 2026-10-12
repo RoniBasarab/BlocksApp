@@ -40,6 +40,10 @@ import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
+import com.roni.blocks.core.steps.StepBook
+import com.roni.blocks.core.steps.StepSensor
+import com.roni.blocks.core.steps.StepState
+import com.roni.blocks.core.steps.StepStateSerializer
 import com.roni.blocks.core.time.at
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -48,10 +52,12 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -89,6 +95,11 @@ class DayOrchestrator @Inject constructor(
         override fun ring(kind: com.roni.blocks.core.schedule.AlertKind, homeAt: Instant, nextLabel: String?, nextEnd: Instant?) {}
         override fun stop() {}
     },
+    /** The phone's step counter (2.5.0); a no-op by default so hand-built tests compile. */
+    private val stepSensor: StepSensor = object : StepSensor {
+        override suspend fun read(): Long? = null
+        override fun live(): Flow<Long> = emptyFlow()
+    },
     private val clock: Clock,
     private val zone: TimeZone,
     private val logger: AppLogger,
@@ -119,6 +130,14 @@ class DayOrchestrator @Inject constructor(
     private var reactedAt: Instant? = null
     /** A standalone walk (2.4.0) that runs outside the day; survives the date rollover. */
     private var standaloneWalk: WalkSession? = null
+    /** Today's step arithmetic (2.5.0): the baseline and the day's total, kept across rollover. */
+    private var steps = StepState()
+    /** The counter reading when the open walk started (2.5.0), for the walk's own step total. */
+    private var walkStartCounter: Long? = null
+    private val _todaySteps = MutableStateFlow<Long?>(null)
+
+    /** Today's steps so far (2.5.0); null until a reading has ever worked. */
+    val todaySteps: StateFlow<Long?> = _todaySteps.asStateFlow()
     private val restoreMutex = Mutex()
 
     init {
@@ -358,7 +377,8 @@ class DayOrchestrator @Inject constructor(
             // Any other time (2.4.0): a standalone walk that leaves the day completely alone.
             if (state is DayState.Paused || standaloneWalk != null) return false
             val now = clock.now()
-            standaloneWalk = WalkSession(now, now + minutes.minutes, now.toLocalDateTime(zone).date)
+            walkStartCounter = checkpointCounter()
+            standaloneWalk = WalkSession(now, now + minutes.minutes, now.toLocalDateTime(zone).date, walkStartCounter)
             reactedAt = now
             persist()
             sideEffects()
@@ -397,6 +417,7 @@ class DayOrchestrator @Inject constructor(
         book = book.copy(segments = closed + walkSegment, index = walkIndex)
         _segments.value = book.segments
         _state.value = state.copy(blockIndex = walkIndex)
+        walkStartCounter = checkpointCounter()
         reactedAt = now
         persist()
         sideEffects()
@@ -419,6 +440,7 @@ class DayOrchestrator @Inject constructor(
             val half = session.start + (session.end - session.start) / 2
             if (now >= half) return false
             standaloneWalk = session.copy(end = now + (now - session.start))
+            stepCheckpoint()
             reactedAt = now
             persist()
             sideEffects()
@@ -446,6 +468,7 @@ class DayOrchestrator @Inject constructor(
             },
         )
         _segments.value = book.segments
+        stepCheckpoint()
         reactedAt = now
         persist()
         sideEffects()
@@ -461,7 +484,8 @@ class DayOrchestrator @Inject constructor(
         ensureRestored()
         val session = standaloneWalk ?: return
         val now = clock.now()
-        history.addWalk(session.date, WalkLog(session.start, now))
+        val endCounter = checkpointCounter()
+        history.addWalk(session.date, WalkLog(session.start, now, walkSteps(session.startCounter, endCounter)))
         standaloneWalk = null
         reactedAt = now
         persist()
@@ -471,6 +495,7 @@ class DayOrchestrator @Inject constructor(
 
     suspend fun onAlarm() {
         ensureRestored()
+        stepCheckpoint()
         applyRollover()
         val now = clock.now()
         // A walk rings before anything else: its end is a transition too, so the ring has to be
@@ -493,7 +518,8 @@ class DayOrchestrator @Inject constructor(
                 .dueWalk(session.start.epochSeconds, session.end.epochSeconds, now.epochSeconds)
                 ?.let { due -> walkRinger.ring(due.kind, session.end, null, null) }
             if (now >= session.end) {
-                history.addWalk(session.date, WalkLog(session.start, session.end))
+                val endCounter = checkpointCounter()
+                history.addWalk(session.date, WalkLog(session.start, session.end, walkSteps(session.startCounter, endCounter)))
                 standaloneWalk = null
                 persist()
             }
@@ -562,6 +588,7 @@ class DayOrchestrator @Inject constructor(
      */
     suspend fun onTimeTravelled() {
         ensureRestored()
+        stepCheckpoint()
         applyRollover()
         replayMissedTransitions()
         if (_state.value == DayState.Ended || _state.value == DayState.Off) return
@@ -583,6 +610,7 @@ class DayOrchestrator @Inject constructor(
 
     private suspend fun apply(event: DayEvent) {
         val now = clock.now()
+        val walkBefore = openWalk()
         if (event is DayEvent.StartDay) {
             val nowLocal = now.toLocalDateTime(zone).time
             val tooLate = (nowLocal.hour > 22) || (nowLocal.hour == 22 && nowLocal.minute >= 30)
@@ -651,6 +679,7 @@ class DayOrchestrator @Inject constructor(
         } else {
             sideEffects(transition = true)
         }
+        logClosedWalk(walkBefore, now)
     }
 
     /**
@@ -866,6 +895,7 @@ class DayOrchestrator @Inject constructor(
      */
     suspend fun onAppForeground() {
         ensureRestored()
+        stepCheckpoint()
         walkRinger.stop()
         reactedAt = clock.now()
         persist()
@@ -904,6 +934,7 @@ class DayOrchestrator @Inject constructor(
         else prefs.read(PrefsFile.DAY, REACTED_AT, InstantSerializer.nullable)
         // A standalone walk survives the rollover: it is read and kept whatever the stored date.
         standaloneWalk = prefs.read(PrefsFile.DAY, STANDALONE_WALK, WalkSession.serializer().nullable)
+        steps = prefs.read(PrefsFile.DAY, STEP_STATE, StepStateSerializer) ?: StepState()
         if (storedPlanStartsAt != null) prefs.remove(PrefsFile.DAY, PLAN_STARTS_AT)
         persist()
         replayMissedTransitions()
@@ -1009,7 +1040,9 @@ class DayOrchestrator @Inject constructor(
         _state.value.templateId()?.let { prefs.write(PrefsFile.DAY, TEMPLATE, it, TemplateId.serializer()) }
         prefs.write(PrefsFile.DAY, REACTED_AT, reactedAt, InstantSerializer.nullable)
         prefs.write(PrefsFile.DAY, STANDALONE_WALK, standaloneWalk, WalkSession.serializer().nullable)
+        prefs.write(PrefsFile.DAY, STEP_STATE, steps, StepStateSerializer)
         _walkSession.value = currentWalkSession()
+        _todaySteps.value = if (steps.baseline < 0) null else steps.today
     }
 
     /** The walk Home should show: an open day-block walk's segment, else the standalone walk (2.4.0). */
@@ -1019,6 +1052,38 @@ class DayOrchestrator @Inject constructor(
             return WalkSession(open.actualStart, open.plannedEnd, open.actualStart.toLocalDateTime(zone).date)
         }
         return standaloneWalk
+    }
+
+    /**
+     * Reads the step counter once and moves the day's total forward (2.5.0): each day that just
+     * closed is written to history, and [todaySteps] republishes. Called at every checkpoint.
+     */
+    suspend fun stepCheckpoint() {
+        checkpointCounter()
+    }
+
+    /** The same read as [stepCheckpoint], returning the counter so a walk can use the same number. */
+    private suspend fun checkpointCounter(): Long? {
+        val counter = stepSensor.read() ?: return null
+        val update = StepBook.read(steps, counter, today().toEpochDays())
+        update.closed.forEach { (day, total) -> history.setSteps(LocalDate.fromEpochDays(day), total) }
+        steps = update.state
+        prefs.write(PrefsFile.DAY, STEP_STATE, steps, StepStateSerializer)
+        _todaySteps.value = if (steps.baseline < 0) null else steps.today
+        return counter
+    }
+
+    /** Steps during a walk (2.5.0); null when either reading is missing or the phone restarted. */
+    private fun walkSteps(start: Long?, end: Long?): Long? =
+        if (start == null || end == null) null else StepBook.between(start, end)
+
+    /** A day-block walk just ended: log it in `walks_<date>` with its steps so History lists every walk. */
+    private suspend fun logClosedWalk(walk: Segment?, now: Instant) {
+        if (walk == null) return
+        val closed = _segments.value.firstOrNull { it.blockId == walk.blockId && it.actualEnd != null } ?: return
+        val endCounter = checkpointCounter()
+        history.addWalk(today(), WalkLog(closed.actualStart, closed.actualEnd ?: now, walkSteps(walkStartCounter, endCounter)))
+        walkStartCounter = null
     }
 
     private fun today() = clock.now().toLocalDateTime(zone).date
@@ -1051,6 +1116,7 @@ class DayOrchestrator @Inject constructor(
         const val PLAN_STARTS_AT = "plan_starts_at"
         const val REACTED_AT = "reacted_at"
         const val STANDALONE_WALK = "standalone_walk"
+        const val STEP_STATE = "step_state"
         const val MAX_REPLAY_STEPS = 500
     }
 }
