@@ -460,12 +460,16 @@ fun RecapList(
     modifier: Modifier = Modifier,
     onRowTap: (RecapRow) -> Unit = {},
     onCheckIn: (CheckIn) -> Unit = {},
+    header: (@Composable () -> Unit)? = null,
 ) {
     LazyColumn(
         modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(start = Spacing.l, top = Spacing.s, end = Spacing.l, bottom = bottomPadding),
         verticalArrangement = Arrangement.spacedBy(Spacing.s),
     ) {
+        if (header != null) {
+            item(key = "recap_header") { header() }
+        }
         if (s.checkInTitle != null) {
             item(key = "recap_checkin") { RecapCheckInCard(s.checkInTitle, onCheckIn) }
         }
