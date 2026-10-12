@@ -61,7 +61,7 @@ private fun Modifier.blockSheetDrags(): Modifier = pointerInput(Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EveningChoiceSheet(onPick: (Choice) -> Unit) {
+fun EveningChoiceSheet(onPick: (Choice) -> Unit, onDismiss: () -> Unit = {}) {
     val colors = AppTheme.colors
     val choices = listOf(
         Choice.GAME to "Game",
@@ -70,14 +70,14 @@ fun EveningChoiceSheet(onPick: (Choice) -> Unit) {
         Choice.CHILL to "Chill",
     )
     ModalBottomSheet(
-        onDismissRequest = {},
+        onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         shape = AppShapes.sheet,
         containerColor = colors.surface,
         dragHandle = null,
         properties = ModalBottomSheetProperties(
-            shouldDismissOnBackPress = false,
-            shouldDismissOnClickOutside = false,
+            shouldDismissOnBackPress = true,
+            shouldDismissOnClickOutside = true,
         ),
     ) {
         Column(
@@ -107,6 +107,12 @@ fun EveningChoiceSheet(onPick: (Choice) -> Unit) {
                         EveningTile(choice, label, Modifier.weight(1f), onPick)
                     }
                 }
+            }
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.align(Alignment.End).padding(top = Spacing.s),
+            ) {
+                Text("Not now")
             }
         }
     }

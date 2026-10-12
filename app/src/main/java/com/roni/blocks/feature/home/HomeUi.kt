@@ -26,7 +26,7 @@ data class CalendarBlockUi(
 
 enum class ChipTone { NEUTRAL, BREAK, LEAK }
 
-enum class NowButtonId { PAUSE, EMERGENCY, NEXT, WALK, RESUME, KID_ASLEEP, CHOOSE_EVENING, END_DAY }
+enum class NowButtonId { PAUSE, EMERGENCY, NEXT, WALK, RESUME, KID_ASLEEP, CHOOSE_EVENING, SKIP_DISHES, END_DAY }
 
 /** [PRIMARY] is the full-width action; [SECONDARY] buttons share one weighted row. */
 enum class NowButtonStyle { SECONDARY, PRIMARY }
@@ -63,15 +63,21 @@ data class WalkSheetUi(
 /** The walk in progress (2.3.0): its timing, which way home, and what runs after it. */
 @Immutable
 data class WalkCardUi(
-    val startMin: Int,
-    val turnBackMin: Int,
-    val endMin: Int,
-    val headingHome: Boolean,
+    val startSec: Long,
+    val turnSec: Long,
+    val endSec: Long,
     val turnBackAt: String,
     val homeAt: String,
     val nextLabel: String?,
     /** A standalone walk (2.4.0): "End walk" closes it without touching the day. */
     val standalone: Boolean = false,
+)
+
+/** A walk too short to be a block (2.5.0): a line inside the block it happened in. */
+@Immutable
+data class WalkMarkerUi(
+    val startMin: Int,
+    val label: String,
 )
 
 @Immutable
@@ -88,10 +94,16 @@ data class HomeState(
     val recap: DayRecapUi? = null,
     val nowCard: NowCardUi? = null,
     val walkCard: WalkCardUi? = null,
+    /** Short walks (2.5.0): markers drawn inside the blocks they happened in. */
+    val walkMarkers: ImmutableList<WalkMarkerUi> = persistentListOf(),
+    /** The step-counting prompt (2.5.0): shown above the calendar until allowed or declined once. */
+    val stepPrompt: Boolean = false,
     /** The top-bar walk icon is visible whenever a walk fits right now (2.4.0). */
     val walkEnabled: Boolean = false,
     val walkSheet: WalkSheetUi? = null,
     val eveningChoicePending: Boolean = false,
+    /** Tonight's activity picked during Dishes, before it starts (2.5.0); null until picked. */
+    val eveningChoice: Choice? = null,
     val eveningSheetOpen: Boolean = false,
     val draggingId: String? = null,
     val selectId: String? = null,
@@ -113,10 +125,18 @@ sealed interface HomeAction {
     data object Resume : HomeAction
     data object KidAsleep : HomeAction
     data object ChooseEvening : HomeAction
+    /** "Skip dishes" (2.5.0): Dishes ends now and tonight's activity starts now. */
+    data object SkipDishes : HomeAction
+    /** Dismiss the evening sheet without picking (2.5.0); "Choose evening" reopens it. */
+    data object DismissEveningSheet : HomeAction
     data object EndDay : HomeAction
     data class PickEvening(val choice: Choice) : HomeAction
     data object History : HomeAction
     data object Settings : HomeAction
+    /** "Allow" on the step-counting card (2.5.0): the route launches the system dialog. */
+    data object AllowSteps : HomeAction
+    /** "Not now" on the step-counting card (2.5.0): sets the flag so it isn't asked again. */
+    data object DeclineSteps : HomeAction
     data class DragEdge(val id: String, val edge: Edge, val toMin: Int) : HomeAction
     data class DragDone(val id: String, val edge: Edge, val toMin: Int) : HomeAction
     data object DragCancelled : HomeAction
@@ -126,7 +146,7 @@ sealed interface HomeAction {
     data class LockedBlockTapped(val id: String) : HomeAction
 
     val affectsOverlays: Boolean
-        get() = this is ChooseEvening || this is PickEvening
+        get() = this is ChooseEvening || this is PickEvening || this is DismissEveningSheet
 
     val affectsCalendar: Boolean
         get() = this is DragEdge || this is DragDone || this is DragCancelled ||

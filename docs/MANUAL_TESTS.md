@@ -10,6 +10,18 @@ With a phone attached, run them with:
 These four cannot be automated reliably (they depend on the launcher, the reboot flow, the keyguard
 and the system DND state), so Roni runs them by hand.
 
+**Check on the phone (2.5.0).** Use the debug app for steps that move the clock (Settings -> Developer tools).
+
+1. Walk, Turn back after 1 minute: the card counts 1 minute home, to the second.
+2. End walk, Walk again at once: a fresh walk "Heading out", 30:00 counting down.
+3. A 3-minute walk during Coding: the calendar shows a "Walked 3 min" line in Coding, not a tiny block.
+4. First launch: the step card; Allow. Walk around the flat: the top bar's number goes up while you watch.
+5. Next morning: History -> yesterday shows its steps; Weekly shows the week's total.
+6. Restart the phone, open the app: today's steps are still there (only the steps since the last reading before the restart are missing).
+7. Evening: Kid asleep -> pick Read -> the calendar shows kid time until the tap, Dishes 20 min, then Reading; Reading starts by itself when Dishes ends.
+8. +15 on Dishes moves Reading later; Skip dishes starts Reading now.
+9. Switch activity to Game after a while: Reading and Game are two blocks, and two rows in History.
+
 **Check on the phone (2.4.0).** Use the debug app for steps that move the clock (Settings → Developer tools).
 
 1. At night (kid time, evening, or after the day ended): the walk icon is in the top bar; start a 10-minute walk.

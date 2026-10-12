@@ -116,6 +116,7 @@ class SettingsViewModelTest {
         debugTime = debugTime,
         clock = clock,
         zone = zone,
+        prefs = prefs,
     )
 
     @After
@@ -231,9 +232,15 @@ class SettingsViewModelTest {
     private class FakeSystemStatuses(
         var notificationsEnabled: Boolean,
         var exactAlarmsAllowed: Boolean,
+        var stepCounterPresent: Boolean = false,
+        var activityRecognitionGranted: Boolean = false,
     ) : SystemStatuses {
         override fun notificationsEnabled(): Boolean = notificationsEnabled
 
         override fun canScheduleExactAlarms(): Boolean = exactAlarmsAllowed
+
+        override fun stepCounterPresent(): Boolean = stepCounterPresent
+
+        override fun activityRecognitionGranted(): Boolean = activityRecognitionGranted
     }
 }

@@ -64,6 +64,7 @@ import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.WhatTheseMeanDialog
 import com.roni.blocks.designsystem.blockColors
+import com.roni.blocks.designsystem.formatSteps
 import com.roni.blocks.navigation.HistoryKey
 import com.roni.blocks.navigation.HomeKey
 import com.roni.blocks.navigation.InsightsKey
@@ -173,7 +174,7 @@ class WeeklyViewModel @Inject constructor(
             plannedSummary = plannedSummary(days),
             missedSummary = missedSummary(days),
             rows = planRows(days),
-            stats = stats(days),
+            stats = stats(days, days.mapNotNull { history.steps(it.date) }),
         )
     }
 
@@ -284,7 +285,10 @@ class WeeklyViewModel @Inject constructor(
         return "Missed: ${formatHm(missed)} of planned blocks that never happened"
     }
 
-    private fun stats(days: List<com.roni.blocks.core.model.DayRecord>): List<WeeklyStat> {
+    private fun stats(
+        days: List<com.roni.blocks.core.model.DayRecord>,
+        stepTotals: List<Long>,
+    ): List<WeeklyStat> {
         val leak = days.sumOf { debtMinutes(it.segments) }
         val gymPlanned = days.sumOf { day -> day.segments.count { it.type == BlockType.Gym && it.kind == SegmentKind.PLANNED && it.plannedStart != null } }
         val gymDone = days.sumOf { day ->
@@ -294,7 +298,14 @@ class WeeklyViewModel @Inject constructor(
                 .sumOf { (it.actualEnd!! - it.actualStart).inWholeMinutes }
             if (gymWorked - pause >= 30) 1 else 0
         }
-        return listOf(
+        val total = stepTotals.sum()
+        val steps = if (stepTotals.isEmpty()) null else WeeklyStat(
+            "Steps",
+            formatSteps(total),
+            "About ${formatSteps(total / stepTotals.size)} a day",
+        )
+        return listOfNotNull(
+            steps,
             WeeklyStat("Ran over", formatHm(leak), "Time past block ends"),
             WeeklyStat("Gym sessions", "${gymDone.coerceAtLeast(0)} / $gymPlanned", "Done of planned"),
             WeeklyStat("Off days", days.count { DayFlag.OFF_DAY in it.flags }.toString(), "Days with no schedule"),

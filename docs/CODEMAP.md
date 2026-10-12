@@ -34,7 +34,7 @@ Rules that hold everywhere:
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `core/daystate/DayOrchestrator.kt` | Single writer of the day's state: owns today's plan, applies events and plan edits, persists, pushes alarm/notification/history; `liveRecord()`/`correctPast()`/`onAppForeground()` (2.2.0); standalone walks `walkSession`/`walkPreview`/`startWalk`/`turnBack`/`endWalk` (2.4.0) | DayStateMachine, ScheduleEngine, HistoryManager, PrefsStorage |
+| `core/daystate/DayOrchestrator.kt` | Single writer of the day's state: owns today's plan, applies events and plan edits, persists, pushes alarm/notification/history; `liveRecord()`/`correctPast()`/`onAppForeground()` (2.2.0); standalone walks `walkSession`/`walkPreview`/`startWalk`/`turnBack`/`endWalk` (2.4.0); step checkpoints and the evening flow `pendingEvening`/`switchEvening`/`skipDishes`/`resizeDishesTo` (2.5.0) | DayStateMachine, ScheduleEngine, HistoryManager, PrefsStorage |
 | `core/daystate/DayState.kt` | `DayState` and `DayEvent` — the persisted vocabulary of a day | Model, ScheduleEngine |
 | `core/daystate/DayStateMachine.kt` | Every legal transition as one pure function | DayState, DayEvent |
 | `core/daystate/NotificationActionMapping.kt` | Maps notification buttons onto day events; new actions fail to compile unmapped | NotificationModel, DayStateMachine |
@@ -60,6 +60,7 @@ Rules that hold everywhere:
 | `core/di/ClockModule.kt` | Binds `Clock`: debug gets the jumpable clock, release the system clock | ClockModule, SystemTimeMapper |
 | `core/di/CoroutinesModule.kt` | The `@IoDispatcher` and `@ApplicationScope` qualifiers: the two ways production code gets a dispatcher or scope | Hilt |
 | `core/di/NotificationModule.kt` | Binds `NotificationPort` and `WidgetPort` to their real renderers | NotificationRenderer, WidgetUpdater |
+| `core/di/StepModule.kt` | Binds `StepSensor` to `AndroidStepSensor` (2.5.0) | AndroidStepSensor |
 
 ## core/logging
 
@@ -80,7 +81,7 @@ Rules that hold everywhere:
 | `core/notifications/AppVisibility.kt` | Whether any part of the app is on screen, so notices stay quiet when already visible | ActivityLifecycleCallbacks |
 | `core/notifications/DismissalStore.kt` | Remembers swiped-away notices; a real transition clears the memory | PrefsStorage |
 | `core/notifications/NotificationActionReceiver.kt` | Pause/Next buttons on a notification | DayOrchestrator, NotificationActionMapping |
-| `core/notifications/NotificationModel.kt` | Channel/action enums and `NotificationModelMapper` (block → notification text); `walk()` builds the standalone walk notification (2.4.0) | ScheduleEngine, DayState, TimeFormatter |
+| `core/notifications/NotificationModel.kt` | Channel/action enums and `NotificationModelMapper` (block → notification text); `walk()` builds the standalone walk notification (2.4.0); the "Dishes done · pick your evening" evening alert (2.5.0) | ScheduleEngine, DayState, TimeFormatter |
 | `core/notifications/NotificationRenderer.kt` | `NotificationPort` plus the real renderer; the port exists so tests can fake it | NotificationModel, AppVisibility, DismissalStore |
 | `core/notifications/WalkRinger.kt` | `WalkRinger` plus the alarm-clock walk ringer (2.3.0): half-time and home rings, even on silent | NotificationRenderer, TimeFormatter |
 
@@ -94,14 +95,22 @@ Rules that hold everywhere:
 | `core/schedule/RecordConversion.kt` | `toRecordRows`/`withRows`: day record ↔ editable rows for correcting a past day | Model, RecordEditor |
 | `core/schedule/RecordEditor.kt` | The pure rules for editing a past day's rows: `fixMode`, `apply` (SetEnd/Retype/MarkDone, `MIN_LENGTH`/`LAST_MINUTE` limits), `snap` | Model |
 | `core/schedule/ScheduleEngine.kt` | Resolves template + date into concrete blocks and segments; `nextWakeUp(anchor)` anchors the Pomodoro cursor on the open segment's actual start (2.2.0) | Model, Clock, TimeZone |
-| `core/schedule/SegmentBook.kt` | Builds the segment list History renders; rehydrates it after process death | ScheduleEngine, Model, PrefsStorage |
+| `core/schedule/SegmentBook.kt` | Builds the segment list History renders; rehydrates it after process death; `kidAsleep` opens Dishes then the choice, `eveningChoice` switches it (2.5.0) | ScheduleEngine, Model, PrefsStorage |
 | `core/schedule/TimelineQueries.kt` | `ScheduleEngine` extensions that read the published plan: `timelineAt`, `currentBlock`, `pomodoroStatus`, `pomodoroPhases` | ScheduleEngine, Model |
+
+## core/steps
+
+| path | what it does | talks to |
+| --- | --- | --- |
+| `core/steps/StepBook.kt` | The pure step arithmetic and `StepState` (2.5.0): reads the cumulative sensor, keeps the day's baseline, computes today's steps and a walk's steps | PrefsStorage |
+| `core/steps/StepStateSerializer.kt` | Stores `StepState` in prefs (2.5.0) | PrefsStorage, StepState |
+| `core/steps/StepSensor.kt` | `StepSensor` port plus `AndroidStepSensor`, the only reader of `Sensor.TYPE_STEP_COUNTER` (2.5.0) | Android SensorManager |
 
 ## core/storage
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `core/storage/HistoryManager.kt` | The only reader/writer of days and week aggregates; a version flow lets Home observe writes; `addWalk`/`walks`/`observeWalks` for standalone walks (2.4.0) | PrefsStorage, Model |
+| `core/storage/HistoryManager.kt` | The only reader/writer of days and week aggregates; a version flow lets Home observe writes; `addWalk`/`walks`/`observeWalks` for standalone walks (2.4.0); each day's step total (2.5.0) | PrefsStorage, Model |
 | `core/storage/PrefsStorage.kt` | SharedPreferences wrapper split into DAY / SETTINGS / HISTORY files | android.content.SharedPreferences |
 | `core/storage/TemplateManager.kt` | Loads and saves the built-in templates | PrefsStorage, assets |
 
@@ -117,7 +126,7 @@ Rules that hold everywhere:
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `core/system/SystemStatuses.kt` | Notification and exact-alarm permission status as the system reports it | AlarmManager, NotificationManager |
+| `core/system/SystemStatuses.kt` | Notification and exact-alarm permission status as the system reports it; step-counter presence and activity-recognition permission (2.5.0) | AlarmManager, NotificationManager, SensorManager |
 
 ## core/time
 
@@ -136,6 +145,7 @@ Rules that hold everywhere:
 | `designsystem/Background.kt` | Page backdrop: gradient plus two soft glows, cached | Color |
 | `designsystem/Color.kt` | Raw color values | — |
 | `designsystem/Components.kt` | Shared composables: `ScreenScaffold`, trend arrows, stat rows | Tokens, Type, Color |
+| `designsystem/Format.kt` | `formatSteps`: the one place step counts get thousands separators (2.5.0) | — |
 | `designsystem/Motion.kt` | The app's only motion token | Compose animation |
 | `designsystem/Primitives.kt` | Row-level primitives: `SettingsRow`, tonal chips, `ScreenColumn` | Tokens, Components, Color |
 | `designsystem/Shell.kt` | `AppTab` and the bottom-bar / top-bar shell | Color, Type, Tokens |
@@ -148,15 +158,15 @@ Rules that hold everywhere:
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `feature/home/Home.kt` | Home screen, `HomeViewModel` (publishes the calendar, the now/walk cards and previews plan edits), top bar, now-card dialogs, edit card; walk icon in top bar, standalone walk card support (2.4.0) | DayOrchestrator, HistoryManager, TemplateManager, DebugTimeController |
+| `feature/home/Home.kt` | Home screen, `HomeViewModel` (publishes the calendar, the now/walk cards and previews plan edits), top bar, now-card dialogs, edit card; walk icon in top bar, standalone walk card support (2.4.0); the step card and top-bar step count, evening built from segments with Dishes/switch/skip (2.5.0) | DayOrchestrator, HistoryManager, TemplateManager, DebugTimeController |
 | `feature/home/HomeUi.kt` | `HomeState` and the calendar/block/now-card/walk UI models (`WalkCardUi.standalone`, `walkEnabled`) | Compose, designsystem |
-| `feature/home/HomeSheets.kt` | Bottom sheets: evening choice, walk start (`WalkSheet`, 2.3.0), template swap, the recap's `CorrectBlockSheet` | DayOrchestrator, TemplateManager |
+| `feature/home/HomeSheets.kt` | Bottom sheets: evening choice (dismissible, 2.5.0), walk start (`WalkSheet`, 2.3.0), template swap, the recap's `CorrectBlockSheet` | DayOrchestrator, TemplateManager |
 | `feature/home/NowCardDialogs.kt` | The now-card's dialog states and confirmations | DayOrchestrator |
 | `feature/home/DayRecap.kt` | A finished day as a readable recap: summary card (+ check-in card until it's answered), one row per block | designsystem, Compose |
 | `feature/home/CalendarMapper.kt` | Pure model→view mapping for the calendar; no clock, no context | DayCalendar |
 | `feature/home/DayCalendar.kt` | The Home calendar grid and its hour geometry | designsystem |
-| `feature/history/History.kt` | History list and the day-detail recap, plus both ViewModels; day detail shows "Walks" section for standalone walks (2.4.0) | HistoryManager, DayRecapMapper |
-| `feature/weekly/Weekly.kt` | Weekly screen: planned vs actual per type as bars, week navigation | HistoryManager |
+| `feature/history/History.kt` | History list and the day-detail recap, plus both ViewModels; day detail shows "Walks" section for standalone walks (2.4.0) and each day's steps (2.5.0) | HistoryManager, DayRecapMapper |
+| `feature/weekly/Weekly.kt` | Weekly screen: planned vs actual per type as bars, week navigation; the week's step total tile (2.5.0) | HistoryManager |
 | `feature/insights/Insights.kt` | Insights screen: last complete week vs the one before | HistoryManager |
 | `feature/templatepicker/TemplatePicker.kt` | Template picker with a live preview of the rest of today | DayOrchestrator, TemplateManager |
-| `feature/settings/Settings.kt` | Settings screen, `SettingsViewModel`, developer tools in one dialog (test a day, debug clock, demo data) | DayOrchestrator, DemoDataGenerator, SystemStatuses, DebugTimeController |
+| `feature/settings/Settings.kt` | Settings screen, `SettingsViewModel`, developer tools in one dialog (test a day, debug clock, demo data); the step-counting row and permission state (2.5.0) | DayOrchestrator, DemoDataGenerator, SystemStatuses, DebugTimeController |

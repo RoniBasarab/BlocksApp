@@ -1,6 +1,9 @@
 package com.roni.blocks.feature.settings
 
+import android.Manifest
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +26,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Alarm
 import androidx.compose.material.icons.outlined.Bedtime
@@ -83,6 +87,8 @@ import com.roni.blocks.core.logging.AppLogger
 import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.notifications.NotificationPort
 import com.roni.blocks.core.storage.HistoryManager
+import com.roni.blocks.core.storage.PrefsFile
+import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.system.SystemStatuses
 import com.roni.blocks.core.time.DebugTimeController
 import com.roni.blocks.core.time.TimeFormatter
@@ -115,6 +121,7 @@ import kotlinx.coroutines.launch
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.serialization.builtins.serializer
 import androidx.compose.runtime.Immutable
 import androidx.compose.foundation.layout.PaddingValues
 import com.roni.blocks.designsystem.AppType
@@ -126,6 +133,7 @@ data class SettingsUiState(
     val hourFormat24: Boolean = true,
     val notificationPermission: PermissionStatus = PermissionStatus.ALLOWED,
     val exactAlarms: PermissionStatus = PermissionStatus.ALLOWED,
+    val steps: PermissionStatus = PermissionStatus.NOT_SET,
     val demoBusy: Boolean = false,
     val clockLabel: String = "Real time",
     val clockShifted: Boolean = false,
@@ -137,6 +145,8 @@ sealed interface SettingsAction {
     data class SetHourFormat(val use24Hour: Boolean) : SettingsAction
     data object OpenNotificationSettings : SettingsAction
     data object OpenExactAlarmSettings : SettingsAction
+    /** "Step counting" (2.5.0): asks again, or opens the app's system settings once denied for good. */
+    data object OpenStepSettings : SettingsAction
     data object OpenAlertSoundSettings : SettingsAction
     data object SendTestNotification : SettingsAction
     data object ShareLog : SettingsAction
@@ -197,13 +207,24 @@ class SettingsViewModel @Inject constructor(
     private val clock: Clock,
     private val zone: TimeZone,
     private val debugTime: DebugTimeController,
+    private val prefs: PrefsStorage,
 ) : ViewModel() {
     private val _notificationPermission = MutableStateFlow(statuses.notificationsEnabled())
     private val _exactAlarms = MutableStateFlow(statuses.canScheduleExactAlarms())
     private val _demoBusy = MutableStateFlow(false)
+    /** The step permission (2.5.0): allowed, not asked yet, or denied after being asked. */
+    private val _stepsPermission = MutableStateFlow(PermissionStatus.NOT_SET)
+    private var stepRequested = false
     private val _effects = Channel<SettingsEffect>(Channel.BUFFERED)
 
     val effects: Flow<SettingsEffect> = _effects.receiveAsFlow()
+
+    init {
+        viewModelScope.launch {
+            stepRequested = prefs.read(PrefsFile.SETTINGS, STEP_REQUESTED, Boolean.serializer()) ?: false
+            _stepsPermission.value = computeStepStatus()
+        }
+    }
 
     private val debugClock: Flow<DebugClockUi> = combine(
         debugTime.offsetMinutes,
@@ -235,11 +256,25 @@ class SettingsViewModel @Inject constructor(
             inKidTime = clockUi.inKidTime,
             inDishes = clockUi.inDishes,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
+    }.combine(_stepsPermission) { s, steps -> s.copy(steps = steps) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
     fun refresh() {
         _notificationPermission.value = statuses.notificationsEnabled()
         _exactAlarms.value = statuses.canScheduleExactAlarms()
+        _stepsPermission.value = computeStepStatus()
+    }
+
+    /** The system permission dialog is about to show (2.5.0); remembered, but the row stays "Not set". */
+    fun markStepRequested() {
+        stepRequested = true
+        viewModelScope.launch { prefs.write(PrefsFile.SETTINGS, STEP_REQUESTED, true, Boolean.serializer()) }
+    }
+
+    private fun computeStepStatus(): PermissionStatus = when {
+        statuses.activityRecognitionGranted() -> PermissionStatus.ALLOWED
+        stepRequested -> PermissionStatus.BLOCKED
+        else -> PermissionStatus.NOT_SET
     }
 
     fun setHourFormat(use24Hour: Boolean) {
@@ -376,6 +411,15 @@ class SettingsViewModel @Inject constructor(
         )
     }
 
+    /** The app's own system-settings page, for a permission Android no longer lets us ask for (2.5.0). */
+    fun openAppSettings(context: android.content.Context) {
+        context.startActivity(
+            Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                .setData(android.net.Uri.parse("package:${context.packageName}"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
+
     fun shareLog(context: android.content.Context) {
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.logs", logFile())
         context.startActivity(
@@ -437,6 +481,16 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
                     subtitle = "Block changes, the 5-minute warning and reminders",
                     trailing = { Chevron() },
                     onClick = { onAction(SettingsAction.OpenAlertSoundSettings) },
+                )
+            }
+
+            SectionHeader("Steps")
+            SectionCard {
+                SettingsRow(
+                    icon = Icons.AutoMirrored.Outlined.DirectionsWalk,
+                    title = "Step counting",
+                    trailing = { StatusTrailing(state.steps) },
+                    onClick = { onAction(SettingsAction.OpenStepSettings) },
                 )
             }
 
@@ -771,6 +825,9 @@ fun SettingsRoute(
 ) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val stepPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        viewModel.refresh()
+    }
     var pending by remember { mutableStateOf<ConfirmDialogSpec?>(null) }
     var devToolsOpen by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -798,6 +855,14 @@ fun SettingsRoute(
             is SettingsAction.SetHourFormat -> viewModel.setHourFormat(action.use24Hour)
             SettingsAction.OpenNotificationSettings -> viewModel.openNotificationSettings(context)
             SettingsAction.OpenExactAlarmSettings -> viewModel.openExactAlarmSettings(context)
+            SettingsAction.OpenStepSettings -> {
+                if (state.steps == PermissionStatus.NOT_SET) {
+                    stepPermission.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+                    viewModel.markStepRequested()
+                } else {
+                    viewModel.openAppSettings(context)
+                }
+            }
             SettingsAction.OpenAlertSoundSettings -> viewModel.openAlertSoundSettings(context)
             SettingsAction.SendTestNotification -> viewModel.sendTestNotification()
             SettingsAction.ShareLog -> viewModel.shareLog(context)
@@ -861,3 +926,6 @@ fun SettingsRoute(
         }
     }
 }
+
+/** Set once the step permission dialog has been shown (2.5.0), so a later denial reads as Blocked. */
+private const val STEP_REQUESTED = "step_requested"

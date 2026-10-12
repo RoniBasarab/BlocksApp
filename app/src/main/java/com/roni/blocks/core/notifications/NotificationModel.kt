@@ -320,15 +320,31 @@ class NotificationModelMapper @Inject constructor(
         val endDay = listOf(NotificationActionModel("End day", ActionEvent.END_DAY, null))
         val eveningType = open?.type
         return when (eveningType) {
-            is BlockType.Dishes -> NotificationModel(
-                key = "dishes",
-                channel = NotificationChannelKind.EVENING,
-                title = "Dishes",
-                text = "until ${hhmm(open.plannedEnd ?: now)}",
-                countdownTo = open.plannedEnd,
-                actions = endDay,
-                accentArgb = accent(BlockType.Dishes),
-            )
+            is BlockType.Dishes -> {
+                val plannedEnd = open.plannedEnd
+                if (plannedEnd != null && now >= plannedEnd) {
+                    // Dishes ran to its end with nothing picked (2.5.0): the alert is "pick your evening".
+                    NotificationModel(
+                        key = "dishes:done",
+                        channel = NotificationChannelKind.EVENING,
+                        title = "Dishes done",
+                        text = "Pick your evening",
+                        countdownTo = null,
+                        actions = endDay,
+                        accentArgb = accent(BlockType.Dishes),
+                    )
+                } else {
+                    NotificationModel(
+                        key = "dishes",
+                        channel = NotificationChannelKind.EVENING,
+                        title = "Dishes",
+                        text = "until ${hhmm(plannedEnd ?: now)}",
+                        countdownTo = plannedEnd,
+                        actions = endDay,
+                        accentArgb = accent(BlockType.Dishes),
+                    )
+                }
+            }
             is BlockType.EveningChoice -> NotificationModel(
                 key = "evening:${eveningType.choice.name.lowercase()}",
                 channel = NotificationChannelKind.EVENING,

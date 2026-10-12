@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.5.0
+- Steps: Blocks reads the phone's step counter (no extra battery) and shows today's steps on Home, each day's total in History, each walk's steps, and the week's total in Weekly.
+- Fixed: a second walk right after the first showed the old walk's times, and End walk started another walk.
+- Fixed: the walk card counts to the second; Turn back counts the real way home.
+- Short walks show as a "Walked N min" line inside the block, not as a tiny block.
+- Evening: kid time stays as it was, then a 20-minute Dishes block (editable, skippable), then your activity, which starts by itself and can be switched during the evening.
+
 ## 2.4.0
 - Walks at any time: the walk icon in the top bar starts one in kid time, the evening, after the day ends, or after midnight. Same rings and walk card; the day itself isn't touched.
 - History lists each day's walks.

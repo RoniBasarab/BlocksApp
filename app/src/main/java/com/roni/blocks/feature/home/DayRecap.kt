@@ -37,6 +37,7 @@ import com.roni.blocks.core.model.MissReason
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.isWork
+import com.roni.blocks.core.schedule.PlanEditor
 import com.roni.blocks.core.schedule.RecordEditor
 import com.roni.blocks.core.schedule.RowFix
 import com.roni.blocks.core.schedule.toRecordRows
@@ -123,6 +124,19 @@ object DayRecapMapper {
                 val start = happened.actualStart.minuteOfDay(zone)
                 val end = happened.actualEnd!!.minuteOfDay(zone)
                 val rowType = happened.type
+                // A short walk isn't a row of its own: its line goes under the block it interrupted.
+                if (rowType == BlockType.Walk && end - start < PlanEditor.WALK_MIN) {
+                    if (built.isNotEmpty()) {
+                        val last = built.last()
+                        val note = "Walked ${end - start} min at ${label(start, use24)}"
+                        built[built.lastIndex] = last.copy(
+                            row = last.row.copy(note = listOfNotNull(last.row.note, note).joinToString(" ")),
+                        )
+                    }
+                    prevHappened = plan
+                    prevRanOver = 0
+                    continue
+                }
                 val happenedIndex = record.segments.indexOf(happened)
                 val ranOver = (end - plan.endMin).coerceAtLeast(0)
                 val paused = pausesWithin(record, start, end, zone)
