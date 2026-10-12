@@ -689,15 +689,17 @@ class DayOrchestratorTest {
         clock.now = LocalTime(10, 2).at(date, zone)
         orchestrator.handle(DayEvent.Next("sun_tue_wed.coding_am"))
 
+        // 2.6.0: Next no longer skips free time - it lands on the very next block, the midday free.
         assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 2), orchestrator.state.value)
         val plan = requireNotNull(orchestrator.todayPlan.value)
-        val codingPm = plan.blocks.first { it.id == "sun_tue_wed.coding_pm" }
-        assertEquals(LocalTime(10, 2), codingPm.start)
-        assertEquals(LocalTime(11, 32), codingPm.end)
-        assertTrue("the free time in between must be skipped", plan.blocks.none { it.id == "sun_tue_wed.free_midday" })
+        val freeMidday = plan.blocks.first { it.id == "sun_tue_wed.free_midday" }
+        assertEquals(LocalTime(10, 2), freeMidday.start)
+        assertEquals("free time starts sooner and ends where it did", LocalTime(14, 0), freeMidday.end)
+        val codingAm = plan.blocks.first { it.id == "sun_tue_wed.coding_am" }
+        assertEquals(LocalTime(10, 2), codingAm.end)
         val open = orchestrator.segments.value.last { it.actualEnd == null }
-        assertEquals(BlockType.Coding, open.type)
-        assertEquals(LocalTime(11, 32).at(date, zone), requireNotNull(open.plannedEnd))
+        assertEquals(BlockType.Free, open.type)
+        assertEquals(LocalTime(14, 0).at(date, zone), requireNotNull(open.plannedEnd))
     }
 
     @Test
@@ -713,8 +715,9 @@ class DayOrchestratorTest {
         awaitBlockIndex(2)
 
         clock.now = LocalTime(15, 40).at(date, zone)
-        // Past the edited coding_pm, lands on the planned free block; then Next from free time is kid time.
-        orchestrator.handle(DayEvent.Next("sun_tue_wed.coding_pm"))
+        // Next from the midday free block: the already-past coding_pm is skipped, free_pm opens; then Next from
+        // free time is kid time.
+        orchestrator.handle(DayEvent.Next("sun_tue_wed.free_midday"))
         orchestrator.handle(DayEvent.Next("sun_tue_wed.free_pm"))
 
         assertEquals(DayState.KidTime, orchestrator.state.value)

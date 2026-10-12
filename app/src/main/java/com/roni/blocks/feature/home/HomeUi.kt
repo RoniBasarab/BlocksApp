@@ -102,8 +102,6 @@ data class HomeState(
     val calendarFit: CalendarFit = CalendarFit(emptyList(), emptyList()),
     /** The pill text for each id in [CalendarFit.rows]: a sliver block, a short walk or a standalone walk. */
     val pillLabels: Map<String, String> = emptyMap(),
-    /** The step-counting prompt (2.5.0): shown above the calendar until allowed or declined once. */
-    val stepPrompt: Boolean = false,
     /** The top-bar walk icon is visible whenever a walk fits right now (2.4.0). */
     val walkEnabled: Boolean = false,
     val walkSheet: WalkSheetUi? = null,
@@ -139,10 +137,6 @@ sealed interface HomeAction {
     data class PickEvening(val choice: Choice) : HomeAction
     data object History : HomeAction
     data object Settings : HomeAction
-    /** "Allow" on the step-counting card (2.5.0): the route launches the system dialog. */
-    data object AllowSteps : HomeAction
-    /** "Not now" on the step-counting card (2.5.0): sets the flag so it isn't asked again. */
-    data object DeclineSteps : HomeAction
     data class DragEdge(val id: String, val edge: Edge, val toMin: Int) : HomeAction
     data class DragDone(val id: String, val edge: Edge, val toMin: Int) : HomeAction
     data object DragCancelled : HomeAction
