@@ -1,6 +1,9 @@
 package com.roni.blocks.feature.home
 
+import android.Manifest
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -108,6 +111,7 @@ import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
+import com.roni.blocks.core.system.SystemStatuses
 import com.roni.blocks.core.time.DebugTimeController
 import com.roni.blocks.core.time.Ticker
 import com.roni.blocks.core.time.TimeFormatter
@@ -122,6 +126,7 @@ import com.roni.blocks.designsystem.AppType
 import com.roni.blocks.designsystem.Metrics
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.Spacing
+import com.roni.blocks.designsystem.formatSteps
 import com.roni.blocks.designsystem.templateDisplay
 import com.roni.blocks.feature.weekly.tabKey
 import com.roni.blocks.navigation.HistoryKey
@@ -146,6 +151,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.serialization.builtins.serializer
 
 @HiltViewModel
 /**
@@ -166,6 +172,7 @@ private val day: DayOrchestrator,
     private val prefs: PrefsStorage,
     private val timeFormatter: TimeFormatter,
     private val debugTime: DebugTimeController,
+    private val statuses: SystemStatuses,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state.asStateFlow()
@@ -173,6 +180,8 @@ private val day: DayOrchestrator,
     private var endedRecord: DayRecord? = null
     /** Today's standalone walks (2.5.0), the only walks_<date> log entries; drawn as markers. */
     private var walkLogs: List<WalkLog> = emptyList()
+    /** The "Not now" answer to the step card (2.5.0): null until prefs are read, so it can't flash. */
+    private var stepsDeclined: Boolean? = null
 
     private val _suppressedConfirmations = MutableStateFlow<Set<NowButtonId>>(emptySet())
 
@@ -225,6 +234,11 @@ private val day: DayOrchestrator,
         combine(_state, minuteOfDay, secondOfDay) { s, minute, second -> walkHeadingHomeOf(s, minute, second) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
+    /** "5,240 steps" for the top bar (2.5.0): the saved total plus the live reading; never written. */
+    val stepsLabel: StateFlow<String?> =
+        combine(day.todaySteps, day.liveSteps) { saved, live -> (live ?: saved)?.let { "${formatSteps(it)} steps" } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     init {
         viewModelScope.launch {
             day.state.collect { state -> publish(state) }
@@ -265,6 +279,10 @@ private val day: DayOrchestrator,
             )
             _suppressedConfirmations.value = suppressedFromKeys(stored?.ids.orEmpty())
         }
+        viewModelScope.launch {
+            stepsDeclined = prefs.read(PrefsFile.SETTINGS, STEP_DECLINED, Boolean.serializer()) ?: false
+            publish(day.state.value)
+        }
     }
 
     fun onSuppressConfirmation(button: NowButtonId) {
@@ -297,6 +315,18 @@ private val day: DayOrchestrator,
                 )
             }
         }
+    }
+
+    /** "Not now" on the step card (2.5.0): remember it, so Home stops asking; Settings can still ask. */
+    fun declineSteps() {
+        stepsDeclined = true
+        viewModelScope.launch { prefs.write(PrefsFile.SETTINGS, STEP_DECLINED, true, Boolean.serializer()) }
+        publish(day.state.value)
+    }
+
+    /** Re-reads the step permission after the system dialog closes (2.5.0). */
+    fun refreshStepPermission() {
+        publish(day.state.value)
     }
 
     fun onAction(action: HomeAction) {
@@ -352,6 +382,8 @@ private val day: DayOrchestrator,
             HomeAction.SwapTemplate,
             HomeAction.History,
             HomeAction.Settings,
+            HomeAction.AllowSteps,
+            HomeAction.DeclineSteps,
             -> Unit
         }
         if (action.affectsOverlays || action.affectsCalendar) publish(day.state.value)
@@ -583,16 +615,19 @@ private val day: DayOrchestrator,
         } else null
 
         // Short day-block walks aren't drawn as blocks; standalone walks never are. Both become a
-        // marker inside the block they happened in (2.5.0).
+        // marker inside the block they happened in (2.5.0). Day-block walks are also in the walk log
+        // now, so a log entry matching a closed walk segment is skipped to avoid drawing it twice.
         val shortWalks = segments.mapNotNull { seg ->
             if (seg.type == BlockType.Walk && seg.kind == SegmentKind.PLANNED && seg.actualEnd != null) {
                 val mins = (seg.actualEnd - seg.actualStart).inWholeMinutes.toInt()
                 if (mins < PlanEditor.WALK_MIN) WalkMarkerUi(seg.actualStart.minuteOfDay(zone), "Walked $mins min") else null
             } else null
         }
-        val loggedWalks = walkLogs.map { log ->
-            WalkMarkerUi(log.start.minuteOfDay(zone), "Walked ${(log.end - log.start).inWholeMinutes} min")
-        }
+        val loggedWalks = walkLogs
+            .filter { log -> segments.none { it.type == BlockType.Walk && it.actualStart == log.start && it.actualEnd != null } }
+            .map { log ->
+                WalkMarkerUi(log.start.minuteOfDay(zone), "Walked ${(log.end - log.start).inWholeMinutes} min")
+            }
         val walkMarkers = (shortWalks + loggedWalks).sortedBy { it.startMin }.toPersistentList()
 
         if (dayState is DayState.Ended || dayState is DayState.Off || dayState is DayState.NotStarted) {
@@ -618,6 +653,7 @@ private val day: DayOrchestrator,
             nowCard = if (walkCard != null) null else nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel, doneEarly),
             walkCard = walkCard,
             walkMarkers = walkMarkers,
+            stepPrompt = stepPrompt(),
             walkEnabled = day.walkPreview(PlanEditor.WALK_DEFAULT) != null,
             walkSheet = walkSheet,
             eveningChoicePending = dayState.isDishesSlot,
@@ -630,6 +666,10 @@ private val day: DayOrchestrator,
 
     private fun debugClockLabel(minute: Int): String? =
         if (debugTime.offsetMinutes.value == 0) null else "Debug clock ${TimeFormatter.label(minute, timeFormatter.use24.value)}"
+
+    /** The step card shows only once: sensor present, permission not granted, never declined (2.5.0). */
+    private fun stepPrompt(): Boolean =
+        stepsDeclined == false && statuses.stepCounterPresent() && !statuses.activityRecognitionGranted()
 
     private fun publishLeakIfChanged() {
         val before = _state.value.leakFromMin
@@ -900,6 +940,7 @@ private val day: DayOrchestrator,
     }
 }
 
+private const val STEP_DECLINED = "step_declined"
 private const val LOCKED_KID_TIME = "Kid time and the evening can't be moved."
 private const val LOCKED_PICK_TEMPLATE = "Pick a template first; then you can change the day."
 private const val LOCKED_DAY_BLOCK_RUNNING = "Blocks can be changed while a day block is running."
@@ -932,6 +973,10 @@ fun HomeRoute(
     val walkProgress by viewModel.walkProgress.collectAsStateWithLifecycle()
     val walkHeadingHome by viewModel.walkHeadingHome.collectAsStateWithLifecycle()
     val suppressed by viewModel.suppressedConfirmations.collectAsStateWithLifecycle()
+    val stepsLabel by viewModel.stepsLabel.collectAsStateWithLifecycle()
+    val stepPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        viewModel.refreshStepPermission()
+    }
     val minuteOfDay = { minute }
     val countdownText = { countdown }
     val progressValue = { progress }
@@ -959,11 +1004,14 @@ fun HomeRoute(
             walkCountdown = { walkCountdown },
             walkProgress = { walkProgress },
             walkHeadingHome = { walkHeadingHome },
+            stepsLabel = stepsLabel,
             onAction = { action ->
                 when (action) {
                     HomeAction.SwapTemplate -> onSwap()
                     HomeAction.History -> onMenu(HistoryKey)
                     HomeAction.Settings -> onMenu(SettingsKey)
+                    HomeAction.AllowSteps -> stepPermission.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+                    HomeAction.DeclineSteps -> viewModel.declineSteps()
                     else -> viewModel.onAction(action)
                 }
             },
@@ -1007,6 +1055,7 @@ fun HomeScreen(
     walkCountdown: () -> String = { "" },
     walkProgress: () -> Float = { 0f },
     walkHeadingHome: () -> Boolean = { false },
+    stepsLabel: String? = null,
 ) {
     SideEffect { RecompositionCounter.hit("HomeScreen") }
     val scroll = rememberScrollState()
@@ -1039,9 +1088,17 @@ fun HomeScreen(
                 status = state.status,
                 debugClock = state.debugClock,
                 walkEnabled = state.walkEnabled,
+                stepsLabel = stepsLabel,
                 showDivider = { scroll.value > 0 },
                 onAction = onAction,
             )
+            if (state.stepPrompt) {
+                StepPermissionCard(
+                    onAllow = { onAction(HomeAction.AllowSteps) },
+                    onDecline = { onAction(HomeAction.DeclineSteps) },
+                    modifier = Modifier.padding(horizontal = Spacing.l, vertical = Spacing.s),
+                )
+            }
             val recap = state.recap
             if (recap != null) {
                 // A standalone walk (2.4.0) shows its card above an ended day's recap list.
@@ -1159,6 +1216,8 @@ fun HomeTopBar(
     walkEnabled: Boolean,
     showDivider: () -> Boolean,
     onAction: (HomeAction) -> Unit,
+    /** "5,240 steps" (2.5.0); null hides the line. */
+    stepsLabel: String? = null,
 ) {
     SideEffect { RecompositionCounter.hit("HomeTopBar") }
     val c = AppTheme.colors
@@ -1191,6 +1250,9 @@ fun HomeTopBar(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(status, style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
                 debugClock?.let { AppChip(it, c.secondary, Modifier.padding(start = Spacing.xxs)) }
+            }
+            stepsLabel?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
             }
         }
         IconButton(onClick = { onAction(HomeAction.SwapTemplate) }) {
@@ -1240,6 +1302,41 @@ private fun MenuRow(icon: ImageVector, label: String, onClick: () -> Unit) {
         leadingIcon = { Icon(icon, null) },
         onClick = onClick,
     )
+}
+
+/**
+ * The step-counting card (2.5.0). Allow asks Android for the physical-activity permission; Not now
+ * makes Home stop asking, while Settings can still ask again later.
+ */
+@Composable
+private fun StepPermissionCard(
+    onAllow: () -> Unit,
+    onDecline: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = AppTheme.colors
+    AppCard(modifier.fillMaxWidth().testTag("step_prompt")) {
+        Text("Count your steps?", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(Spacing.xs))
+        Text(
+            "The phone already counts them on a low-power chip; Blocks just reads the number. No extra battery.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = c.textSecondary,
+        )
+        Spacer(Modifier.height(Spacing.s))
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+            NowSecondaryButton(
+                button = NowButton(NowButtonId.WALK, "Not now", NowButtonStyle.SECONDARY),
+                onClick = onDecline,
+                modifier = Modifier.weight(1f),
+            )
+            NowPrimaryButton(
+                button = NowButton(NowButtonId.WALK, "Allow", NowButtonStyle.PRIMARY),
+                modifier = Modifier.weight(1f),
+                onClick = onAllow,
+            )
+        }
+    }
 }
 
 @Composable

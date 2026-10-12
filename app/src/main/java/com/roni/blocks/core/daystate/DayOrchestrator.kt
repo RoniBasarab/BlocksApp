@@ -58,6 +58,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -138,6 +140,16 @@ class DayOrchestrator @Inject constructor(
 
     /** Today's steps so far (2.5.0); null until a reading has ever worked. */
     val todaySteps: StateFlow<Long?> = _todaySteps.asStateFlow()
+
+    /**
+     * Today's steps including the live sensor reading while it is collected (2.5.0), for the Home
+     * top bar. Emits null first, so a saved total still shows when the live sensor is silent. Nothing
+     * here is ever written: the saved total only moves at a checkpoint.
+     */
+    val liveSteps: Flow<Long?> = stepSensor.live()
+        .map { counter -> liveTotal(counter) }
+        .onStart { emit(null) }
+
     private val restoreMutex = Mutex()
 
     init {
@@ -1076,6 +1088,16 @@ class DayOrchestrator @Inject constructor(
     /** Steps during a walk (2.5.0); null when either reading is missing or the phone restarted. */
     private fun walkSteps(start: Long?, end: Long?): Long? =
         if (start == null || end == null) null else StepBook.between(start, end)
+
+    /** Today's total plus the live reading past the last checkpoint; null before any reading (2.5.0). */
+    private fun liveTotal(counter: Long): Long? {
+        val state = steps
+        return when {
+            state.baseline < 0 -> null
+            counter >= state.baseline -> state.today + (counter - state.baseline)
+            else -> state.today
+        }
+    }
 
     /** A day-block walk just ended: log it in `walks_<date>` with its steps so History lists every walk. */
     private suspend fun logClosedWalk(walk: Segment?, now: Instant) {

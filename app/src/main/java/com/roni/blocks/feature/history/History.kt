@@ -48,6 +48,7 @@ import com.roni.blocks.core.time.minuteOfDay
 import com.roni.blocks.designsystem.AppCard
 import com.roni.blocks.designsystem.AppChip
 import com.roni.blocks.designsystem.AppTheme
+import com.roni.blocks.designsystem.AppType
 import com.roni.blocks.designsystem.BackTopBar
 import com.roni.blocks.designsystem.BlockStrip
 import com.roni.blocks.designsystem.EmptyState
@@ -58,6 +59,7 @@ import com.roni.blocks.designsystem.Secondary
 import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.TextSecondary
 import com.roni.blocks.designsystem.blockColors
+import com.roni.blocks.designsystem.formatSteps
 import com.roni.blocks.designsystem.templateDisplay
 import com.roni.blocks.feature.home.CorrectBlockSheet
 import com.roni.blocks.feature.home.DayRecapMapper
@@ -107,6 +109,8 @@ data class HistoryDetailUi(
     val use24: Boolean = true,
     /** "Walk · HH:MM–HH:MM · N min", one per standalone walk (2.4.0); empty hides the section. */
     val walks: List<String> = emptyList(),
+    /** "6,240 steps" for the day (2.5.0); null hides the header line. */
+    val steps: String? = null,
 )
 
 /** Content only; the top bar lives in [HistoryRoute]. */
@@ -315,14 +319,19 @@ class HistoryDetailViewModel @Inject constructor(
         job = viewModelScope.launch {
             val date = runCatching { LocalDate.parse(dateKey) }.getOrNull() ?: return@launch
             loadedDate = date
-            combine(history.observeDay(date), history.observeWalks(date)) { record, logs -> record to logs }
-                .collect { (record, logs) ->
+            combine(
+                history.observeDay(date),
+                history.observeWalks(date),
+                history.observeSteps(date),
+            ) { record, logs, steps -> Triple(record, logs, steps) }
+                .collect { (record, logs, steps) ->
                     _state.value = record?.let {
                         HistoryDetailUi(
                             title = "${weekdayFull(it.date.dayOfWeek)} ${it.date.dayOfMonth} ${monthName(it.date.monthNumber)}",
                             recap = DayRecapMapper.map(it, timeFormatter.use24.value, checkInTitle = "How was this day?"),
                             use24 = timeFormatter.use24.value,
                             walks = logs.map(::walkLine),
+                            steps = steps?.let { value -> "${formatSteps(value)} steps" },
                         )
                     }
                 }
@@ -331,7 +340,8 @@ class HistoryDetailViewModel @Inject constructor(
 
     private fun walkLine(log: WalkLog): String {
         val t = timeFormatter
-        return "Walk · ${t.label(log.start.minuteOfDay(zone))}–${t.label(log.end.minuteOfDay(zone))} · ${(log.end - log.start).inWholeMinutes} min"
+        val line = "Walk · ${t.label(log.start.minuteOfDay(zone))}–${t.label(log.end.minuteOfDay(zone))} · ${(log.end - log.start).inWholeMinutes} min"
+        return log.steps?.let { "$line · ${formatSteps(it)} steps" } ?: line
     }
 
     fun checkIn(pick: CheckIn) {
@@ -374,6 +384,16 @@ fun HistoryDetailRoute(date: String?, onBack: () -> Unit, viewModel: HistoryDeta
     ) { padding ->
         detail?.let { d ->
             Column(Modifier.fillMaxSize().padding(padding)) {
+                d.steps?.let { line ->
+                    Text(
+                        text = line,
+                        style = MaterialTheme.typography.titleMedium.merge(AppType.numbers),
+                        color = AppTheme.colors.textPrimary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = Spacing.l, end = Spacing.l, top = Spacing.s),
+                    )
+                }
                 RecapList(
                     s = d.recap,
                     bottomPadding = Spacing.l,

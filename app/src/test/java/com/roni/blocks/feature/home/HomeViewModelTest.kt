@@ -23,6 +23,7 @@ import com.roni.blocks.core.schedule.ScheduleEngine
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
+import com.roni.blocks.core.system.AndroidSystemStatuses
 import com.roni.blocks.core.time.DebugClock
 import com.roni.blocks.core.time.DebugTimeController
 import com.roni.blocks.core.time.SystemTimeMapper
@@ -104,6 +105,7 @@ class HomeViewModelTest {
             prefs = prefs,
             timeFormatter = TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)),
             debugTime = DebugTimeController(DebugClock(context).apply { setOffsetMinutes(0) }, orchestrator, logger, zone),
+            statuses = AndroidSystemStatuses(context),
         )
     }
 
