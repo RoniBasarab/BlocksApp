@@ -141,6 +141,13 @@ class DayOrchestrator @Inject constructor(
     /** Today's steps so far (2.5.0); null until a reading has ever worked. */
     val todaySteps: StateFlow<Long?> = _todaySteps.asStateFlow()
 
+    /** Tonight's activity picked during Dishes (2.5.0), persisted with the day; null until picked. */
+    private var pendingChoice: Choice? = null
+    private val _pendingEvening = MutableStateFlow<Choice?>(null)
+
+    /** The activity picked during Dishes, before it starts (2.5.0); Home draws it as the planned block. */
+    val pendingEvening: StateFlow<Choice?> = _pendingEvening.asStateFlow()
+
     /**
      * Today's steps including the live sensor reading while it is collected (2.5.0), for the Home
      * top bar. Emits null first, so a saved total still shows when the live sensor is silent. Nothing
@@ -505,6 +512,116 @@ class DayOrchestrator @Inject constructor(
         logger.info("standalone walk ended at $now")
     }
 
+    /** The open Dishes segment (2.5.0), or null when Dishes isn't the block now. */
+    private fun openDishes(): Segment? =
+        book.segments.lastOrNull { it.actualEnd == null && it.kind == SegmentKind.PLANNED && it.type == BlockType.Dishes }
+
+    /**
+     * The evening choice (2.5.0). During Dishes the pick is only remembered ([pendingEvening]); Dishes
+     * runs to its planned end as usual. Once Dishes is over, or while the activity is running, the
+     * pick starts/switches the activity at [now].
+     */
+    private suspend fun applyEveningChoice(choice: Choice, now: Instant) {
+        val state = _state.value
+        if (state !is DayState.Evening) {
+            logger.info("ignoring evening choice $choice from $state")
+            return
+        }
+        val dishes = openDishes()
+        if (state.blockIndex == 0 && dishes?.plannedEnd != null && now < dishes.plannedEnd!!) {
+            pendingChoice = choice
+            persist()
+            sideEffects()
+            logger.info("evening pending $choice")
+            return
+        }
+        startEvening(choice, now)
+    }
+
+    /**
+     * Starts (or switches to) [choice] at [at]: the open segment ends and a new EveningChoice segment
+     * runs to 22:30. Every activity segment is its own block; more than one means a switch (2.5.0).
+     */
+    private suspend fun startEvening(choice: Choice, at: Instant) {
+        book = SegmentBook.eveningChoice(book, choice, today(), zone, at)
+        pendingChoice = null
+        _segments.value = book.segments
+        _state.value = DayState.Evening(1)
+        reactedAt = clock.now()
+        persist()
+        sideEffects(transition = true)
+        logger.info("evening started: $choice at $at")
+    }
+
+    /**
+     * "Switch activity" on the evening card (2.5.0): the running activity's segment ends now and the
+     * new one starts now. Deliberately not routed through [DayStateMachine], which refuses a second
+     * choice. False when the activity isn't running.
+     */
+    suspend fun switchEvening(choice: Choice): Boolean {
+        ensureRestored()
+        val state = _state.value
+        if (state !is DayState.Evening || state.blockIndex != 1) return false
+        val open = book.segments.lastOrNull { it.actualEnd == null } ?: return false
+        if (open.type !is BlockType.EveningChoice) return false
+        startEvening(choice, clock.now())
+        return true
+    }
+
+    /**
+     * "Skip dishes" (2.5.0): Dishes ends now and the picked activity starts now. With nothing picked
+     * yet, Dishes still ends now and the caller opens the sheet; false tells it so.
+     */
+    suspend fun skipDishes(): Boolean {
+        ensureRestored()
+        val state = _state.value
+        if (state !is DayState.Evening || state.blockIndex != 0) return false
+        val now = clock.now()
+        val pick = pendingChoice
+        if (pick != null) {
+            startEvening(pick, now)
+            return true
+        }
+        book = book.copy(segments = closeOpenSegments(book.segments, now))
+        _segments.value = book.segments
+        reactedAt = now
+        persist()
+        sideEffects()
+        logger.info("dishes skipped, nothing picked yet")
+        return false
+    }
+
+    /**
+     * Moves the open Dishes segment's end to [toMin] minutes of the day (2.5.0): never before now + 5
+     * min, never past 22:30. The alarm follows through [sideEffects]. False when Dishes isn't open.
+     */
+    suspend fun resizeDishesTo(toMin: Int): Boolean {
+        ensureRestored()
+        val state = _state.value
+        if (state !is DayState.Evening || state.blockIndex != 0) return false
+        val dishes = openDishes() ?: return false
+        val now = clock.now()
+        val local = now.toLocalDateTime(zone)
+        val nowMin = local.hour * 60 + local.minute
+        val maxMin = 22 * 60 + 30
+        val minMin = minOf(nowMin + 5, maxMin)
+        val target = toMin.coerceIn(minMin, maxMin)
+        if (dishes.plannedEnd?.toLocalDateTime(zone)?.let { it.hour * 60 + it.minute } == target) return false
+        val end = LocalTime(target / 60, target % 60).at(today(), zone)
+        book = book.copy(segments = book.segments.map {
+            if (it.actualEnd == null && it.type == BlockType.Dishes) it.copy(plannedEnd = end) else it
+        })
+        _segments.value = book.segments
+        reactedAt = now
+        persist()
+        sideEffects()
+        logger.info("dishes end moved to $target min")
+        return true
+    }
+
+    private fun closeOpenSegments(segments: List<Segment>, at: Instant): List<Segment> =
+        segments.map { if (it.actualEnd == null) it.copy(actualEnd = at) else it }
+
     suspend fun onAlarm() {
         ensureRestored()
         stepCheckpoint()
@@ -566,7 +683,10 @@ class DayOrchestrator @Inject constructor(
                 nowSec = now.epochSeconds,
             )
         } else null
-        sideEffects(alert = due != null)
+        // Nothing picked by the time Dishes ends (2.5.0): alert "Dishes done · pick your evening".
+        val dishesDue = _state.value.isDishesSlot &&
+            openDishes()?.plannedEnd?.let { now >= it } == true
+        sideEffects(alert = due != null || dishesDue)
     }
 
     private suspend fun applyRollover() {
@@ -578,6 +698,7 @@ class DayOrchestrator @Inject constructor(
             book = DayBook()
             _segments.value = emptyList()
             _todayPlan.value = null
+            pendingChoice = null
             reactedAt = null
             persist()
         }
@@ -615,6 +736,7 @@ class DayOrchestrator @Inject constructor(
         _segments.value = emptyList()
         _todayPlan.value = null
         standaloneWalk = null
+        pendingChoice = null
         persist()
         alarms.cancel()
         sideEffects()
@@ -636,6 +758,13 @@ class DayOrchestrator @Inject constructor(
             reactedAt = now
         }
         if (event is DayEvent.SwapTemplate) return applySwap(event, now)
+        // The evening choice is not a plain state-machine step (2.5.0): picked during Dishes it is
+        // only remembered; picked once Dishes is over (or already in the activity) it starts the
+        // activity now. See [applyEveningChoice].
+        if (event is DayEvent.EveningChoice) {
+            applyEveningChoice(event.choice, now)
+            return
+        }
         if (event is DayEvent.Next) {
             val current = _state.value.currentBlockId()
             if (event.expectedBlockId != current) {
@@ -775,7 +904,7 @@ class DayOrchestrator @Inject constructor(
             DayEvent.Pause -> SegmentBook.pause(book, now)
             DayEvent.Resume -> SegmentBook.resumePause(book, now)
             DayEvent.KidTimeStarted -> SegmentBook.enterKidTime(book, currentTemplate() ?: return, today, zone)
-            DayEvent.KidAsleep -> SegmentBook.kidAsleep(book, today, zone, now)
+            DayEvent.KidAsleep -> SegmentBook.kidAsleep(book, today, zone, now).also { pendingChoice = null }
             is DayEvent.EveningChoice -> SegmentBook.eveningChoice(book, event.choice, today, zone, now)
             is DayEvent.EndDay -> SegmentBook.endDay(book, now, _state.value is DayState.KidTime)
             DayEvent.TakeOffDay -> DayBook()
@@ -837,6 +966,9 @@ class DayOrchestrator @Inject constructor(
         // the end, and those alarms must survive Doze (clock = true).
         val walk = openWalk()
         val session = standaloneWalk
+        // Dishes ends at its planned end (2.5.0), so that end needs its own alarm even though the
+        // evening state has no Pomodoro boundaries of its own.
+        val dishesEnd = if (_state.value.isDishesSlot) openDishes()?.plannedEnd?.takeIf { it > now } else null
         val nextAlert = when {
             walk?.plannedEnd != null -> com.roni.blocks.core.schedule.AlertPlanner
                 .nextWalk(walk.actualStart.epochSeconds, walk.plannedEnd!!.epochSeconds, now.epochSeconds)
@@ -844,6 +976,7 @@ class DayOrchestrator @Inject constructor(
             session != null -> com.roni.blocks.core.schedule.AlertPlanner
                 .nextWalk(session.start.epochSeconds, session.end.epochSeconds, now.epochSeconds)
                 ?.let { Instant.fromEpochSeconds(it.atSec) }
+            dishesEnd != null -> dishesEnd
             else -> nextAlertTime(now, template, index, anchor)
         }
         val alarmAt = listOfNotNull(wake, nextAlert).minOrNull()
@@ -946,6 +1079,7 @@ class DayOrchestrator @Inject constructor(
         else prefs.read(PrefsFile.DAY, REACTED_AT, InstantSerializer.nullable)
         // A standalone walk survives the rollover: it is read and kept whatever the stored date.
         standaloneWalk = prefs.read(PrefsFile.DAY, STANDALONE_WALK, WalkSession.serializer().nullable)
+        pendingChoice = prefs.read(PrefsFile.DAY, PENDING_EVENING, Choice.serializer().nullable)
         steps = prefs.read(PrefsFile.DAY, STEP_STATE, StepStateSerializer) ?: StepState()
         if (storedPlanStartsAt != null) prefs.remove(PrefsFile.DAY, PLAN_STARTS_AT)
         persist()
@@ -1041,6 +1175,16 @@ class DayOrchestrator @Inject constructor(
                 return true
             }
         }
+        // Dishes ends by itself at its planned end (2.5.0): with a pick waiting, the activity starts
+        // there, to the second. With nothing picked, Dishes runs over until the pick (onAlarm alerts).
+        if (_state.value.isDishesSlot) {
+            val dishes = openDishes()
+            val end = dishes?.plannedEnd
+            if (end != null && now >= end && pendingChoice != null) {
+                startEvening(pendingChoice!!, end)
+                return true
+            }
+        }
         return endDayIfDue()
     }
 
@@ -1052,9 +1196,11 @@ class DayOrchestrator @Inject constructor(
         _state.value.templateId()?.let { prefs.write(PrefsFile.DAY, TEMPLATE, it, TemplateId.serializer()) }
         prefs.write(PrefsFile.DAY, REACTED_AT, reactedAt, InstantSerializer.nullable)
         prefs.write(PrefsFile.DAY, STANDALONE_WALK, standaloneWalk, WalkSession.serializer().nullable)
+        prefs.write(PrefsFile.DAY, PENDING_EVENING, pendingChoice, Choice.serializer().nullable)
         prefs.write(PrefsFile.DAY, STEP_STATE, steps, StepStateSerializer)
         _walkSession.value = currentWalkSession()
         _todaySteps.value = if (steps.baseline < 0) null else steps.today
+        _pendingEvening.value = pendingChoice
     }
 
     /** The walk Home should show: an open day-block walk's segment, else the standalone walk (2.4.0). */
@@ -1138,6 +1284,7 @@ class DayOrchestrator @Inject constructor(
         const val PLAN_STARTS_AT = "plan_starts_at"
         const val REACTED_AT = "reacted_at"
         const val STANDALONE_WALK = "standalone_walk"
+        const val PENDING_EVENING = "pending_evening"
         const val STEP_STATE = "step_state"
         const val MAX_REPLAY_STEPS = 500
     }

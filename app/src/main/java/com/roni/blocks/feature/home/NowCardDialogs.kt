@@ -72,7 +72,7 @@ internal val NowButtonId.needsConfirmation: Boolean
     get() = when (this) {
         NowButtonId.PAUSE, NowButtonId.EMERGENCY -> true
         NowButtonId.NEXT, NowButtonId.WALK, NowButtonId.RESUME, NowButtonId.KID_ASLEEP,
-        NowButtonId.CHOOSE_EVENING, NowButtonId.END_DAY,
+        NowButtonId.CHOOSE_EVENING, NowButtonId.SKIP_DISHES, NowButtonId.END_DAY,
         -> false
     }
 
@@ -91,7 +91,7 @@ internal fun NowButtonId.confirmation(blockTitle: String, endsAt: String? = null
         red = true,
     )
     NowButtonId.NEXT, NowButtonId.WALK, NowButtonId.RESUME, NowButtonId.KID_ASLEEP,
-    NowButtonId.CHOOSE_EVENING, NowButtonId.END_DAY,
+    NowButtonId.CHOOSE_EVENING, NowButtonId.SKIP_DISHES, NowButtonId.END_DAY,
     -> null
 }
 

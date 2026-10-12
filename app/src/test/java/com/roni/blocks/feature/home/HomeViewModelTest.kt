@@ -235,6 +235,35 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun evening_keepsKidTime_thenDishes_thenTheActivity() = runBlocking {
+        clock.now = LocalTime(20, 12).at(date, zone)
+        orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        withTimeout(5_000) { orchestrator.state.first { it == DayState.KidTime } }
+
+        viewModel.onAction(HomeAction.KidAsleep)
+        withTimeout(5_000) { orchestrator.state.first { it == DayState.Evening(0) } }
+
+        clock.now = LocalTime(20, 13).at(date, zone)
+        viewModel.onAction(HomeAction.PickEvening(Choice.READ))
+        withTimeout(5_000) { viewModel.state.first { s -> s.blocks.any { it.id == EVENING_CHOICE_ID } } }
+
+        val blocks = viewModel.state.value.blocks
+        val kid = requireNotNull(blocks.firstOrNull { it.id == "sun_tue_wed.kid_time" })
+        assertEquals("kid time starts when the plan had it", 16 * 60 + 20, kid.startMin)
+        assertEquals("kid time ends at the tap", 20 * 60 + 12, kid.endMin)
+
+        val dishes = requireNotNull(blocks.firstOrNull { it.id == EVENING_DISHES_ID })
+        assertEquals(20 * 60 + 12, dishes.startMin)
+        assertEquals(20 * 60 + 32, dishes.endMin)
+        assertEquals("Dishes is the current block", EVENING_DISHES_ID, viewModel.state.value.currentBlockId)
+
+        val read = requireNotNull(blocks.firstOrNull { it.id == EVENING_CHOICE_ID })
+        assertEquals(BlockType.EveningChoice(Choice.READ), read.type)
+        assertEquals(20 * 60 + 32, read.startMin)
+        assertEquals(22 * 60 + 30, read.endMin)
+    }
+
+    @Test
     fun insertIntoFreeTime_selectsTheNewBlock() = runBlocking {
         startDayInsideCoding()
 

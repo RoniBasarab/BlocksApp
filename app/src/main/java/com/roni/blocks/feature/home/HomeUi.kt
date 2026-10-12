@@ -26,7 +26,7 @@ data class CalendarBlockUi(
 
 enum class ChipTone { NEUTRAL, BREAK, LEAK }
 
-enum class NowButtonId { PAUSE, EMERGENCY, NEXT, WALK, RESUME, KID_ASLEEP, CHOOSE_EVENING, END_DAY }
+enum class NowButtonId { PAUSE, EMERGENCY, NEXT, WALK, RESUME, KID_ASLEEP, CHOOSE_EVENING, SKIP_DISHES, END_DAY }
 
 /** [PRIMARY] is the full-width action; [SECONDARY] buttons share one weighted row. */
 enum class NowButtonStyle { SECONDARY, PRIMARY }
@@ -102,6 +102,8 @@ data class HomeState(
     val walkEnabled: Boolean = false,
     val walkSheet: WalkSheetUi? = null,
     val eveningChoicePending: Boolean = false,
+    /** Tonight's activity picked during Dishes, before it starts (2.5.0); null until picked. */
+    val eveningChoice: Choice? = null,
     val eveningSheetOpen: Boolean = false,
     val draggingId: String? = null,
     val selectId: String? = null,
@@ -123,6 +125,10 @@ sealed interface HomeAction {
     data object Resume : HomeAction
     data object KidAsleep : HomeAction
     data object ChooseEvening : HomeAction
+    /** "Skip dishes" (2.5.0): Dishes ends now and tonight's activity starts now. */
+    data object SkipDishes : HomeAction
+    /** Dismiss the evening sheet without picking (2.5.0); "Choose evening" reopens it. */
+    data object DismissEveningSheet : HomeAction
     data object EndDay : HomeAction
     data class PickEvening(val choice: Choice) : HomeAction
     data object History : HomeAction
@@ -140,7 +146,7 @@ sealed interface HomeAction {
     data class LockedBlockTapped(val id: String) : HomeAction
 
     val affectsOverlays: Boolean
-        get() = this is ChooseEvening || this is PickEvening
+        get() = this is ChooseEvening || this is PickEvening || this is DismissEveningSheet
 
     val affectsCalendar: Boolean
         get() = this is DragEdge || this is DragDone || this is DragCancelled ||

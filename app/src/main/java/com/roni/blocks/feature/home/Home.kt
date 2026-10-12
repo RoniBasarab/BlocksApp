@@ -150,6 +150,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.LocalTime
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.builtins.serializer
 
@@ -191,6 +192,8 @@ private val day: DayOrchestrator,
     private var preview: List<PlanBlock>? = null
     private var draggingId: String? = null
     private var eveningSheetOpen = false
+    /** The evening sheet auto-opens once per Dishes (2.5.0), so dismissing it stays dismissed. */
+    private var eveningAutoOpened = false
     private var walkSheet: WalkSheetUi? = null
 
     /** The block a just-finished insert should select, so its handles show. */
@@ -251,6 +254,10 @@ private val day: DayOrchestrator,
         viewModelScope.launch {
             // Turn back and End walk only move the walk session, not the state or the segments.
             day.walkSession.collect { publish(day.state.value) }
+        }
+        viewModelScope.launch {
+            // Picking during Dishes only moves the pending choice, not the state or the segments (2.5.0).
+            day.pendingEvening.collect { publish(day.state.value) }
         }
         viewModelScope.launch {
             history.observeWalks(clock.now().toLocalDateTime(zone).date).collect { logs ->
@@ -337,6 +344,12 @@ private val day: DayOrchestrator,
             HomeAction.Resume -> day.send(DayEvent.Resume)
             HomeAction.KidAsleep -> day.send(DayEvent.KidAsleep)
             HomeAction.ChooseEvening -> eveningSheetOpen = true
+            HomeAction.SkipDishes -> viewModelScope.launch {
+                val started = day.skipDishes()
+                if (!started) eveningSheetOpen = true
+                publish(day.state.value)
+            }
+            HomeAction.DismissEveningSheet -> eveningSheetOpen = false
             HomeAction.EndDay -> day.send(DayEvent.EndDay(EndReason.NORMAL))
             HomeAction.Walk -> openWalkSheet()
             is HomeAction.WalkStep -> stepWalk(action.byMin)
@@ -361,12 +374,14 @@ private val day: DayOrchestrator,
                 draggingId = action.id
                 preview = previewResize(action.id, action.edge, action.toMin)
             }
-            is HomeAction.DragDone -> commitEdit(PlanEdit.Resize(action.id, action.edge, action.toMin))
+            is HomeAction.DragDone -> if (action.id == EVENING_DISHES_ID) resizeDishes(action.toMin)
+                else commitEdit(PlanEdit.Resize(action.id, action.edge, action.toMin))
             HomeAction.DragCancelled -> {
                 preview = null
                 draggingId = null
             }
-            is HomeAction.StepEdge -> stepEdge(action.id, action.edge, action.byMin)
+            is HomeAction.StepEdge -> if (action.id == EVENING_DISHES_ID) stepDishes(action.byMin)
+                else stepEdge(action.id, action.edge, action.byMin)
             is HomeAction.Retype -> commitEdit(PlanEdit.Retype(action.id, action.type))
             is HomeAction.Insert -> insertBlock(action.id, action.type)
             is HomeAction.LockedBlockTapped -> {
@@ -412,6 +427,21 @@ private val day: DayOrchestrator,
         val block = day.todayPlan.value?.blocks?.firstOrNull { it.id == id } ?: return
         val edgeMin = if (edge == Edge.TOP) block.start.hour * 60 + block.start.minute else block.end.hour * 60 + block.end.minute
         commitEdit(PlanEdit.Resize(id, edge, edgeMin + byMin))
+    }
+
+    /** The Dishes block lives in the segments, not the plan (2.5.0), so its resize goes to the day. */
+    private fun resizeDishes(toMin: Int) {
+        viewModelScope.launch {
+            day.resizeDishesTo(toMin)
+            preview = null
+            draggingId = null
+            publish(day.state.value)
+        }
+    }
+
+    private fun stepDishes(byMin: Int) {
+        val endMin = _state.value.blocks.firstOrNull { it.id == EVENING_DISHES_ID }?.endMin ?: return
+        resizeDishes(endMin + byMin)
     }
 
     private fun insertBlock(id: String, type: BlockType) {
@@ -546,7 +576,7 @@ private val day: DayOrchestrator,
         val open = segments.lastOrNull { it.kind == SegmentKind.PLANNED && it.actualEnd == null }
         val doneEarly = dayState is DayState.Running && openAny?.kind == SegmentKind.SYNTHETIC_FREE
         val specs = preview?.let { pv -> todayPlan?.blocks?.let { pv.toBlockSpecs(it) } } ?: template?.blocks
-        val daySpecs = specs?.let { withEvening(it, segments) }
+        val daySpecs = specs?.let { withEvening(it, segments, day.pendingEvening.value) }
         val index = currentIndex(dayState, daySpecs)
         val mapped = daySpecs?.let {
             CalendarMapper.toBlocks(
@@ -573,7 +603,8 @@ private val day: DayOrchestrator,
                     row?.let { pastSubtitleFor(it, timeFormatter.use24.value) }
                 } else null
                 b.copy(
-                    edit = PlanEditor.editMode(planBlocks, b.id, minute, currentForEdit),
+                    edit = if (b.id == EVENING_DISHES_ID) BlockEdit.END_ONLY
+                    else PlanEditor.editMode(planBlocks, b.id, minute, currentForEdit),
                     subtitle = pastSubtitle ?: phaseSubtitle,
                     phases = phasesForUi,
                 )
@@ -634,7 +665,17 @@ private val day: DayOrchestrator,
             preview = null
             draggingId = null
         }
-        if (!dayState.isDishesSlot) eveningSheetOpen = false
+        // The evening sheet opens once when Dishes starts (2.5.0); dismissing it is fine, and the
+        // card's "Choose evening" reopens it. Outside the evening it is always closed.
+        if (dayState is DayState.Evening) {
+            if (dayState.isDishesSlot && !eveningSheetOpen && !eveningAutoOpened && day.pendingEvening.value == null) {
+                eveningSheetOpen = true
+                eveningAutoOpened = true
+            }
+        } else {
+            eveningSheetOpen = false
+            eveningAutoOpened = false
+        }
         if (walkCard != null || dayState !is DayState.Running) walkSheet = null
 
         _state.value = HomeState(
@@ -657,6 +698,7 @@ private val day: DayOrchestrator,
             walkEnabled = day.walkPreview(PlanEditor.WALK_DEFAULT) != null,
             walkSheet = walkSheet,
             eveningChoicePending = dayState.isDishesSlot,
+            eveningChoice = day.pendingEvening.value,
             eveningSheetOpen = eveningSheetOpen,
             draggingId = draggingId,
             selectId = insertedBlockId,
@@ -681,22 +723,35 @@ private val day: DayOrchestrator,
 
     /**
      * After Kid asleep: kid time ends when it was tapped, then Dishes and the evening choice appear
-     * as blocks on the calendar.
+     * as blocks on the calendar. Built from the evening segments plus the pending activity (2.5.0);
+     * it only cuts the kid-time block, never replaces it. Closed activities get their own
+     * `evening.choice@<startMin>` block so a switch shows as two blocks.
      */
-    private fun withEvening(specs: List<BlockSpec>, segments: List<Segment>): List<BlockSpec> {
+    private fun withEvening(specs: List<BlockSpec>, segments: List<Segment>, pending: Choice?): List<BlockSpec> {
         val evening = segments.filter { it.kind == SegmentKind.PLANNED && (it.type == BlockType.Dishes || it.type is BlockType.EveningChoice) }
         if (evening.isEmpty()) return specs
         val asleepAt = evening.first().actualStart.toLocalDateTime(zone).time
         val day = specs.map { s -> if (s.type == BlockType.KidTime && s.start < asleepAt && s.end > asleepAt) s.copy(end = asleepAt) else s }
         val added = evening.map { seg ->
-            BlockSpec(
-                id = if (seg.type == BlockType.Dishes) EVENING_DISHES_ID else EVENING_CHOICE_ID,
-                type = seg.type,
-                start = seg.actualStart.toLocalDateTime(zone).time,
-                end = (seg.actualEnd ?: seg.plannedEnd ?: seg.actualStart).toLocalDateTime(zone).time,
-            )
+            val start = seg.actualStart.toLocalDateTime(zone).time
+            val end = (seg.actualEnd ?: seg.plannedEnd ?: seg.actualStart).toLocalDateTime(zone).time
+            val id = when {
+                seg.type == BlockType.Dishes -> EVENING_DISHES_ID
+                seg.actualEnd == null -> EVENING_CHOICE_ID
+                else -> "evening.choice@${start.hour * 60 + start.minute}"
+            }
+            BlockSpec(id = id, type = seg.type, start = start, end = end)
         }
-        return (day + added).sortedBy { it.start }
+        // A pick made during Dishes shows as the planned activity from Dishes' end to 22:30, until it
+        // actually starts (then the open EveningChoice segment carries it).
+        val openActivity = evening.lastOrNull { it.type is BlockType.EveningChoice && it.actualEnd == null }
+        val pendingBlock = if (pending != null && openActivity == null) {
+            val dishes = evening.lastOrNull { it.type == BlockType.Dishes }
+            dishes?.plannedEnd?.toLocalDateTime(zone)?.time?.let { start ->
+                listOf(BlockSpec(EVENING_CHOICE_ID, BlockType.EveningChoice(pending), start, LocalTime(22, 30)))
+            }.orEmpty()
+        } else emptyList()
+        return (day + added + pendingBlock).sortedBy { it.start }
     }
 
     private fun currentIndex(dayState: DayState, daySpecs: List<BlockSpec>?): Int = when (dayState) {
@@ -854,16 +909,18 @@ private val day: DayOrchestrator,
                 ),
             )
             is DayState.Evening -> if (dayState.isDishesSlot) {
+                val pick = day.pendingEvening.value
                 NowCardUi(
                     title = "Dishes",
                     type = BlockType.Dishes,
                     chip = null,
                     chipTone = ChipTone.NEUTRAL,
-                    subtitle = "Pick what tonight is about",
+                    subtitle = if (pick != null) "Tonight: ${choiceLabel(pick)}" else "Pick what tonight is about",
                     isLeaking = false,
                     showProgress = false,
                     buttons = persistentListOf(
-                        NowButton(NowButtonId.CHOOSE_EVENING, "Choose evening", NowButtonStyle.PRIMARY),
+                        NowButton(NowButtonId.CHOOSE_EVENING, if (pick != null) "Change evening" else "Choose evening", NowButtonStyle.PRIMARY),
+                        NowButton(NowButtonId.SKIP_DISHES, "Skip dishes", NowButtonStyle.SECONDARY),
                         NowButton(NowButtonId.END_DAY, "End day", NowButtonStyle.SECONDARY),
                     ),
                 )
@@ -876,7 +933,10 @@ private val day: DayOrchestrator,
                     subtitle = "until ${timeFormatter.label(22 * 60 + 30)}",
                     isLeaking = false,
                     showProgress = false,
-                    buttons = persistentListOf(NowButton(NowButtonId.END_DAY, "End day", NowButtonStyle.SECONDARY)),
+                    buttons = persistentListOf(
+                        NowButton(NowButtonId.CHOOSE_EVENING, "Switch activity", NowButtonStyle.PRIMARY),
+                        NowButton(NowButtonId.END_DAY, "End day", NowButtonStyle.SECONDARY),
+                    ),
                 )
             }
             DayState.Ended -> NowCardUi(
@@ -947,6 +1007,14 @@ private const val LOCKED_DAY_BLOCK_RUNNING = "Blocks can be changed while a day 
 private const val LOCKED_WILL_MISS = "This block can't start before it ends, so it will count as missed."
 
 private fun snapUp(min: Int): Int = ((min + PlanEditor.SNAP - 1) / PlanEditor.SNAP) * PlanEditor.SNAP
+
+/** The evening activity's name for the card (2.5.0). */
+private fun choiceLabel(choice: Choice): String = when (choice) {
+    Choice.GAME -> "Game"
+    Choice.PROJECT -> "Project"
+    Choice.READ -> "Read"
+    Choice.CHILL -> "Chill"
+}
 
 /** "Done HH:MM–HH:MM" or "Missed" for the calendar subtitle of a past block. */
 private fun pastSubtitleFor(row: RecapRow, use24: Boolean): String? {
@@ -1184,8 +1252,11 @@ fun HomeScreen(
         }
     }
 
-    if (state.eveningChoicePending || state.eveningSheetOpen) {
-        EveningChoiceSheet(onPick = { onAction(HomeAction.PickEvening(it)) })
+    if (state.eveningSheetOpen) {
+        EveningChoiceSheet(
+            onPick = { onAction(HomeAction.PickEvening(it)) },
+            onDismiss = { onAction(HomeAction.DismissEveningSheet) },
+        )
     }
     state.walkSheet?.let { sheet ->
         WalkSheet(
@@ -1623,6 +1694,7 @@ private fun nowButtonIcon(id: NowButtonId): ImageVector = when (id) {
     NowButtonId.RESUME -> Icons.Outlined.PlayArrow
     NowButtonId.KID_ASLEEP -> Icons.Outlined.Nightlight
     NowButtonId.CHOOSE_EVENING -> Icons.Outlined.Nightlight
+    NowButtonId.SKIP_DISHES -> Icons.Outlined.PlayArrow
 }
 
 private fun NowButtonId.toAction(): HomeAction = when (this) {
@@ -1633,6 +1705,7 @@ private fun NowButtonId.toAction(): HomeAction = when (this) {
     NowButtonId.RESUME -> HomeAction.Resume
     NowButtonId.KID_ASLEEP -> HomeAction.KidAsleep
     NowButtonId.CHOOSE_EVENING -> HomeAction.ChooseEvening
+    NowButtonId.SKIP_DISHES -> HomeAction.SkipDishes
     NowButtonId.END_DAY -> HomeAction.EndDay
 }
 
