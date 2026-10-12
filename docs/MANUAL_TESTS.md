@@ -10,6 +10,17 @@ With a phone attached, run them with:
 These four cannot be automated reliably (they depend on the launcher, the reboot flow, the keyguard
 and the system DND state), so Roni runs them by hand.
 
+**Check on the phone (2.6.0).** Use the debug app for steps that move the clock (Settings -> Developer tools).
+
+1. Evening: the top-bar walk icon opens the sheet; Start: the card counts 15:00 down in seconds.
+2. Turn back after 1 minute: "Heading home", counting down from about 1:00.
+3. End walk, then a new walk at once: a fresh "Heading out" from the full length.
+4. A 3-minute walk during Coding: a thin line and a "Walked 3 min" pill; Coding's title isn't covered.
+5. Start CV, after a minute Done early then Next: a thin CV bar with a "CV · 1 min" pill; Coding's text starts below it.
+6. Dishes (20 min) reads "Dishes · 20:12" on one line, nothing cut.
+7. On Coding: Done early, then Next → the free time after Coding starts, not the next Coding; nothing disappears.
+8. Fresh install: notifications and physical activity are asked at launch; no card on Home.
+
 **Check on the phone (2.5.0).** Use the debug app for steps that move the clock (Settings -> Developer tools).
 
 1. Walk, Turn back after 1 minute: the card counts 1 minute home, to the second.
