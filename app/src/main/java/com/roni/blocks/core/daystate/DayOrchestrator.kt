@@ -45,6 +45,7 @@ import com.roni.blocks.core.steps.StepSensor
 import com.roni.blocks.core.steps.StepState
 import com.roni.blocks.core.steps.StepStateSerializer
 import com.roni.blocks.core.time.at
+import com.roni.blocks.core.walk.WalkClock
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.time.Clock
@@ -353,7 +354,7 @@ class DayOrchestrator @Inject constructor(
             val now = clock.now()
             val end = now + minutes.minutes
             return WalkPreview(
-                turnBackAt = now + (end - now) / 2,
+                turnBackAt = Instant.fromEpochSeconds(WalkClock.turnSec(now.epochSeconds, end.epochSeconds)),
                 homeAt = end,
                 afterTitle = null,
                 afterEnd = null,
@@ -375,10 +376,10 @@ class DayOrchestrator @Inject constructor(
             doneEarly = open?.kind == SegmentKind.SYNTHETIC_FREE,
         ) ?: return null
         val after = inserted.sortedBy { it.startMin }.firstOrNull { it.startMin == end && it.type != BlockType.Walk }
-        val turnBackMin = nowMin + (end - nowMin) / 2
+        val homeAt = LocalTime(end / 60, end % 60).at(today, zone)
         return WalkPreview(
-            turnBackAt = LocalTime(turnBackMin / 60, turnBackMin % 60).at(today, zone),
-            homeAt = LocalTime(end / 60, end % 60).at(today, zone),
+            turnBackAt = Instant.fromEpochSeconds(WalkClock.turnSec(now.epochSeconds, homeAt.epochSeconds)),
+            homeAt = homeAt,
             afterTitle = after?.let { blockName(it.type) },
             afterEnd = after?.let { LocalTime(it.endMin / 60, it.endMin % 60).at(today, zone) },
         )
@@ -456,9 +457,9 @@ class DayOrchestrator @Inject constructor(
         if (session != null) {
             // A standalone walk turns back the same way (2.4.0); it only moves its own end.
             val now = clock.now()
-            val half = session.start + (session.end - session.start) / 2
-            if (now >= half) return false
-            standaloneWalk = session.copy(end = now + (now - session.start))
+            val newEnd = WalkClock.turnBackEnd(session.start.epochSeconds, session.end.epochSeconds, now.epochSeconds)
+                ?: return false
+            standaloneWalk = session.copy(end = Instant.fromEpochSeconds(newEnd))
             stepCheckpoint()
             reactedAt = now
             persist()
@@ -473,9 +474,9 @@ class DayOrchestrator @Inject constructor(
         val walkEnd = open.plannedEnd
         if (open.type != BlockType.Walk || open.kind != SegmentKind.PLANNED || walkEnd == null) return false
         val now = clock.now()
-        val half = open.actualStart + (walkEnd - open.actualStart) / 2
-        if (now >= half) return false
-        val newEnd = now + (now - open.actualStart)
+        val newEndSec = WalkClock.turnBackEnd(open.actualStart.epochSeconds, walkEnd.epochSeconds, now.epochSeconds)
+            ?: return false
+        val newEnd = Instant.fromEpochSeconds(newEndSec)
         val local = newEnd.toLocalDateTime(zone)
         val newEndMin = local.hour * 60 + local.minute + if (local.second > 0 || local.nanosecond > 0) 1 else 0
         val walkId = open.blockId ?: return false

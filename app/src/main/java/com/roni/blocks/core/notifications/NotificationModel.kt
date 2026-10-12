@@ -14,6 +14,7 @@ import com.roni.blocks.core.schedule.pomodoroStatus
 import com.roni.blocks.core.schedule.toPlanBlock
 import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.core.time.minuteOfDay
+import com.roni.blocks.core.walk.WalkClock
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.time.Instant
@@ -81,7 +82,7 @@ class NotificationModelMapper @Inject constructor(
      * actions as the day-block walk, without a "then" (a standalone walk has no next block).
      */
     fun walk(start: Instant, end: Instant, now: Instant): NotificationModel {
-        val half = start + (end - start) / 2
+        val half = Instant.fromEpochSeconds(WalkClock.turnSec(start.epochSeconds, end.epochSeconds))
         return if (now < half) {
             NotificationModel(
                 key = "walk",
@@ -139,7 +140,7 @@ class NotificationModelMapper @Inject constructor(
         ) {
             val start = open.actualStart
             val end = open.plannedEnd
-            val half = start + (end - start) / 2
+            val half = Instant.fromEpochSeconds(WalkClock.turnSec(start.epochSeconds, end.epochSeconds))
             val nextName = nextStopName(blocks, block)
             return if (now < half) {
                 NotificationModel(

@@ -23,13 +23,13 @@ import com.roni.blocks.core.schedule.ScheduleEngine
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
-import com.roni.blocks.core.system.AndroidSystemStatuses
 import com.roni.blocks.core.time.DebugClock
 import com.roni.blocks.core.time.DebugTimeController
 import com.roni.blocks.core.time.SystemTimeMapper
 import com.roni.blocks.core.time.Ticker
 import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.core.time.at
+import com.roni.blocks.core.walk.WalkPhase
 import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlinx.coroutines.CoroutineScope
@@ -48,6 +48,7 @@ import kotlinx.datetime.TimeZone
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -105,7 +106,6 @@ class HomeViewModelTest {
             prefs = prefs,
             timeFormatter = TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)),
             debugTime = DebugTimeController(DebugClock(context).apply { setOffsetMinutes(0) }, orchestrator, logger, zone),
-            statuses = AndroidSystemStatuses(context),
         )
     }
 
@@ -155,9 +155,9 @@ class HomeViewModelTest {
         awaitRunningOrPaused { it.blockIndex() == 2 }
         val next = orchestrator.segments.value.last { it.actualEnd == null }
         assertEquals(SegmentKind.PLANNED, next.kind)
-        assertEquals(BlockType.Coding, next.type)
+        assertEquals(BlockType.Free, next.type)
         assertEquals(LocalTime(10, 5).at(date, zone), next.actualStart)
-        assertEquals("coding_pm starts early and keeps its 90-minute length", LocalTime(11, 35).at(date, zone), requireNotNull(next.plannedEnd))
+        assertEquals("the next block now is the midday free, which starts sooner and ends where it did", LocalTime(14, 0).at(date, zone), requireNotNull(next.plannedEnd))
     }
 
     @Test
@@ -312,12 +312,66 @@ class HomeViewModelTest {
             listOf(NowButtonId.NEXT, NowButtonId.WALK, NowButtonId.EMERGENCY),
             nowCard.buttons.map { it.id },
         )
-        assertEquals("Next: Coding", nowCard.buttons.first { it.id == NowButtonId.NEXT }.label)
-        assertEquals("until 11:30 · then Coding", nowCard.subtitle)
+        assertEquals("Next: Free", nowCard.buttons.first { it.id == NowButtonId.NEXT }.label)
+        assertEquals("until 11:30 · then Free", nowCard.subtitle)
 
         val coding = viewModel.state.value.blocks.first { it.id == firstBlockId }
         assertEquals(0, coding.phases.size)
         assertTrue(coding.subtitle?.startsWith("Done early · free until") == true)
+    }
+
+    @Test
+    fun walkIcon_opensTheSheet_inTheEvening() = runBlocking {
+        clock.now = LocalTime(21, 12).at(date, zone)
+        orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        withTimeout(5_000) { orchestrator.state.first { it == DayState.KidTime } }
+
+        viewModel.onAction(HomeAction.KidAsleep)
+        withTimeout(5_000) { orchestrator.state.first { it == DayState.Evening(0) } }
+
+        // Dishes runs 21:12-21:32; the pick lands exactly on its end, so the activity starts at once.
+        clock.now = LocalTime(21, 32).at(date, zone)
+        viewModel.onAction(HomeAction.PickEvening(Choice.READ))
+        withTimeout(5_000) { orchestrator.state.first { it == DayState.Evening(1) } }
+
+        viewModel.onAction(HomeAction.Walk)
+        withTimeout(5_000) { viewModel.state.first { it.walkSheet != null } }
+
+        assertNotNull(viewModel.state.value.walkSheet)
+    }
+
+    @Test
+    fun walkCard_countsInMinutesAndSeconds() = runBlocking {
+        clock.now = LocalTime(21, 0, 0).at(date, zone)
+        assertTrue(orchestrator.startWalk(30))
+        clock.now = LocalTime(21, 1, 5).at(date, zone)
+
+        // walkView is WhileSubscribed, so keep a collector alive for the assertions.
+        val job = launch(Dispatchers.Unconfined) { viewModel.walkView.collect {} }
+        val view = requireNotNull(withTimeout(5_000) { viewModel.walkView.first { it != null } })
+        assertEquals("13:55", view.text)
+        assertEquals(WalkPhase.OUT, view.phase)
+        job.cancel()
+    }
+
+    @Test
+    fun oneMinuteBlock_isASliverWithAPill() = runBlocking {
+        clock.now = LocalTime(9, 0).at(date, zone)
+        orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        withTimeout(5_000) { viewModel.state.first { it.currentBlockId == "sun_tue_wed.cv" } }
+
+        clock.now = LocalTime(9, 1).at(date, zone)
+        viewModel.onAction(HomeAction.Next)                                    // Done early: the rest of CV becomes free
+        withTimeout(5_000) { viewModel.state.first { it.nowCard?.chip == "Done early" } }
+
+        viewModel.onAction(HomeAction.Next)                                    // the next block starts now, so CV is a minute
+
+        val state = withTimeout(5_000) {
+            viewModel.state.first { s -> s.calendarFit.blocks.any { it.id == "sun_tue_wed.cv" && it.sliver } }
+        }
+        assertTrue(state.calendarFit.blocks.first { it.id == "sun_tue_wed.cv" }.sliver)
+        assertEquals(listOf("sun_tue_wed.cv"), state.calendarFit.rows.single().ids)
+        assertEquals("CV · 1 min", state.pillLabels["sun_tue_wed.cv"])
     }
 
     private suspend fun startDayInsideCoding() {

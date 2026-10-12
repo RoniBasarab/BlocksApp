@@ -1,9 +1,6 @@
 package com.roni.blocks.feature.home
 
-import android.Manifest
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -111,11 +108,13 @@ import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
-import com.roni.blocks.core.system.SystemStatuses
 import com.roni.blocks.core.time.DebugTimeController
 import com.roni.blocks.core.time.Ticker
 import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.core.time.minuteOfDay
+import com.roni.blocks.core.walk.WalkClock
+import com.roni.blocks.core.walk.WalkPhase
+import com.roni.blocks.core.walk.WalkView
 import com.roni.blocks.designsystem.AppBottomBar
 import com.roni.blocks.designsystem.AppCard
 import com.roni.blocks.designsystem.AppChip
@@ -173,7 +172,6 @@ private val day: DayOrchestrator,
     private val prefs: PrefsStorage,
     private val timeFormatter: TimeFormatter,
     private val debugTime: DebugTimeController,
-    private val statuses: SystemStatuses,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state.asStateFlow()
@@ -181,8 +179,6 @@ private val day: DayOrchestrator,
     private var endedRecord: DayRecord? = null
     /** Today's standalone walks (2.5.0), the only walks_<date> log entries; drawn as markers. */
     private var walkLogs: List<WalkLog> = emptyList()
-    /** The "Not now" answer to the step card (2.5.0): null until prefs are read, so it can't flash. */
-    private var stepsDeclined: Boolean? = null
 
     private val _suppressedConfirmations = MutableStateFlow<Set<NowButtonId>>(emptySet())
 
@@ -223,19 +219,11 @@ private val day: DayOrchestrator,
         combine(_state, minuteOfDay) { s, minute -> progressOf(s, minute) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0f)
 
-    /** mm:ss to the next walk ring, for the WalkCard ring's middle. */
-    val walkCountdown: StateFlow<String> =
-        combine(_state, minuteOfDay, secondOfDay) { s, minute, second -> walkCountdownText(s, minute, second) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
-
-    val walkProgress: StateFlow<Float> =
-        combine(_state, minuteOfDay, secondOfDay) { s, minute, second -> walkProgressOf(s, minute, second) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0f)
-
-    /** Which way the walk goes right now (2.5.0): home once the turn-back second has passed. */
-    val walkHeadingHome: StateFlow<Boolean> =
-        combine(_state, minuteOfDay, secondOfDay) { s, minute, second -> walkHeadingHomeOf(s, minute, second) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    /** The walk card's clock (2.6.0): one [WalkView] with text, progress and phase, refreshed every second. */
+    val walkView: StateFlow<WalkView?> =
+        combine(_state, secondOfDay) { s, _ ->
+            s.walkCard?.let { WalkClock.view(it.startSec, it.endSec, clock.now().epochSeconds) }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** "5,240 steps" for the top bar (2.5.0): the saved total plus the live reading; never written. */
     val stepsLabel: StateFlow<String?> =
@@ -286,10 +274,6 @@ private val day: DayOrchestrator,
             )
             _suppressedConfirmations.value = suppressedFromKeys(stored?.ids.orEmpty())
         }
-        viewModelScope.launch {
-            stepsDeclined = prefs.read(PrefsFile.SETTINGS, STEP_DECLINED, Boolean.serializer()) ?: false
-            publish(day.state.value)
-        }
     }
 
     fun onSuppressConfirmation(button: NowButtonId) {
@@ -322,18 +306,6 @@ private val day: DayOrchestrator,
                 )
             }
         }
-    }
-
-    /** "Not now" on the step card (2.5.0): remember it, so Home stops asking; Settings can still ask. */
-    fun declineSteps() {
-        stepsDeclined = true
-        viewModelScope.launch { prefs.write(PrefsFile.SETTINGS, STEP_DECLINED, true, Boolean.serializer()) }
-        publish(day.state.value)
-    }
-
-    /** Re-reads the step permission after the system dialog closes (2.5.0). */
-    fun refreshStepPermission() {
-        publish(day.state.value)
     }
 
     fun onAction(action: HomeAction) {
@@ -397,8 +369,6 @@ private val day: DayOrchestrator,
             HomeAction.SwapTemplate,
             HomeAction.History,
             HomeAction.Settings,
-            HomeAction.AllowSteps,
-            HomeAction.DeclineSteps,
             -> Unit
         }
         if (action.affectsOverlays || action.affectsCalendar) publish(day.state.value)
@@ -627,7 +597,7 @@ private val day: DayOrchestrator,
         val walkCard = if (walkSession != null) {
             val startSec = walkSession.start.epochSeconds
             val endSec = walkSession.end.epochSeconds
-            val turnSec = startSec + (endSec - startSec) / 2
+            val turnSec = WalkClock.turnSec(startSec, endSec)
             val turnBackMin = Instant.fromEpochSeconds(turnSec).minuteOfDay(zone)
             val afterTitle = walk?.let { wb ->
                 blocks.firstOrNull { it.id == wb.blockId }?.let { walkBlock ->
@@ -645,21 +615,41 @@ private val day: DayOrchestrator,
             )
         } else null
 
-        // Short day-block walks aren't drawn as blocks; standalone walks never are. Both become a
-        // marker inside the block they happened in (2.5.0). Day-block walks are also in the walk log
-        // now, so a log entry matching a closed walk segment is skipped to avoid drawing it twice.
+        // Ticks are the walk markers (2.6.0): a day-block walk shorter than [PlanEditor.WALK_MIN] keeps
+        // its block id, a standalone walk gets `walk@<startMin>`. Day-block walks are also in the walk
+        // log now, so a log entry matching a closed walk segment is skipped to avoid drawing it twice.
         val shortWalks = segments.mapNotNull { seg ->
             if (seg.type == BlockType.Walk && seg.kind == SegmentKind.PLANNED && seg.actualEnd != null) {
                 val mins = (seg.actualEnd - seg.actualStart).inWholeMinutes.toInt()
-                if (mins < PlanEditor.WALK_MIN) WalkMarkerUi(seg.actualStart.minuteOfDay(zone), "Walked $mins min") else null
+                if (mins < PlanEditor.WALK_MIN) {
+                    val startMin = seg.actualStart.minuteOfDay(zone)
+                    WalkMarkerUi(seg.blockId ?: "walk@$startMin", startMin, "Walked $mins min")
+                } else null
             } else null
         }
         val loggedWalks = walkLogs
             .filter { log -> segments.none { it.type == BlockType.Walk && it.actualStart == log.start && it.actualEnd != null } }
             .map { log ->
-                WalkMarkerUi(log.start.minuteOfDay(zone), "Walked ${(log.end - log.start).inWholeMinutes} min")
+                val startMin = log.start.minuteOfDay(zone)
+                WalkMarkerUi("walk@$startMin", startMin, "Walk · ${(log.end - log.start).inWholeMinutes} min")
             }
         val walkMarkers = (shortWalks + loggedWalks).sortedBy { it.startMin }.toPersistentList()
+
+        // The fit sees only the blocks that are drawn as blocks: a short-walk block is a tick instead,
+        // so it hands its id to the tick and its geometry to the pill.
+        val walkMarkerIds = walkMarkers.mapTo(HashSet()) { it.id }
+        val calendarFit = CalendarLayout.fit(
+            blocks = blocks.filterNot { it.id in walkMarkerIds }.map { LayoutBlock(it.id, it.startMin, it.endMin) },
+            ticks = walkMarkers.map { LayoutTick(it.id, it.startMin) },
+            dayStartMin = DAY_START_MIN,
+        )
+        val blockById = blocks.associateBy { it.id }
+        val pillLabels = buildMap {
+            calendarFit.blocks.filter { it.sliver }.forEach { bf ->
+                blockById[bf.id]?.let { put(bf.id, "${it.title} · ${it.endMin - it.startMin} min") }
+            }
+            walkMarkers.forEach { put(it.id, it.label) }
+        }
 
         if (dayState is DayState.Ended || dayState is DayState.Off || dayState is DayState.NotStarted) {
             preview = null
@@ -676,7 +666,7 @@ private val day: DayOrchestrator,
             eveningSheetOpen = false
             eveningAutoOpened = false
         }
-        if (walkCard != null || dayState !is DayState.Running) walkSheet = null
+        if (walkCard != null) walkSheet = null
 
         _state.value = HomeState(
             weekdayShort = now.toLocalDateTime(zone).dayOfWeek.name.take(3),
@@ -694,7 +684,8 @@ private val day: DayOrchestrator,
             nowCard = if (walkCard != null) null else nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel, doneEarly),
             walkCard = walkCard,
             walkMarkers = walkMarkers,
-            stepPrompt = stepPrompt(),
+            calendarFit = calendarFit,
+            pillLabels = pillLabels,
             walkEnabled = day.walkPreview(PlanEditor.WALK_DEFAULT) != null,
             walkSheet = walkSheet,
             eveningChoicePending = dayState.isDishesSlot,
@@ -708,10 +699,6 @@ private val day: DayOrchestrator,
 
     private fun debugClockLabel(minute: Int): String? =
         if (debugTime.offsetMinutes.value == 0) null else "Debug clock ${TimeFormatter.label(minute, timeFormatter.use24.value)}"
-
-    /** The step card shows only once: sensor present, permission not granted, never declined (2.5.0). */
-    private fun stepPrompt(): Boolean =
-        stepsDeclined == false && statuses.stepCounterPresent() && !statuses.activityRecognitionGranted()
 
     private fun publishLeakIfChanged() {
         val before = _state.value.leakFromMin
@@ -977,30 +964,8 @@ private val day: DayOrchestrator,
         val span = (block.endMin - block.startMin).coerceAtLeast(1)
         return ((minute - block.startMin).toFloat() / span).coerceIn(0f, 1f)
     }
-
-    /** mm:ss to the next ring: the turn-back while walking out, the end while walking home. */
-    private fun walkCountdownText(s: HomeState, minute: Int, second: Int): String {
-        val walk = s.walkCard ?: return ""
-        val nowSec = minute * 60L + second
-        val target = if (nowSec >= walk.turnSec) walk.endSec else walk.turnSec
-        val remaining = (target - nowSec).coerceAtLeast(0)
-        return "%02d:%02d".format(remaining / 60, remaining % 60)
-    }
-
-    private fun walkProgressOf(s: HomeState, minute: Int, second: Int): Float {
-        val walk = s.walkCard ?: return 0f
-        val span = (walk.endSec - walk.startSec).coerceAtLeast(1L)
-        val nowSec = minute * 60L + second
-        return ((nowSec - walk.startSec).toFloat() / span).coerceIn(0f, 1f)
-    }
-
-    private fun walkHeadingHomeOf(s: HomeState, minute: Int, second: Int): Boolean {
-        val walk = s.walkCard ?: return false
-        return minute * 60L + second >= walk.turnSec
-    }
 }
 
-private const val STEP_DECLINED = "step_declined"
 private const val LOCKED_KID_TIME = "Kid time and the evening can't be moved."
 private const val LOCKED_PICK_TEMPLATE = "Pick a template first; then you can change the day."
 private const val LOCKED_DAY_BLOCK_RUNNING = "Blocks can be changed while a day block is running."
@@ -1037,14 +1002,9 @@ fun HomeRoute(
     val minute by viewModel.minuteOfDay.collectAsStateWithLifecycle()
     val countdown by viewModel.countdownText.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
-    val walkCountdown by viewModel.walkCountdown.collectAsStateWithLifecycle()
-    val walkProgress by viewModel.walkProgress.collectAsStateWithLifecycle()
-    val walkHeadingHome by viewModel.walkHeadingHome.collectAsStateWithLifecycle()
+    val walkView by viewModel.walkView.collectAsStateWithLifecycle()
     val suppressed by viewModel.suppressedConfirmations.collectAsStateWithLifecycle()
     val stepsLabel by viewModel.stepsLabel.collectAsStateWithLifecycle()
-    val stepPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        viewModel.refreshStepPermission()
-    }
     val minuteOfDay = { minute }
     val countdownText = { countdown }
     val progressValue = { progress }
@@ -1069,17 +1029,13 @@ fun HomeRoute(
             onCorrect = viewModel::correctRecord,
             onCorrectPast = viewModel::correctPast,
             onCheckIn = viewModel::checkIn,
-            walkCountdown = { walkCountdown },
-            walkProgress = { walkProgress },
-            walkHeadingHome = { walkHeadingHome },
+            walkView = { walkView },
             stepsLabel = stepsLabel,
             onAction = { action ->
                 when (action) {
                     HomeAction.SwapTemplate -> onSwap()
                     HomeAction.History -> onMenu(HistoryKey)
                     HomeAction.Settings -> onMenu(SettingsKey)
-                    HomeAction.AllowSteps -> stepPermission.launch(Manifest.permission.ACTIVITY_RECOGNITION)
-                    HomeAction.DeclineSteps -> viewModel.declineSteps()
                     else -> viewModel.onAction(action)
                 }
             },
@@ -1120,9 +1076,7 @@ fun HomeScreen(
     onCorrect: (RecordEdit) -> Unit = {},
     onCorrectPast: (RecordEdit) -> Unit = {},
     onCheckIn: (CheckIn) -> Unit = {},
-    walkCountdown: () -> String = { "" },
-    walkProgress: () -> Float = { 0f },
-    walkHeadingHome: () -> Boolean = { false },
+    walkView: () -> WalkView? = { null },
     stepsLabel: String? = null,
 ) {
     SideEffect { RecompositionCounter.hit("HomeScreen") }
@@ -1160,13 +1114,6 @@ fun HomeScreen(
                 showDivider = { scroll.value > 0 },
                 onAction = onAction,
             )
-            if (state.stepPrompt) {
-                StepPermissionCard(
-                    onAllow = { onAction(HomeAction.AllowSteps) },
-                    onDecline = { onAction(HomeAction.DeclineSteps) },
-                    modifier = Modifier.padding(horizontal = Spacing.l, vertical = Spacing.s),
-                )
-            }
             val recap = state.recap
             if (recap != null) {
                 // A standalone walk (2.4.0) shows its card above an ended day's recap list.
@@ -1174,9 +1121,7 @@ fun HomeScreen(
                     state.walkCard?.let { ui ->
                         WalkCard(
                             ui = ui,
-                            countdownText = walkCountdown,
-                            progress = walkProgress,
-                            headingHome = walkHeadingHome,
+                            view = walkView,
                             onAction = onAction,
                             modifier = Modifier.padding(horizontal = Spacing.l, vertical = Spacing.s),
                         )
@@ -1192,6 +1137,8 @@ fun HomeScreen(
             } else {
                 DayCalendar(
                     blocks = state.blocks,
+                    calendarFit = state.calendarFit,
+                    pillLabels = state.pillLabels,
                     walkMarkers = state.walkMarkers,
                     currentBlockId = state.currentBlockId,
                     leakFromMin = state.leakFromMin,
@@ -1227,9 +1174,7 @@ fun HomeScreen(
             } else state.walkCard?.let { ui ->
                 WalkCard(
                     ui = ui,
-                    countdownText = walkCountdown,
-                    progress = walkProgress,
-                    headingHome = walkHeadingHome,
+                    view = walkView,
                     onAction = onAction,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -1380,37 +1325,6 @@ private fun MenuRow(icon: ImageVector, label: String, onClick: () -> Unit) {
  * makes Home stop asking, while Settings can still ask again later.
  */
 @Composable
-private fun StepPermissionCard(
-    onAllow: () -> Unit,
-    onDecline: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val c = AppTheme.colors
-    AppCard(modifier.fillMaxWidth().testTag("step_prompt")) {
-        Text("Count your steps?", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(Spacing.xs))
-        Text(
-            "The phone already counts them on a low-power chip; Blocks just reads the number. No extra battery.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = c.textSecondary,
-        )
-        Spacer(Modifier.height(Spacing.s))
-        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-            NowSecondaryButton(
-                button = NowButton(NowButtonId.WALK, "Not now", NowButtonStyle.SECONDARY),
-                onClick = onDecline,
-                modifier = Modifier.weight(1f),
-            )
-            NowPrimaryButton(
-                button = NowButton(NowButtonId.WALK, "Allow", NowButtonStyle.PRIMARY),
-                modifier = Modifier.weight(1f),
-                onClick = onAllow,
-            )
-        }
-    }
-}
-
-@Composable
 fun NowCard(
     ui: NowCardUi,
     countdownText: () -> String,
@@ -1522,24 +1436,23 @@ fun NowCard(
 @Composable
 fun WalkCard(
     ui: WalkCardUi,
-    countdownText: () -> String,
-    progress: () -> Float,
-    headingHome: () -> Boolean,
+    view: () -> WalkView?,
     onAction: (HomeAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     SideEffect { RecompositionCounter.hit("WalkCard") }
     val c = AppTheme.colors
     val accent = c.block(BlockType.Walk).accent
-    val home = headingHome()
+    val v = view()
+    val home = v?.phase == WalkPhase.HOME || v?.phase == WalkPhase.DONE
 
     AppCard(modifier.fillMaxWidth().testTag("walk_card")) {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(WalkRingSize), contentAlignment = Alignment.Center) {
-                    WalkRing(progress = progress, modifier = Modifier.fillMaxSize())
+                    WalkRing(progress = { v?.progress ?: 0f }, modifier = Modifier.fillMaxSize())
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CountdownText(countdownText, c.textPrimary)
+                        CountdownText({ v?.text ?: "" }, c.textPrimary)
                         Text(
                             if (home) "to home" else "to turn",
                             style = MaterialTheme.typography.labelSmall,
@@ -1569,7 +1482,7 @@ fun WalkCard(
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-                if (!home) {
+                if (v?.phase == WalkPhase.OUT) {
                     NowSecondaryButton(
                         button = NowButton(NowButtonId.WALK, "Turn back now", NowButtonStyle.SECONDARY),
                         onClick = { onAction(HomeAction.TurnBack) },

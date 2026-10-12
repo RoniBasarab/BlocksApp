@@ -19,7 +19,7 @@ Rules that hold everywhere:
 | path | what it does | talks to |
 | --- | --- | --- |
 | `App.kt` | Hilt application; warms the orchestrator and registers a `ProcessLifecycleOwner` foreground observer (2.2.0) | DayOrchestrator, Hilt |
-| `MainActivity.kt` | The single activity; hosts the Compose graph, asks for notification permission | AppNav, NotificationPort |
+| `MainActivity.kt` | The single activity; hosts the Compose graph; asks for notifications and physical-activity permission in one request at launch, then re-reads the day (2.6.0) | AppNav, NotificationPort, DayOrchestrator |
 | `navigation/AppNav.kt` | Serializable nav keys and the top-level graph | feature routes |
 | `app/src/main/res/layout/widget_now.xml` | The widget layout (`<ImageView>` accent — RemoteViews can't inflate a plain `<View>`) | R.layout.widget_now |
 
@@ -91,7 +91,7 @@ Rules that hold everywhere:
 | --- | --- | --- |
 | `core/schedule/AlertPlanner.kt` | The pure rules for when an alert fires (5-min warning, Pomodoro breaks/starts, nags until the user reacts); walk rings at half time and the end (2.3.0) | Model |
 | `core/schedule/PlanConversion.kt` | Converts `BlockSpec` to and from the editor's `PlanBlock`; preview and commit share it | Model, PlanEditor |
-| `core/schedule/PlanEditor.kt` | The pure rules for reshaping today's plan (add, resize, retype, insert); free time absorbs, work blocks push, kid time stays; `END_AND_TYPE` lets a running work block also become another work type (2.2.0); walks: `walkEnd`/`insertWalk`/`shortenWalk` (2.3.0) | Model |
+| `core/schedule/PlanEditor.kt` | The pure rules for reshaping today's plan (add, resize, retype, insert); free time absorbs, work blocks push, kid time stays; `END_AND_TYPE` lets a running work block also become another work type (2.2.0); walks: `walkEnd`/`insertWalk`/`shortenWalk` (2.3.0); `startEarly`/`nextStop` pick the very next block, no free-time skipping (2.6.0) | Model |
 | `core/schedule/RecordConversion.kt` | `toRecordRows`/`withRows`: day record ↔ editable rows for correcting a past day | Model, RecordEditor |
 | `core/schedule/RecordEditor.kt` | The pure rules for editing a past day's rows: `fixMode`, `apply` (SetEnd/Retype/MarkDone, `MIN_LENGTH`/`LAST_MINUTE` limits), `snap` | Model |
 | `core/schedule/ScheduleEngine.kt` | Resolves template + date into concrete blocks and segments; `nextWakeUp(anchor)` anchors the Pomodoro cursor on the open segment's actual start (2.2.0) | Model, Clock, TimeZone |
@@ -138,6 +138,12 @@ Rules that hold everywhere:
 | `core/time/Time.kt` | `LocalTime.at()` helpers and `TimeModule` | Clock, SystemTimeMapper |
 | `core/time/TimeFormatter.kt` | The one place time labels are formatted; watches the 12/24h toggle | PrefsStorage, DayState |
 
+## core/walk
+
+| path | what it does | talks to |
+| --- | --- | --- |
+| `core/walk/WalkClock.kt` | The only place walk time is computed (2.6.0): `view`/`turnSec`/`turnBackEnd`/`format` over epoch seconds | — |
+
 ## designsystem
 
 | path | what it does | talks to |
@@ -158,13 +164,14 @@ Rules that hold everywhere:
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `feature/home/Home.kt` | Home screen, `HomeViewModel` (publishes the calendar, the now/walk cards and previews plan edits), top bar, now-card dialogs, edit card; walk icon in top bar, standalone walk card support (2.4.0); the step card and top-bar step count, evening built from segments with Dishes/switch/skip (2.5.0) | DayOrchestrator, HistoryManager, TemplateManager, DebugTimeController |
-| `feature/home/HomeUi.kt` | `HomeState` and the calendar/block/now-card/walk UI models (`WalkCardUi.standalone`, `walkEnabled`) | Compose, designsystem |
+| `feature/home/Home.kt` | Home screen, `HomeViewModel` (publishes the calendar, the now/walk cards, `walkView`, `calendarFit`/`pillLabels`, and previews plan edits), top bar, now-card dialogs, edit card; walk icon in top bar, standalone walk card support (2.4.0); the top-bar step count, evening built from segments with Dishes/switch/skip (2.5.0) | DayOrchestrator, HistoryManager, TemplateManager, DebugTimeController |
+| `feature/home/HomeUi.kt` | `HomeState` and the calendar/block/now-card/walk UI models (`WalkCardUi.standalone`, `walkEnabled`, `calendarFit`, `pillLabels`) | Compose, designsystem |
 | `feature/home/HomeSheets.kt` | Bottom sheets: evening choice (dismissible, 2.5.0), walk start (`WalkSheet`, 2.3.0), template swap, the recap's `CorrectBlockSheet` | DayOrchestrator, TemplateManager |
 | `feature/home/NowCardDialogs.kt` | The now-card's dialog states and confirmations | DayOrchestrator |
 | `feature/home/DayRecap.kt` | A finished day as a readable recap: summary card (+ check-in card until it's answered), one row per block | designsystem, Compose |
 | `feature/home/CalendarMapper.kt` | Pure model→view mapping for the calendar; no clock, no context | DayCalendar |
-| `feature/home/DayCalendar.kt` | The Home calendar grid and its hour geometry | designsystem |
+| `feature/home/CalendarLayout.kt` | Pure geometry (2.6.0): `fit(blocks, ticks, dayStartMin)` returns each block's `TextFit`/sliver and the pill rows, so no text overlaps | — |
+| `feature/home/DayCalendar.kt` | The Home calendar grid; draws exactly what `CalendarLayout.fit` returns — slivers, block text, walk ticks and the pill rows (2.6.0) | designsystem, CalendarLayout |
 | `feature/history/History.kt` | History list and the day-detail recap, plus both ViewModels; day detail shows "Walks" section for standalone walks (2.4.0) and each day's steps (2.5.0) | HistoryManager, DayRecapMapper |
 | `feature/weekly/Weekly.kt` | Weekly screen: planned vs actual per type as bars, week navigation; the week's step total tile (2.5.0) | HistoryManager |
 | `feature/insights/Insights.kt` | Insights screen: last complete week vs the one before | HistoryManager |

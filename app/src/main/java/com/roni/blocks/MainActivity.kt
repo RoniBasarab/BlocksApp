@@ -1,6 +1,7 @@
 package com.roni.blocks
 
 import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -19,8 +20,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.logging.AppLogger
 import com.roni.blocks.designsystem.BlocksTheme
@@ -30,11 +33,16 @@ import com.roni.blocks.navigation.resolveStartDestination
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    private val notifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    private val permissions =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            // The steps only start once Android has answered; ask the orchestrator to re-read now.
+            lifecycleScope.launch { orchestrator.onAppForeground() }
+        }
 
     @Inject lateinit var orchestrator: DayOrchestrator
     @Inject lateinit var logger: AppLogger
@@ -50,7 +58,15 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
-        if (Build.VERSION.SDK_INT >= 33) notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+        val toRequest = buildList {
+            if (Build.VERSION.SDK_INT >= 33 && !granted(Manifest.permission.POST_NOTIFICATIONS)) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            if (Build.VERSION.SDK_INT >= 29 && !granted(Manifest.permission.ACTIVITY_RECOGNITION)) {
+                add(Manifest.permission.ACTIVITY_RECOGNITION)
+            }
+        }
+        if (toRequest.isNotEmpty()) permissions.launch(toRequest.toTypedArray())
         setContent {
             BlocksTheme {
                 val state by orchestrator.state.collectAsStateWithLifecycle()
@@ -83,4 +99,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val SPLASH_CAP_MS = 3_000L
     }
+
+    private fun granted(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.6.0
+- Fixed: the walk timer (it showed 29862554:24), Turn back, and the walk icon in the top bar.
+- The calendar never overlaps: very short blocks become a thin bar with a label pill ("CV · 1 min"), short walks a "Walked 3 min" pill, and block titles move out of their way.
+- Next goes to the very next block again; nothing is skipped or removed.
+- Permissions are asked at launch; the step card on Home is gone.
+
 ## 2.5.0
 - Steps: Blocks reads the phone's step counter (no extra battery) and shows today's steps on Home, each day's total in History, each walk's steps, and the week's total in Weekly.
 - Fixed: a second walk right after the first showed the old walk's times, and End walk started another walk.

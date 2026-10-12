@@ -7,17 +7,24 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -31,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
@@ -65,6 +73,7 @@ import com.roni.blocks.designsystem.AppType
 import com.roni.blocks.designsystem.BlockCorner
 import com.roni.blocks.designsystem.Metrics
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.launch
 
 const val DAY_START_MIN = 8 * 60
@@ -76,6 +85,8 @@ val TopInset = 8.dp
 @Composable
 fun DayCalendar(
     blocks: ImmutableList<CalendarBlockUi>,
+    calendarFit: CalendarFit,
+    pillLabels: Map<String, String>,
     walkMarkers: List<WalkMarkerUi>,
     currentBlockId: String?,
     leakFromMin: Int?,
@@ -91,9 +102,14 @@ fun DayCalendar(
 ) {
     SideEffect { RecompositionCounter.hit("DayCalendar") }
     val c = AppTheme.colors
-    val measurer = rememberTextMeasurer()
-    val labelStyle = MaterialTheme.typography.labelSmall.merge(AppType.numbers).copy(color = c.textSecondary)
     val gridHeight = TopInset + HourHeight * ((DAY_END_MIN - DAY_START_MIN) / 60f)
+
+    // [CalendarLayout] already decided where everything goes; draw exactly that. Short walks are
+    // ticks, so their blocks aren't in the fit and aren't drawn as blocks.
+    val fitById = calendarFit.blocks.associateBy { it.id }
+    val drawnBlocks = blocks.filter { it.id in fitById }.toPersistentList()
+    val walkAccent = Color(0xFF8FC7C9)
+    val accentFor = { id: String -> blocks.firstOrNull { it.id == id }?.let { c.block(it.type).accent } ?: walkAccent }
 
     Box(modifier.fillMaxWidth().verticalScroll(scrollState)) {
         Box(
@@ -103,7 +119,8 @@ fun DayCalendar(
         ) {
             HourGrid(hourLabels, Modifier.fillMaxWidth().height(gridHeight))
             BlocksLayout(
-                blocks = blocks,
+                blocks = drawnBlocks,
+                fitById = fitById,
                 currentBlockId = currentBlockId,
                 selectedBlockId = selectedBlockId,
                 draggingId = draggingId,
@@ -119,6 +136,13 @@ fun DayCalendar(
             )
             WalkMarkersOverlay(
                 markers = walkMarkers,
+                modifier = Modifier.fillMaxWidth().height(gridHeight),
+            )
+            PillRowsOverlay(
+                rows = calendarFit.rows,
+                labels = pillLabels,
+                accentFor = accentFor,
+                onBlockClick = onBlockClick,
                 modifier = Modifier.fillMaxWidth().height(gridHeight),
             )
         }
@@ -162,6 +186,7 @@ private fun HourGrid(hourLabels: ImmutableList<String>, modifier: Modifier = Mod
 @Composable
 private fun BlocksLayout(
     blocks: ImmutableList<CalendarBlockUi>,
+    fitById: Map<String, BlockFit>,
     currentBlockId: String?,
     selectedBlockId: String?,
     draggingId: String?,
@@ -200,6 +225,7 @@ private fun BlocksLayout(
                     key(block.id) {
                         CalendarBlock(
                             block = block,
+                            fit = fitById.getValue(block.id),
                             isCurrent = block.id == currentBlockId,
                             isSelected = block.id == selectedBlockId,
                             minuteOfDay = minuteOfDay,
@@ -234,7 +260,8 @@ private fun BlocksLayout(
             val b = blocks[i]
             val start = anim[b.id]?.first?.value ?: b.startMin.toFloat()
             val end = anim[b.id]?.second?.value ?: b.endMin.toFloat()
-            val h = ((end - start) * pxPerMin - 2 * gap).roundToInt().coerceAtLeast(0)
+            val minH = if (fitById.getValue(b.id).sliver) 3.dp.roundToPx() else 0
+            val h = ((end - start) * pxPerMin - 2 * gap).roundToInt().coerceAtLeast(minH)
             m.measure(Constraints.fixed(width, h)) to start
         }
         val handlePlaceables = measurables[1].map { it.measure(Constraints()) }
@@ -265,6 +292,7 @@ private fun BlocksLayout(
 @Composable
 private fun CalendarBlock(
     block: CalendarBlockUi,
+    fit: BlockFit,
     isCurrent: Boolean,
     isSelected: Boolean,
     minuteOfDay: () -> Int,
@@ -291,8 +319,13 @@ private fun CalendarBlock(
                 clip = true
                 spotShadowColor = palette.accent.copy(alpha = 0.35f)
             }
-            .drawBehind { drawRect(lerp(palette.container, lifted, emphasis)) }
+            .drawBehind {
+                // A sliver is just a thin accent bar; its name lives in a pill (2.6.0).
+                if (fit.sliver) drawRect(palette.accent.copy(alpha = 0.6f))
+                else drawRect(lerp(palette.container, lifted, emphasis))
+            }
             .drawWithContent {
+                if (fit.sliver) return@drawWithContent
                 drawContent()
                 if (block.phases.isNotEmpty()) {
                     val pxPerMin = size.height / (block.endMin - block.startMin)
@@ -320,7 +353,7 @@ private fun CalendarBlock(
                         drawText(layout, topLeft = Offset(x, y))
                     }
                 }
-                if (block.type == BlockType.Walk) {
+                if (block.type == BlockType.Walk && fit.fit == TextFit.TWO_LINES) {
                     val midY = size.height / 2f
                     drawLine(palette.accent.copy(alpha = 0.6f), Offset(0f, midY), Offset(size.width, midY), Metrics.hairline.toPx())
                     val layout = measurer.measure("turn", small.copy(color = palette.accent))
@@ -343,25 +376,29 @@ private fun CalendarBlock(
                     )
                 }
             }
-            .clickable { onClick(block.id) }
-            .padding(horizontal = Metrics.blockPadH, vertical = Metrics.blockPadV),
+            .clickable { onClick(block.id) },
     ) {
+        if (fit.sliver) return@BoxWithConstraints
+        // The text starts where CalendarLayout says (relative to this block's top), never below it.
+        val topDp = fit.textTopDp - (block.startMin - DAY_START_MIN) * CalendarLayout.DP_PER_MIN
         val timeStyle = MaterialTheme.typography.labelSmall.merge(AppType.numbers)
-        val blockHeight = maxHeight
-        if (blockHeight < Metrics.blockOneLineMax) {
-            Text(
-                "${block.title} · ${block.timeLabel}",
-                style = MaterialTheme.typography.labelLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        } else {
-            Column {
-                Text(block.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(block.timeLabel, style = timeStyle, color = palette.accent, maxLines = 1)
-                if (blockHeight >= Metrics.dayRow && block.subtitle != null) {
-                    Text(block.subtitle, style = MaterialTheme.typography.labelSmall, color = c.textSecondary, maxLines = 1)
+        Column(
+            Modifier
+                .padding(start = Metrics.blockPadH, end = Metrics.blockPadH, top = topDp.dp, bottom = Metrics.blockPadV),
+        ) {
+            when (fit.fit) {
+                TextFit.TWO_LINES -> {
+                    Text(block.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(block.timeLabel, style = timeStyle, color = palette.accent, maxLines = 1)
                 }
+                TextFit.ONE_LINE ->
+                    Text(
+                        "${block.title} · ${block.timeLabel}",
+                        style = MaterialTheme.typography.labelLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                TextFit.NONE -> Unit
             }
         }
     }
@@ -402,9 +439,7 @@ private fun LeakOverlay(leakFromMin: Int?, minuteOfDay: () -> Int, modifier: Mod
 @Composable
 private fun WalkMarkersOverlay(markers: List<WalkMarkerUi>, modifier: Modifier = Modifier) {
     if (markers.isEmpty()) return
-    val measurer = rememberTextMeasurer()
     val accent = Color(0xFF8FC7C9)
-    val style = MaterialTheme.typography.labelSmall.copy(color = accent)
     Spacer(
         modifier.drawBehind {
             val pxPerMin = HourHeight.toPx() / 60f
@@ -413,11 +448,63 @@ private fun WalkMarkersOverlay(markers: List<WalkMarkerUi>, modifier: Modifier =
             markers.forEach { marker ->
                 val y = TopInset.toPx() + (marker.startMin - DAY_START_MIN) * pxPerMin
                 drawLine(accent, Offset(left, y), Offset(right, y), 1.dp.toPx())
-                val t = measurer.measure(marker.label, style)
-                drawText(t, topLeft = Offset(left + Metrics.blockPadH.toPx(), y + 2.dp.toPx()))
             }
         },
     )
+}
+
+/** The pill rows [CalendarLayout] placed (2.6.0): each pill carries a sliver block's or a walk's name. */
+@Composable
+private fun PillRowsOverlay(
+    rows: List<PillRow>,
+    labels: Map<String, String>,
+    accentFor: (String) -> Color,
+    onBlockClick: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (rows.isEmpty()) return
+    val left = Gutter + Metrics.calendarGap + 8.dp
+    Box(modifier.zIndex(3f)) {
+        rows.forEach { row ->
+            Row(
+                modifier = Modifier.offset(x = left, y = TopInset + row.topDp.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                row.ids.forEach { id ->
+                    Pill(
+                        label = labels[id] ?: id,
+                        accent = accentFor(id),
+                        onClick = { onBlockClick(id) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Pill(label: String, accent: Color, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(percent = 50)
+    Row(
+        modifier = Modifier
+            .height(CalendarLayout.PILL_DP.dp)
+            .widthIn(max = 160.dp)
+            .clip(shape)
+            .background(AppTheme.colors.surface)
+            .border(1.dp, accent, shape)
+            .clickable { onClick() }
+            .padding(horizontal = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Box(Modifier.size(6.dp).background(accent, CircleShape))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall.copy(color = AppTheme.colors.textPrimary),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 @Composable
