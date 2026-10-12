@@ -64,7 +64,7 @@ fun ScreenScaffold(
             snackbarHost = { snackbarHost?.invoke() },
         ) { inner ->
             Box(Modifier.padding(inner)) {
-                content(inner)
+                content(PaddingValues(0.dp))
             }
         }
     }

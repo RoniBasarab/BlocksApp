@@ -208,6 +208,47 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun status_inTheEvening_countsDoneAndMissed() = runBlocking {
+        clock.now = LocalTime(22, 0).at(date, zone)
+        val debug = DebugClock(context).apply { setOffsetMinutes(0) }
+        val debugCtrl = DebugTimeController(
+            debug,
+            orchestrator,
+            AppLogger(context),
+            zone,
+        )
+        debugCtrl.setTo("22:00")
+        viewModel = HomeViewModel(
+            day = orchestrator,
+            templates = TemplateManager(context),
+            history = history,
+            ticker = Ticker(clock, zone),
+            clock = clock,
+            zone = zone,
+            prefs = prefs,
+            timeFormatter = TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)),
+            debugTime = debugCtrl,
+        )
+        orchestrator.send(DayEvent.StartDay(TemplateId.MON_THU))
+        withTimeout(5_000) { orchestrator.state.first { it == DayState.KidTime } }
+
+        viewModel.onAction(HomeAction.KidAsleep)
+        withTimeout(5_000) { orchestrator.state.first { it == DayState.Evening(0) } }
+
+        clock.now = LocalTime(22, 0).at(date, zone)
+        withTimeout(5_000) { viewModel.state.first { it.status == "0 done · 7 missed" } }
+        assertEquals("0 done · 7 missed", viewModel.state.value.status)
+    }
+
+    @Test
+    fun status_whileRunning_countsBlocksAhead() = runBlocking {
+        clock.now = LocalTime(10, 0).at(date, zone)
+        orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        withTimeout(5_000) { viewModel.state.first { it.currentBlockId == "sun_tue_wed.coding_am" } }
+        assertEquals("3 blocks left", viewModel.state.value.status)
+    }
+
+    @Test
     fun evening_showsTheEveningBlocks_notThePlan() = runBlocking {
         clock.now = LocalTime(21, 12).at(date, zone)
         orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))

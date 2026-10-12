@@ -3,6 +3,7 @@ package com.roni.blocks.feature.history
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -384,24 +386,50 @@ fun HistoryDetailRoute(date: String?, onBack: () -> Unit, viewModel: HistoryDeta
     ) { padding ->
         detail?.let { d ->
             Column(Modifier.fillMaxSize().padding(padding)) {
-                d.steps?.let { line ->
-                    Text(
-                        text = line,
-                        style = MaterialTheme.typography.titleMedium.merge(AppType.numbers),
-                        color = AppTheme.colors.textPrimary,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = Spacing.l, end = Spacing.l, top = Spacing.s),
-                    )
-                }
                 RecapList(
                     s = d.recap,
-                    bottomPadding = Spacing.l,
+                    bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + Spacing.l,
                     modifier = Modifier.weight(1f),
                     onRowTap = { correcting = it },
                     onCheckIn = viewModel::checkIn,
+                    header = if (d.steps != null || d.walks.isNotEmpty()) {
+                        {
+                            AppCard(Modifier.fillMaxWidth()) {
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
+                                    modifier = Modifier.padding(vertical = Spacing.s),
+                                ) {
+                                    d.steps?.let { line ->
+                                        Text(
+                                            text = line,
+                                            style = MaterialTheme.typography.titleMedium.merge(AppType.numbers),
+                                            color = AppTheme.colors.textPrimary,
+                                            modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.l),
+                                        )
+                                    }
+                                    d.walks.forEach { line ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.l),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(6.dp)
+                                                    .background(color = Color(0xFF8FC7C9), shape = CircleShape),
+                                            )
+                                            Text(
+                                                text = line,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = AppTheme.colors.textSecondary,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else null,
                 )
-                WalksSection(d.walks)
             }
         }
     }
@@ -412,21 +440,6 @@ fun HistoryDetailRoute(date: String?, onBack: () -> Unit, viewModel: HistoryDeta
             onEdit = viewModel::correct,
             onDismiss = { correcting = null },
         )
-    }
-}
-
-/** The "Walks" section of a day (2.4.0): one line per standalone walk; hidden when there are none. */
-@Composable
-private fun WalksSection(walks: List<String>) {
-    if (walks.isEmpty()) return
-    Column(
-        Modifier.fillMaxWidth().padding(start = Spacing.l, end = Spacing.l, bottom = Spacing.l),
-        verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
-    ) {
-        Text("Walks", style = MaterialTheme.typography.titleSmall, color = AppTheme.colors.textPrimary)
-        walks.forEach { line ->
-            Text(line, style = MaterialTheme.typography.bodyMedium, color = AppTheme.colors.textSecondary)
-        }
     }
 }
 
