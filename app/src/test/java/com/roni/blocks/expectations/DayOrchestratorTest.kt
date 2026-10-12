@@ -847,6 +847,41 @@ class DayOrchestratorTest {
         assertEquals(null, orchestrator.walkPreview(30))
     }
 
+    @Test
+    fun secondWalk_startsTheNewWalk() = runBlocking {
+        clock.now = LocalTime(10, 0, 5).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        awaitBlockIndex(1)
+
+        assertTrue(orchestrator.startWalk(30))
+        clock.now = LocalTime(10, 1, 0).at(date, zone)
+        assertTrue(orchestrator.turnBack())
+        clock.now = LocalTime(10, 2, 0).at(date, zone)
+        // End walk: the finished walk-600 is still in the plan before the new one.
+        orchestrator.handle(DayEvent.Next("walk-600"))
+        clock.now = LocalTime(10, 2, 30).at(date, zone)
+        assertTrue(orchestrator.startWalk(30))
+
+        val open = orchestrator.segments.value.last { it.actualEnd == null }
+        assertEquals(BlockType.Walk, open.type)
+        assertEquals("walk-602", open.blockId)
+        assertEquals(LocalTime(10, 32).at(date, zone), requireNotNull(open.plannedEnd))
+        val running = orchestrator.state.value as DayState.Running
+        val plan = requireNotNull(orchestrator.todayPlan.value)
+        assertEquals("walk-602", plan.blocks[running.blockIndex].id)
+    }
+
+    @Test
+    fun turnBack_afterFiveMinutes_takesFiveMinutesHome() = runBlocking {
+        clock.now = LocalTime(21, 0, 0).at(date, zone)
+        assertTrue(orchestrator.startWalk(30))
+
+        clock.now = LocalTime(21, 5, 0).at(date, zone)
+        assertTrue(orchestrator.turnBack())
+
+        assertEquals(LocalTime(21, 10).at(date, zone), requireNotNull(orchestrator.walkSession.value).end)
+    }
+
     private suspend fun awaitBlockIndex(expected: Int) {
         kotlinx.coroutines.withTimeout(5_000) {
             orchestrator.state.first { (it is DayState.Running) && (it.blockIndex == expected) }

@@ -378,8 +378,10 @@ class DayOrchestrator @Inject constructor(
             minutes,
             doneEarly = open?.kind == SegmentKind.SYNTHETIC_FREE,
         ) ?: return false
+        val walkIndex = edited.indexOfFirst {
+            it.type == BlockType.Walk && plan.blocks.none { old -> old.id == it.id }
+        }
         val blocks = edited.toBlockSpecs(plan.blocks)
-        val walkIndex = blocks.indexOfFirst { it.type == BlockType.Walk }
         val walk = blocks.getOrNull(walkIndex) ?: return false
         _todayPlan.value = plan.copy(blocks = blocks, edited = true)
         val closed = book.segments.map { if (it.actualEnd == null) it.copy(actualEnd = now) else it }

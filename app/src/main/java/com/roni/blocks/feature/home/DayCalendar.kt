@@ -76,6 +76,7 @@ val TopInset = 8.dp
 @Composable
 fun DayCalendar(
     blocks: ImmutableList<CalendarBlockUi>,
+    walkMarkers: List<WalkMarkerUi>,
     currentBlockId: String?,
     leakFromMin: Int?,
     hourLabels: ImmutableList<String>,
@@ -114,6 +115,10 @@ fun DayCalendar(
             LeakOverlay(
                 leakFromMin = leakFromMin,
                 minuteOfDay = minuteOfDay,
+                modifier = Modifier.fillMaxWidth().height(gridHeight),
+            )
+            WalkMarkersOverlay(
+                markers = walkMarkers,
                 modifier = Modifier.fillMaxWidth().height(gridHeight),
             )
         }
@@ -389,6 +394,27 @@ private fun LeakOverlay(leakFromMin: Int?, minuteOfDay: () -> Int, modifier: Mod
             if (bottom - top >= Metrics.leakLabelMin.toPx()) {
                 val t = measurer.measure("+${now - leakFromMin} min", style)
                 drawText(t, topLeft = Offset(right - t.size.width - Metrics.blockPadH.toPx(), bottom - t.size.height - Metrics.blockPadV.toPx()))
+            }
+        },
+    )
+}
+
+@Composable
+private fun WalkMarkersOverlay(markers: List<WalkMarkerUi>, modifier: Modifier = Modifier) {
+    if (markers.isEmpty()) return
+    val measurer = rememberTextMeasurer()
+    val accent = Color(0xFF8FC7C9)
+    val style = MaterialTheme.typography.labelSmall.copy(color = accent)
+    Spacer(
+        modifier.drawBehind {
+            val pxPerMin = HourHeight.toPx() / 60f
+            val left = (Gutter + Metrics.calendarGap).toPx()
+            val right = size.width - Metrics.calendarRight.toPx()
+            markers.forEach { marker ->
+                val y = TopInset.toPx() + (marker.startMin - DAY_START_MIN) * pxPerMin
+                drawLine(accent, Offset(left, y), Offset(right, y), 1.dp.toPx())
+                val t = measurer.measure(marker.label, style)
+                drawText(t, topLeft = Offset(left + Metrics.blockPadH.toPx(), y + 2.dp.toPx()))
             }
         },
     )

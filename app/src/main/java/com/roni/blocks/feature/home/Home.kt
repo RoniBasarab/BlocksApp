@@ -103,6 +103,7 @@ import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.Template
 import com.roni.blocks.core.model.TemplateId
+import com.roni.blocks.core.model.WalkLog
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
@@ -170,6 +171,8 @@ private val day: DayOrchestrator,
     val state: StateFlow<HomeState> = _state.asStateFlow()
     private var recap: DayRecapUi? = null
     private var endedRecord: DayRecord? = null
+    /** Today's standalone walks (2.5.0), the only walks_<date> log entries; drawn as markers. */
+    private var walkLogs: List<WalkLog> = emptyList()
 
     private val _suppressedConfirmations = MutableStateFlow<Set<NowButtonId>>(emptySet())
 
@@ -217,6 +220,11 @@ private val day: DayOrchestrator,
         combine(_state, minuteOfDay, secondOfDay) { s, minute, second -> walkProgressOf(s, minute, second) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0f)
 
+    /** Which way the walk goes right now (2.5.0): home once the turn-back second has passed. */
+    val walkHeadingHome: StateFlow<Boolean> =
+        combine(_state, minuteOfDay, secondOfDay) { s, minute, second -> walkHeadingHomeOf(s, minute, second) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     init {
         viewModelScope.launch {
             day.state.collect { state -> publish(state) }
@@ -225,6 +233,16 @@ private val day: DayOrchestrator,
             // The orchestrator sets the state before the segments, so a publish on the state alone
             // can miss a just-added evening segment.
             day.segments.collect { publish(day.state.value) }
+        }
+        viewModelScope.launch {
+            // Turn back and End walk only move the walk session, not the state or the segments.
+            day.walkSession.collect { publish(day.state.value) }
+        }
+        viewModelScope.launch {
+            history.observeWalks(clock.now().toLocalDateTime(zone).date).collect { logs ->
+                walkLogs = logs
+                publish(day.state.value)
+            }
         }
         viewModelScope.launch {
             history.observeDay(clock.now().toLocalDateTime(zone).date).collect { record ->
@@ -544,25 +562,38 @@ private val day: DayOrchestrator,
         // segment, or the standalone timer that leaves the day alone.
         val walkSession = day.walkSession.value
         val walkCard = if (walkSession != null) {
-            val start = walkSession.start
-            val end = walkSession.end
-            val turnBackMin = Instant.fromEpochSeconds(start.epochSeconds + (end.epochSeconds - start.epochSeconds) / 2).minuteOfDay(zone)
+            val startSec = walkSession.start.epochSeconds
+            val endSec = walkSession.end.epochSeconds
+            val turnSec = startSec + (endSec - startSec) / 2
+            val turnBackMin = Instant.fromEpochSeconds(turnSec).minuteOfDay(zone)
             val afterTitle = walk?.let { wb ->
                 blocks.firstOrNull { it.id == wb.blockId }?.let { walkBlock ->
                     daySpecs?.let { PlanEditor.nextStop(it.toPlanBlocks(), walkBlock.id)?.let { stop -> blocks.firstOrNull { b -> b.id == stop.id }?.title } }
                 }
             }
             WalkCardUi(
-                startMin = start.minuteOfDay(zone),
-                turnBackMin = turnBackMin,
-                endMin = end.minuteOfDay(zone),
-                headingHome = minute >= turnBackMin,
+                startSec = startSec,
+                turnSec = turnSec,
+                endSec = endSec,
                 turnBackAt = timeFormatter.label(turnBackMin),
-                homeAt = timeFormatter.label(end.minuteOfDay(zone)),
+                homeAt = timeFormatter.label(walkSession.end.minuteOfDay(zone)),
                 nextLabel = afterTitle,
                 standalone = walk == null,
             )
         } else null
+
+        // Short day-block walks aren't drawn as blocks; standalone walks never are. Both become a
+        // marker inside the block they happened in (2.5.0).
+        val shortWalks = segments.mapNotNull { seg ->
+            if (seg.type == BlockType.Walk && seg.kind == SegmentKind.PLANNED && seg.actualEnd != null) {
+                val mins = (seg.actualEnd - seg.actualStart).inWholeMinutes.toInt()
+                if (mins < PlanEditor.WALK_MIN) WalkMarkerUi(seg.actualStart.minuteOfDay(zone), "Walked $mins min") else null
+            } else null
+        }
+        val loggedWalks = walkLogs.map { log ->
+            WalkMarkerUi(log.start.minuteOfDay(zone), "Walked ${(log.end - log.start).inWholeMinutes} min")
+        }
+        val walkMarkers = (shortWalks + loggedWalks).sortedBy { it.startMin }.toPersistentList()
 
         if (dayState is DayState.Ended || dayState is DayState.Off || dayState is DayState.NotStarted) {
             preview = null
@@ -586,6 +617,7 @@ private val day: DayOrchestrator,
             recap = recap,
             nowCard = if (walkCard != null) null else nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel, doneEarly),
             walkCard = walkCard,
+            walkMarkers = walkMarkers,
             walkEnabled = day.walkPreview(PlanEditor.WALK_DEFAULT) != null,
             walkSheet = walkSheet,
             eveningChoicePending = dayState.isDishesSlot,
@@ -849,17 +881,22 @@ private val day: DayOrchestrator,
     /** mm:ss to the next ring: the turn-back while walking out, the end while walking home. */
     private fun walkCountdownText(s: HomeState, minute: Int, second: Int): String {
         val walk = s.walkCard ?: return ""
-        val nowSec = minute * 60 + second
-        val target = if (walk.headingHome) walk.endMin else walk.turnBackMin
-        val remaining = (target * 60 - nowSec).coerceAtLeast(0)
+        val nowSec = minute * 60L + second
+        val target = if (nowSec >= walk.turnSec) walk.endSec else walk.turnSec
+        val remaining = (target - nowSec).coerceAtLeast(0)
         return "%02d:%02d".format(remaining / 60, remaining % 60)
     }
 
     private fun walkProgressOf(s: HomeState, minute: Int, second: Int): Float {
         val walk = s.walkCard ?: return 0f
-        val span = (walk.endMin - walk.startMin).coerceAtLeast(1) * 60
-        val nowSec = minute * 60 + second
-        return ((nowSec - walk.startMin * 60).toFloat() / span).coerceIn(0f, 1f)
+        val span = (walk.endSec - walk.startSec).coerceAtLeast(1L)
+        val nowSec = minute * 60L + second
+        return ((nowSec - walk.startSec).toFloat() / span).coerceIn(0f, 1f)
+    }
+
+    private fun walkHeadingHomeOf(s: HomeState, minute: Int, second: Int): Boolean {
+        val walk = s.walkCard ?: return false
+        return minute * 60L + second >= walk.turnSec
     }
 }
 
@@ -893,6 +930,7 @@ fun HomeRoute(
     val progress by viewModel.progress.collectAsStateWithLifecycle()
     val walkCountdown by viewModel.walkCountdown.collectAsStateWithLifecycle()
     val walkProgress by viewModel.walkProgress.collectAsStateWithLifecycle()
+    val walkHeadingHome by viewModel.walkHeadingHome.collectAsStateWithLifecycle()
     val suppressed by viewModel.suppressedConfirmations.collectAsStateWithLifecycle()
     val minuteOfDay = { minute }
     val countdownText = { countdown }
@@ -920,6 +958,7 @@ fun HomeRoute(
             onCheckIn = viewModel::checkIn,
             walkCountdown = { walkCountdown },
             walkProgress = { walkProgress },
+            walkHeadingHome = { walkHeadingHome },
             onAction = { action ->
                 when (action) {
                     HomeAction.SwapTemplate -> onSwap()
@@ -967,6 +1006,7 @@ fun HomeScreen(
     onCheckIn: (CheckIn) -> Unit = {},
     walkCountdown: () -> String = { "" },
     walkProgress: () -> Float = { 0f },
+    walkHeadingHome: () -> Boolean = { false },
 ) {
     SideEffect { RecompositionCounter.hit("HomeScreen") }
     val scroll = rememberScrollState()
@@ -1011,6 +1051,7 @@ fun HomeScreen(
                             ui = ui,
                             countdownText = walkCountdown,
                             progress = walkProgress,
+                            headingHome = walkHeadingHome,
                             onAction = onAction,
                             modifier = Modifier.padding(horizontal = Spacing.l, vertical = Spacing.s),
                         )
@@ -1026,6 +1067,7 @@ fun HomeScreen(
             } else {
                 DayCalendar(
                     blocks = state.blocks,
+                    walkMarkers = state.walkMarkers,
                     currentBlockId = state.currentBlockId,
                     leakFromMin = state.leakFromMin,
                     hourLabels = state.hourLabels,
@@ -1062,6 +1104,7 @@ fun HomeScreen(
                     ui = ui,
                     countdownText = walkCountdown,
                     progress = walkProgress,
+                    headingHome = walkHeadingHome,
                     onAction = onAction,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -1313,12 +1356,14 @@ fun WalkCard(
     ui: WalkCardUi,
     countdownText: () -> String,
     progress: () -> Float,
+    headingHome: () -> Boolean,
     onAction: (HomeAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     SideEffect { RecompositionCounter.hit("WalkCard") }
     val c = AppTheme.colors
     val accent = c.block(BlockType.Walk).accent
+    val home = headingHome()
 
     AppCard(modifier.fillMaxWidth().testTag("walk_card")) {
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
@@ -1328,7 +1373,7 @@ fun WalkCard(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CountdownText(countdownText, c.textPrimary)
                         Text(
-                            if (ui.headingHome) "to home" else "to turn",
+                            if (home) "to home" else "to turn",
                             style = MaterialTheme.typography.labelSmall,
                             color = c.textSecondary,
                         )
@@ -1338,7 +1383,7 @@ fun WalkCard(
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Walk", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                        AppChip(if (ui.headingHome) "Heading home" else "Heading out", accent)
+                        AppChip(if (home) "Heading home" else "Heading out", accent)
                     }
                     Text(
                         "Turn back at ${ui.turnBackAt}",
@@ -1356,7 +1401,7 @@ fun WalkCard(
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-                if (!ui.headingHome) {
+                if (!home) {
                     NowSecondaryButton(
                         button = NowButton(NowButtonId.WALK, "Turn back now", NowButtonStyle.SECONDARY),
                         onClick = { onAction(HomeAction.TurnBack) },

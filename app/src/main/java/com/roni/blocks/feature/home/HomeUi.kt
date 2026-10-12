@@ -63,15 +63,21 @@ data class WalkSheetUi(
 /** The walk in progress (2.3.0): its timing, which way home, and what runs after it. */
 @Immutable
 data class WalkCardUi(
-    val startMin: Int,
-    val turnBackMin: Int,
-    val endMin: Int,
-    val headingHome: Boolean,
+    val startSec: Long,
+    val turnSec: Long,
+    val endSec: Long,
     val turnBackAt: String,
     val homeAt: String,
     val nextLabel: String?,
     /** A standalone walk (2.4.0): "End walk" closes it without touching the day. */
     val standalone: Boolean = false,
+)
+
+/** A walk too short to be a block (2.5.0): a line inside the block it happened in. */
+@Immutable
+data class WalkMarkerUi(
+    val startMin: Int,
+    val label: String,
 )
 
 @Immutable
@@ -88,6 +94,8 @@ data class HomeState(
     val recap: DayRecapUi? = null,
     val nowCard: NowCardUi? = null,
     val walkCard: WalkCardUi? = null,
+    /** Short walks (2.5.0): markers drawn inside the blocks they happened in. */
+    val walkMarkers: ImmutableList<WalkMarkerUi> = persistentListOf(),
     /** The top-bar walk icon is visible whenever a walk fits right now (2.4.0). */
     val walkEnabled: Boolean = false,
     val walkSheet: WalkSheetUi? = null,
