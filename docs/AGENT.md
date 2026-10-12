@@ -2,14 +2,14 @@
 
 Read this first, every session. The current task is named in the first paragraph.
 
-You're the working agent for Blocks, an Android app (Kotlin, Compose, Hilt) in this repo. Implement docs/Task-14.md (target 2.6.1) exactly, on a branch task14 from master. The owner's tokens are limited: be fast, decisive and brief.
+You're the working agent for Blocks, an Android app (Kotlin, Compose, Hilt) in this repo. Implement docs/Task-15.md (target 2.6.2) exactly, on a branch task15 from master. The owner's tokens are limited: be fast, decisive and brief.
 
 START
-1. One command: git branch --show-current ; git log --oneline master..task14 2>$null ; git status --short
-   - No task14 branch yet: git checkout -b task14, then the prep commit and Slice 1. On this first run the new docs/ files show as untracked or modified: that's expected, the prep commit takes them first.
-   - Commits named "task14 slice N" are finished slices; continue with the lowest one missing.
-   - Modified files mean a previous session stopped mid-slice: run that slice's tests; if green or a quick fix, finish and commit it; otherwise git stash push -m "partial" and redo the slice. Never stash before the "task14 prep" commit exists: the new docs would go with it.
-2. Read docs/Task-14.md once (it's short). Open docs/CODEMAP.md when you need to find a file; docs/NOTES.md only to look up an earlier decision. Don't read SUMMARY.md or the specs.
+1. One command: git branch --show-current ; git log --oneline master..task15 2>$null ; git status --short
+   - No task15 branch yet: git checkout -b task15, then the prep commit and Slice 1. On this first run the new docs/ files show as untracked or modified: that's expected, the prep commit takes them first.
+   - Commits named "task15 slice N" are finished slices; continue with the lowest one missing.
+   - Modified files mean a previous session stopped mid-slice: run that slice's tests; if green or a quick fix, finish and commit it; otherwise git stash push -m "partial" and redo the slice. Never stash before the "task15 prep" commit exists: the new docs would go with it.
+2. Read docs/Task-15.md once (it's short). Open docs/CODEMAP.md when you need to find a file; docs/NOTES.md only to look up an earlier decision. Don't read SUMMARY.md or the specs.
 
 FINDING THINGS: GREP FIRST
 - Search the repo with git grep -n "<name>" (add -- "*.kt" to narrow). It answers in a second; reading files to search, writing Python or PowerShell scripts to search, or searching the web is slower. Never do those for anything inside the repo.
@@ -42,7 +42,7 @@ EACH SLICE
 1. Read the slice. git grep what you'll change.
 2. Make all the slice's edits, code and its named tests, before building. Paste the task's code and adapt names; don't rewrite it.
 3. Build and test the slice; fix until exit=0. Then the full suite once: the same command without --tests.
-4. git add -A ; git commit -m "task14 slice N: <title>" 2>&1 | Select-Object -First 1
+4. git add -A ; git commit -m "task15 slice N: <title>" 2>&1 | Select-Object -First 1
 5. One line: "Slice N done: <hash>". Start the next slice at once.
 
 ALWAYS
@@ -54,4 +54,4 @@ ALWAYS
 - Real names win: if a name in the task doesn't exist, use the real one. Don't refactor beyond the slice.
 - If an edit mangles a file: git checkout -- <file>, then redo the edit.
 - Phone: only com.roni.blocks.debug. Never install over, clear, force-stop or uninstall com.roni.blocks.
-- Finish with Slice 3: final gate, merge task14 into master, tag v2.6.1, push, the short final report, then stop. Don't re-verify finished slices or close old todo lists by re-checking them; mark them done and end.
+- Finish with Slice 3: final gate, merge task15 into master, tag v2.6.2, push, the short final report, then stop. Don't re-verify finished slices or close old todo lists by re-checking them; mark them done and end.
