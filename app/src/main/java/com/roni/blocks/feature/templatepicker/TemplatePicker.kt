@@ -357,6 +357,7 @@ private fun RowScope.TemplateCard(card: PickerCard, index: Int, onClick: () -> U
             },
         shape = AppShapes.hero,
         containerColor = if (card.outlined) Color.Transparent else null,
+        elevated = !card.outlined,
         spotColor = if (card.suggested) colors.secondary else null,
         borderColor = when {
             card.suggested -> colors.secondary
