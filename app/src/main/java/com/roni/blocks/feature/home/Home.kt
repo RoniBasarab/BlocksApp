@@ -64,6 +64,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -194,6 +195,9 @@ private val day: DayOrchestrator,
 
     /** The block a just-finished insert should select, so its handles show. */
     private var insertedBlockId: String? = null
+
+    /** The calendar's real text heights (2.6.1); [HomeAction.TextMeasured] replaces it and re-publishes. */
+    private var textMetrics = TextMetrics()
 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 1)
 
@@ -370,6 +374,10 @@ private val day: DayOrchestrator,
             HomeAction.History,
             HomeAction.Settings,
             -> Unit
+            is HomeAction.TextMeasured -> {
+                textMetrics = action.metrics
+                publish(day.state.value)
+            }
         }
         if (action.affectsOverlays || action.affectsCalendar) publish(day.state.value)
     }
@@ -642,6 +650,7 @@ private val day: DayOrchestrator,
             blocks = blocks.filterNot { it.id in walkMarkerIds }.map { LayoutBlock(it.id, it.startMin, it.endMin) },
             ticks = walkMarkers.map { LayoutTick(it.id, it.startMin) },
             dayStartMin = DAY_START_MIN,
+            text = textMetrics,
         )
         val blockById = blocks.associateBy { it.id }
         val pillLabels = buildMap {
@@ -1082,6 +1091,24 @@ fun HomeScreen(
     SideEffect { RecompositionCounter.hit("HomeScreen") }
     val scroll = rememberScrollState()
     val density = LocalDensity.current
+    val measurer = rememberTextMeasurer()
+    // Measured once per font scale in the exact styles CalendarBlock draws (2.6.1): the layout fits
+    // against real text heights, so a bigger font makes shorter blocks use one line or a pill.
+    val labelLarge = MaterialTheme.typography.labelLarge
+    val titleSmall = MaterialTheme.typography.titleSmall
+    val timeStyle = MaterialTheme.typography.labelSmall.merge(AppType.numbers)
+    val textMetrics = remember(measurer, density, labelLarge, titleSmall, timeStyle) {
+        with(density) {
+            TextMetrics(
+                oneLineDp = measurer.measure("Ag · 00:00", labelLarge).size.height.toDp().value,
+                twoLinesDp = (measurer.measure("Ag", titleSmall).size.height + measurer.measure("00:00", timeStyle).size.height)
+                    .toDp().value,
+            )
+        }
+    }
+    LaunchedEffect(textMetrics) {
+        onAction(HomeAction.TextMeasured(textMetrics))
+    }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     val selected = state.blocks.firstOrNull { it.id == selectedId }?.takeIf { it.edit != BlockEdit.NONE }
     var correcting by remember { mutableStateOf<RecapRow?>(null) }
