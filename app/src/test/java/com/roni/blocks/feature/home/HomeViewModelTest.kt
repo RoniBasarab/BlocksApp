@@ -356,6 +356,26 @@ class HomeViewModelTest {
         job.cancel()
     }
 
+    @Test
+    fun oneMinuteBlock_isASliverWithAPill() = runBlocking {
+        clock.now = LocalTime(9, 0).at(date, zone)
+        orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        withTimeout(5_000) { viewModel.state.first { it.currentBlockId == "sun_tue_wed.cv" } }
+
+        clock.now = LocalTime(9, 1).at(date, zone)
+        viewModel.onAction(HomeAction.Next)                                    // Done early: the rest of CV becomes free
+        withTimeout(5_000) { viewModel.state.first { it.nowCard?.chip == "Done early" } }
+
+        viewModel.onAction(HomeAction.Next)                                    // the next block starts now, so CV is a minute
+
+        val state = withTimeout(5_000) {
+            viewModel.state.first { s -> s.calendarFit.blocks.any { it.id == "sun_tue_wed.cv" && it.sliver } }
+        }
+        assertTrue(state.calendarFit.blocks.first { it.id == "sun_tue_wed.cv" }.sliver)
+        assertEquals(listOf("sun_tue_wed.cv"), state.calendarFit.rows.single().ids)
+        assertEquals("CV · 1 min", state.pillLabels["sun_tue_wed.cv"])
+    }
+
     private suspend fun startDayInsideCoding() {
         orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
         awaitRunningOrPaused { it.blockIndex() == 1 }

@@ -640,21 +640,41 @@ private val day: DayOrchestrator,
             )
         } else null
 
-        // Short day-block walks aren't drawn as blocks; standalone walks never are. Both become a
-        // marker inside the block they happened in (2.5.0). Day-block walks are also in the walk log
-        // now, so a log entry matching a closed walk segment is skipped to avoid drawing it twice.
+        // Ticks are the walk markers (2.6.0): a day-block walk shorter than [PlanEditor.WALK_MIN] keeps
+        // its block id, a standalone walk gets `walk@<startMin>`. Day-block walks are also in the walk
+        // log now, so a log entry matching a closed walk segment is skipped to avoid drawing it twice.
         val shortWalks = segments.mapNotNull { seg ->
             if (seg.type == BlockType.Walk && seg.kind == SegmentKind.PLANNED && seg.actualEnd != null) {
                 val mins = (seg.actualEnd - seg.actualStart).inWholeMinutes.toInt()
-                if (mins < PlanEditor.WALK_MIN) WalkMarkerUi(seg.actualStart.minuteOfDay(zone), "Walked $mins min") else null
+                if (mins < PlanEditor.WALK_MIN) {
+                    val startMin = seg.actualStart.minuteOfDay(zone)
+                    WalkMarkerUi(seg.blockId ?: "walk@$startMin", startMin, "Walked $mins min")
+                } else null
             } else null
         }
         val loggedWalks = walkLogs
             .filter { log -> segments.none { it.type == BlockType.Walk && it.actualStart == log.start && it.actualEnd != null } }
             .map { log ->
-                WalkMarkerUi(log.start.minuteOfDay(zone), "Walked ${(log.end - log.start).inWholeMinutes} min")
+                val startMin = log.start.minuteOfDay(zone)
+                WalkMarkerUi("walk@$startMin", startMin, "Walk · ${(log.end - log.start).inWholeMinutes} min")
             }
         val walkMarkers = (shortWalks + loggedWalks).sortedBy { it.startMin }.toPersistentList()
+
+        // The fit sees only the blocks that are drawn as blocks: a short-walk block is a tick instead,
+        // so it hands its id to the tick and its geometry to the pill.
+        val walkMarkerIds = walkMarkers.mapTo(HashSet()) { it.id }
+        val calendarFit = CalendarLayout.fit(
+            blocks = blocks.filterNot { it.id in walkMarkerIds }.map { LayoutBlock(it.id, it.startMin, it.endMin) },
+            ticks = walkMarkers.map { LayoutTick(it.id, it.startMin) },
+            dayStartMin = DAY_START_MIN,
+        )
+        val blockById = blocks.associateBy { it.id }
+        val pillLabels = buildMap {
+            calendarFit.blocks.filter { it.sliver }.forEach { bf ->
+                blockById[bf.id]?.let { put(bf.id, "${it.title} · ${it.endMin - it.startMin} min") }
+            }
+            walkMarkers.forEach { put(it.id, it.label) }
+        }
 
         if (dayState is DayState.Ended || dayState is DayState.Off || dayState is DayState.NotStarted) {
             preview = null
@@ -689,6 +709,8 @@ private val day: DayOrchestrator,
             nowCard = if (walkCard != null) null else nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel, doneEarly),
             walkCard = walkCard,
             walkMarkers = walkMarkers,
+            calendarFit = calendarFit,
+            pillLabels = pillLabels,
             stepPrompt = stepPrompt(),
             walkEnabled = day.walkPreview(PlanEditor.WALK_DEFAULT) != null,
             walkSheet = walkSheet,
@@ -1158,6 +1180,8 @@ fun HomeScreen(
             } else {
                 DayCalendar(
                     blocks = state.blocks,
+                    calendarFit = state.calendarFit,
+                    pillLabels = state.pillLabels,
                     walkMarkers = state.walkMarkers,
                     currentBlockId = state.currentBlockId,
                     leakFromMin = state.leakFromMin,

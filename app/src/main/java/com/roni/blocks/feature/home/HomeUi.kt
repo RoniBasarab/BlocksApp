@@ -76,6 +76,8 @@ data class WalkCardUi(
 /** A walk too short to be a block (2.5.0): a line inside the block it happened in. */
 @Immutable
 data class WalkMarkerUi(
+    /** A short day-block walk keeps its block id; a standalone walk is `walk@<startMin>` (2.6.0). */
+    val id: String,
     val startMin: Int,
     val label: String,
 )
@@ -96,6 +98,10 @@ data class HomeState(
     val walkCard: WalkCardUi? = null,
     /** Short walks (2.5.0): markers drawn inside the blocks they happened in. */
     val walkMarkers: ImmutableList<WalkMarkerUi> = persistentListOf(),
+    /** Where every block and pill goes so nothing overlaps (2.6.0); [CalendarLayout] decides it. */
+    val calendarFit: CalendarFit = CalendarFit(emptyList(), emptyList()),
+    /** The pill text for each id in [CalendarFit.rows]: a sliver block, a short walk or a standalone walk. */
+    val pillLabels: Map<String, String> = emptyMap(),
     /** The step-counting prompt (2.5.0): shown above the calendar until allowed or declined once. */
     val stepPrompt: Boolean = false,
     /** The top-bar walk icon is visible whenever a walk fits right now (2.4.0). */
