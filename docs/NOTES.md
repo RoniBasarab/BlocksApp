@@ -16,36 +16,11 @@ NOTES.md crossed 20 KB, so the older Task-1..7 entries are condensed. Still-live
 - **Naming/doc facts**: `TimelineQueries.kt` is a file of `ScheduleEngine` extensions, not a class; there is no `InsightsManager` (it's `InsightsViewModel`); Settings copy stays as inline literals (deliberate deviation from Task-6 wording); `SettingsRow.enabled` gates the developer rows off in release; the emergency "Stop today" confirmation is always shown and only Pause supports "Don't ask again"; `NowButtonId.EMERGENCY` renders as its own centered `now_emergency` TextButton so Pause · Next stay equal-width 48dp; `TimeFormatter.label/hourGutter` are the single 12/24h source of truth; `BlockType.isWork` lives in `Model.kt`.
 - **Test count baseline**: Task-7 ended at 211 tests. Task-8 Slice 1 removed Roborazzi and the screenshot/layout-only tests.
 
-## Slice 3: weekly keeps its arrows
+## Task-8 (2.1.0), condensed
 
-- `WeeklyUiState.canGoPrevious` is `selected > earliest week of any stored day` (none stored → false); the previous arrow is disabled with it and `onPreviousWeek()` returns early. Empty-week body copy is "Use the arrows to see other weeks."
-
-## Slice 4: developer tools in one dialog
-
-- All six debug groups moved off the Settings list into one `DeveloperToolsDialog`, opened from a single "Developer tools" row.
-- `DebugTimeController.testDay(template, hhmm)` = `setTo(hhmm)` then `resetToday()` then `StartDay(template)`; returns false if the time is outside the kid-day window.
-- `formatShift` renders negatives with a real minus: `"−1h 30m"`, `"−10m"` (was `"-1h 30m"`).
-- Test: `DebugTimeControllerTest.testDay_startsTheTemplateAtTheChosenTime`. Full suite green.
-
-## Slice 5: add a block, and say why a block is locked
-
-- `TYPE_ONLY` edit card gained an "Add a block:" row with CV · Coding · Gym → `HomeAction.Insert(id, type)` → `orchestrator.editPlan(PlanEdit.Insert)`. After an insert, the new block is selected via `HomeState.selectId`. Locked taps route through `HomeAction.LockedBlockTapped(id)` → `lockedReason()` → `SharedFlow<String>` → `Toast`. Tests: `insertIntoFreeTime_selectsTheNewBlock`, `lockedTap_onAPastBlock_saysItsOver`, `lockedTap_onKidTime_saysKidTimeCannotMove`.
-
-## Slice 6: correct a past day
-
-- `DayFlag.CORRECTED` added; `HistoryManager.correctDay(date, edit, zone)` runs `RecordEditor.apply` (default `LAST_MINUTE` limit), writes the corrected record, rebuilds the week's aggregate. `RecapRow` carries `segmentIndex` and `fix` plus `endMin: Int?` for the sheet's stepper. `DayRecapMapper` takes a happened row's type from the segment so a "What did you do?" retype shows in the recap. Both recap screens own a `CorrectBlockSheet`; the ±5 stepper and type chips call `onEdit` immediately. Test: `CorrectDayTest.correctDay_marksAMissedBlockDone_andFlagsTheDay`. Full suite green.
-
-## Slice 7: evening check-in
-
-- `CheckIn.GOOD/OK/ROUGH/SKIPPED`; `DayRecord.checkIn: CheckIn? = null` (default keeps old records readable). `HistoryManager.setCheckIn` is read-copy-writeDay only — no week rebuild. The check-in card lives inside `RecapList` (`recap_checkin` tag) when the day isn't Off and hasn't answered; heading via a new `checkInTitle` param. Chips after answering: "Felt good" / "Felt OK" / "Felt rough"; `SKIPPED` shows nothing. Test: `CorrectDayTest.checkIn_isStoredOnTheDay`. Full suite green.
-
-## Slice 8: home-screen widget
-
-- `core/widget/BlocksWidget.kt`: `@AndroidEntryPoint` AppWidgetProvider (alarm-receiver shape: `goAsync` + `withTimeout(9_000)` + `ensureRestored()` + `orchestrator.refreshWidget()`).
-- `core/widget/WidgetUpdater.kt`: `@Singleton`, `@ApplicationContext` + `SystemTimeMapper`; ids fresh from `AppWidgetManager.getAppWidgetIds`; `null` shows the "Blocks / No day running" state; clock base = `elapsedRealtime() + (systemMillis(end) - now)` for debug-clock countdown.
-- `WidgetPort` interface injected into `DayOrchestrator` with a no-op default; bound in `NotificationModule`. `sideEffects()` and `flush()` paint the widget; new `refreshWidget()` computes the model the `sideEffects()` way.
-- Resources: `widget_now.xml`, `drawable/widget_bg.xml` (`#312F2C`, 16dp corners), `xml/widget_info.xml` (min 180×40dp, 3×1 cells, horizontal resize, updatePeriod 0, description @string), manifest receiver with `APPWIDGET_UPDATE` filter + provider meta-data (exported=false).
-- No named test (Android glue); full suite green.
+- Weekly: `canGoPrevious` = `selected > earliest stored week`; empty copy "Use the arrows to see other weeks." Developer tools: one `DeveloperToolsDialog`; `DebugTimeController.testDay(template, hhmm)` = `setTo` + `resetToday()` + `StartDay`.
+- Editing: `TYPE_ONLY` "Add a block:" (CV/Coding/Gym to `PlanEdit.Insert`, selected via `HomeState.selectId`); locked taps toast via `lockedReason()`. `DayFlag.CORRECTED`; `HistoryManager.correctDay` runs `RecordEditor.apply` (LAST_MINUTE) and rebuilds the week; recap screens own `CorrectBlockSheet`.
+- Evening check-in (`CheckIn`, `HistoryManager.setCheckIn`, card in `RecapList`); widget (`BlocksWidget` + `WidgetUpdater`, `WidgetPort` no-op default, accent an `<ImageView>`).
 
 ## Task-9 (2.2.0)
 
