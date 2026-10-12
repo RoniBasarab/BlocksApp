@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.6.2
+- After the day blocks, the top bar shows what happened ("3 done · 5 missed") instead of blocks left; "leak" now reads "ran over".
+- Fixed: the empty band under every screen title
+- History: a day's steps and walks are at the top
+
 ## 2.6.1
 - Short blocks never clip their text (it adapts to the phone's font size)
 - Fixed: the Off day card's stray shadow
