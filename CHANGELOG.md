@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.6.1
+- Short blocks never clip their text (it adapts to the phone's font size)
+- Fixed: the Off day card's stray shadow
+
 ## 2.6.0
 - Fixed: the walk timer (it showed 29862554:24), Turn back, and the walk icon in the top bar.
 - The calendar never overlaps: very short blocks become a thin bar with a label pill ("CV · 1 min"), short walks a "Walked 3 min" pill, and block titles move out of their way.

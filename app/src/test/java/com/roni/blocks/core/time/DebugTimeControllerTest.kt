@@ -71,6 +71,9 @@ class DebugTimeControllerTest {
 
     @Test
     fun evening_canBeReachedWithoutWaiting() = runBlocking {
+        // Start the day at 10:00 first, so the test passes at any real-world hour (it used to
+        // fail every final gate run after 22:30).
+        assertTrue("a morning time should be accepted", controller.setTo("10:00"))
         orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
 
         assertTrue("20:05 should be a time the clock accepts", controller.setTo("20:05"))
