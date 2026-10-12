@@ -77,6 +77,7 @@ fun AppCard(
     shape: Shape = AppShapes.card,
     containerColor: Color? = null,
     spotColor: Color? = null,
+    elevated: Boolean = true,
     onClick: (() -> Unit)? = null,
     interactionSource: MutableInteractionSource? = null,
     contentPadding: PaddingValues = PaddingValues(Spacing.l),
@@ -90,7 +91,13 @@ fun AppCard(
     CompositionLocalProvider(LocalContentColor provides appColors.textPrimary) {
         Column(
             modifier
-                .shadow(Metrics.shadowCard, shape, spotColor = spotColor?.copy(alpha = 0.4f) ?: Color.Black.copy(alpha = 0.6f))
+                .then(
+                    if (elevated) Modifier.shadow(
+                        Metrics.shadowCard,
+                        shape,
+                        spotColor = spotColor?.copy(alpha = 0.4f) ?: Color.Black.copy(alpha = 0.6f),
+                    ) else Modifier,
+                )
                 .clip(shape)
                 .background(containerColor ?: appColors.surface)
                 .then(border)

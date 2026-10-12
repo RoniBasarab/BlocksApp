@@ -384,7 +384,7 @@ private fun CalendarBlock(
         val timeStyle = MaterialTheme.typography.labelSmall.merge(AppType.numbers)
         Column(
             Modifier
-                .padding(start = Metrics.blockPadH, end = Metrics.blockPadH, top = topDp.dp, bottom = Metrics.blockPadV),
+                .padding(start = Metrics.blockPadH, end = Metrics.blockPadH, top = topDp.dp),
         ) {
             when (fit.fit) {
                 TextFit.TWO_LINES -> {

@@ -374,6 +374,23 @@ class HomeViewModelTest {
         assertEquals("CV · 1 min", state.pillLabels["sun_tue_wed.cv"])
     }
 
+    @Test
+    fun biggerFont_shortBlocksUseOneLine() = runBlocking {
+        clock.now = LocalTime(9, 0).at(date, zone)
+        orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        withTimeout(5_000) { viewModel.state.first { it.currentBlockId == "sun_tue_wed.cv" } }
+
+        // Real text is taller than the old constants: two lines would not fit a 30-minute block.
+        viewModel.onAction(HomeAction.TextMeasured(TextMetrics(22f, 44f)))
+
+        val state = withTimeout(5_000) {
+            viewModel.state.first { s ->
+                s.calendarFit.blocks.firstOrNull { it.id == "sun_tue_wed.cv" }?.fit == TextFit.ONE_LINE
+            }
+        }
+        assertEquals(TextFit.ONE_LINE, state.calendarFit.blocks.first { it.id == "sun_tue_wed.cv" }.fit)
+    }
+
     private suspend fun startDayInsideCoding() {
         orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
         awaitRunningOrPaused { it.blockIndex() == 1 }

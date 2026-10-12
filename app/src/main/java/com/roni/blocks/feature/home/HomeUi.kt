@@ -144,6 +144,8 @@ sealed interface HomeAction {
     data class Retype(val id: String, val type: BlockType) : HomeAction
     data class Insert(val id: String, val type: BlockType) : HomeAction
     data class LockedBlockTapped(val id: String) : HomeAction
+    /** The calendar's real text heights (2.6.1), measured per font scale and used for the layout. */
+    data class TextMeasured(val metrics: TextMetrics) : HomeAction
 
     val affectsOverlays: Boolean
         get() = this is ChooseEvening || this is PickEvening || this is DismissEveningSheet

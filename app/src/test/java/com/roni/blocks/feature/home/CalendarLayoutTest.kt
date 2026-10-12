@@ -20,7 +20,7 @@ class CalendarLayoutTest {
     fun ordinaryBlocks_keepTheirText() {
         val f = fit(normal)
         assertEquals(TextFit.TWO_LINES, f.of("coding_am").fit)
-        assertEquals(TextFit.TWO_LINES, f.of("cv").fit)
+        assertEquals(TextFit.ONE_LINE, f.of("cv").fit)                        // 30 min = 40 dp: 32 dp of room, two lines need 34
         assertEquals(TextFit.ONE_LINE, f.of("dishes").fit)                 // 20 minutes: "Dishes · 20:12" on one line
         assertTrue(f.rows.isEmpty())
     }
@@ -38,7 +38,7 @@ class CalendarLayoutTest {
     @Test
     fun aWalkInTheMiddleOfABlock_leavesItsTitleAlone() {
         val f = fit(normal, listOf(LayoutTick("walk", t(10, 30))))
-        assertEquals((t(9, 30) - dayStart) * CalendarLayout.DP_PER_MIN + CalendarLayout.PAD_DP, f.of("coding_am").textTopDp)
+        assertEquals((t(9, 30) - dayStart) * CalendarLayout.DP_PER_MIN + CalendarLayout.GAP_DP + CalendarLayout.PAD_DP, f.of("coding_am").textTopDp)
         assertEquals(TextFit.TWO_LINES, f.of("coding_am").fit)
     }
 
@@ -58,6 +58,24 @@ class CalendarLayoutTest {
     }
 
     @Test
+    fun biggerSystemFont_aThirtyMinuteBlockFallsBackToOneLine_neverClipped() {
+        // Roni's phone (12 Oct): "CV 09:00–09:30" was cut because two real lines are taller than 34 dp
+        val big = TextMetrics(oneLineDp = 22f, twoLinesDp = 44f)
+        val f = CalendarLayout.fit(normal, emptyList(), dayStart, big)
+        assertEquals(TextFit.ONE_LINE, f.of("cv").fit)                         // 40 dp block: 32 dp of room
+        assertEquals(TextFit.TWO_LINES, f.of("coding_am").fit)
+        assertTrue(f.of("dishes").let { it.fit == TextFit.ONE_LINE || it.sliver })
+    }
+
+    @Test
+    fun aBlockTooShortForOneLine_isPilled_neverTextless() {
+        val big = TextMetrics(oneLineDp = 22f, twoLinesDp = 44f)
+        val f = CalendarLayout.fit(listOf(LayoutBlock("free", t(11, 30), t(11, 50)), LayoutBlock("gym", t(11, 50), t(14, 0))), emptyList(), dayStart, big)
+        assertTrue(f.of("free").sliver)                                        // 20 min = 26.7 dp, 18.7 dp of room < 22
+        assertEquals(listOf("free"), f.rows.single().ids)
+    }
+
+    @Test
     fun aShortBlockSqueezedByPills_dropsToOneLineOrNone_neverOverlaps() {
         val blocks = listOf(LayoutBlock("dishes", t(20, 12), t(20, 32)), LayoutBlock("read", t(20, 32), t(22, 30)))
         val f = fit(blocks, listOf(LayoutTick("walk", t(20, 14))))
@@ -65,7 +83,7 @@ class CalendarLayoutTest {
         val row = f.rows.single()
         when (d.fit) {
             TextFit.NONE -> Unit
-            else -> assertTrue(d.textTopDp >= row.topDp + CalendarLayout.PILL_DP || d.textTopDp + CalendarLayout.ONE_LINE_DP <= row.topDp)
+            else -> assertTrue(d.textTopDp >= row.topDp + CalendarLayout.PILL_DP || d.textTopDp + TextMetrics().oneLineDp <= row.topDp)
         }
     }
 
@@ -81,15 +99,17 @@ class CalendarLayoutTest {
                 blocks += LayoutBlock("b${n++}", m, m + len); m += len
             }
             val ticks = List(rnd.nextInt(6)) { LayoutTick("t$it", t(9, 0) + rnd.nextInt(780)) }
-            val f = fit(blocks, ticks)
+            val tm = TextMetrics(oneLineDp = 14f + rnd.nextInt(12), twoLinesDp = 30f + rnd.nextInt(20))
+            val f = CalendarLayout.fit(blocks, ticks, dayStart, tm)
             f.rows.zipWithNext().forEach { (a, b) -> assertTrue(b.topDp >= a.topDp + CalendarLayout.PILL_DP) }
             assertTrue(f.rows.all { it.ids.size <= CalendarLayout.MAX_PER_ROW })
-            assertEquals(blocks.count { (it.endMin - it.startMin) * CalendarLayout.DP_PER_MIN < CalendarLayout.SLIVER_DP } + ticks.size, f.rows.sumOf { it.ids.size })
+            assertEquals(f.blocks.count { it.sliver } + ticks.size, f.rows.sumOf { it.ids.size })
+            assertTrue(f.blocks.none { !it.sliver && it.fit == TextFit.NONE })
             f.blocks.filter { !it.sliver && it.fit != TextFit.NONE }.forEach { b ->
                 val blk = blocks.first { it.id == b.id }
                 val bottom = (blk.endMin - dayStart) * CalendarLayout.DP_PER_MIN
-                val textBottom = b.textTopDp + if (b.fit == TextFit.TWO_LINES) CalendarLayout.TWO_LINES_DP else CalendarLayout.ONE_LINE_DP
-                assertTrue("text inside its block", textBottom <= bottom + 0.01f)
+                val textBottom = b.textTopDp + if (b.fit == TextFit.TWO_LINES) tm.twoLinesDp else tm.oneLineDp
+                assertTrue("text inside its block", textBottom <= bottom - CalendarLayout.GAP_DP - CalendarLayout.PAD_DP + 0.01f)
                 f.rows.forEach { r -> assertTrue("text vs pill ${b.id}", textBottom <= r.topDp + 0.01f || b.textTopDp >= r.topDp + CalendarLayout.PILL_DP - 0.01f) }
             }
         }
