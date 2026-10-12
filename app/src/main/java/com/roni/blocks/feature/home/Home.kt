@@ -683,7 +683,14 @@ private val day: DayOrchestrator,
             title = day.todayPlan.value?.templateId?.let { templateDisplay(it).title }
                 ?: endedRecord?.template?.let { templateDisplay(it).title }
                 ?: id?.let { templateDisplay(it).title }.orEmpty(),
-            status = if (emergencyEnded) "Stopped early (emergency)" else status(blocks, index, leaking, effectiveEndMin, minute),
+            status = statusLine(
+                dayState = dayState,
+                blocks = blocks,
+                index = index,
+                ranOverMin = if (leaking) minute - (effectiveEndMin ?: minute) else null,
+                emergency = emergencyEnded,
+                nowMin = minute,
+            ),
             debugClock = debugClockLabel(minute),
             hourLabels = CalendarMapper.hourLabels(DAY_START_MIN, DAY_END_MIN, timeFormatter.use24.value).toPersistentList(),
             blocks = blocks,
@@ -759,17 +766,37 @@ private val day: DayOrchestrator,
         else -> -1
     }
 
-    private fun status(
+    /** The line under the day's title (2.6.2). */
+    private fun statusLine(
+        dayState: DayState,
         blocks: List<CalendarBlockUi>,
         index: Int,
-        leaking: Boolean,
-        effectiveEndMin: Int?,
-        minute: Int,
+        ranOverMin: Int?,
+        emergency: Boolean,
+        nowMin: Int,
     ): String {
-        if (blocks.isEmpty()) return if (index < 0) "Pick a template" else ""
-        val left = (blocks.size - index - 1).coerceAtLeast(0)
-        val leak = if (leaking && effectiveEndMin != null) " · leak ${minute - effectiveEndMin} min" else ""
-        return "$left blocks left$leak"
+        if (emergency) return "Stopped early (emergency)"
+        if (dayState == DayState.Off) return "Off day"
+        if (dayState == DayState.NotStarted || blocks.isEmpty()) return "Pick a template"
+        val dayBlocks = blocks.filter { it.type.isWork || it.type == BlockType.Free }
+        val running = dayState is DayState.Running || dayState is DayState.Paused
+        val ahead = if (running) {
+            dayBlocks.count { it.startMin > (blocks.getOrNull(index)?.startMin ?: nowMin) }
+        } else {
+            dayBlocks.count { it.startMin >= nowMin } // Fri/Sat: kid time first, day blocks after
+        }
+        if (running || ahead > 0) {
+            val left = if (ahead == 0) "Last block" else "$ahead ${if (ahead == 1) "block" else "blocks"} left"
+            return if (ranOverMin != null && ranOverMin > 0) "$left · ran over $ranOverMin min" else left
+        }
+        val rows = DayRecapMapper.map(
+            if (endedRecord != null) endedRecord!! else day.liveRecord(),
+            timeFormatter.use24.value,
+        ).rows
+            .filter { r -> r.type?.let { it.isWork || it == BlockType.Free } == true }
+        val missed = rows.count { it.missed }
+        val done = rows.size - missed
+        return if (rows.isEmpty()) "Day done" else "$done done · $missed missed"
     }
 
     private fun nowCard(
