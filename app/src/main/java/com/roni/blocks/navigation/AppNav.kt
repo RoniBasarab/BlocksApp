@@ -7,6 +7,7 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.roni.blocks.core.daystate.DayState
+import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.designsystem.Motion
 import com.roni.blocks.feature.history.HistoryDetailRoute
 import com.roni.blocks.feature.history.HistoryRoute
@@ -14,6 +15,7 @@ import com.roni.blocks.feature.home.HomeRoute
 import com.roni.blocks.feature.insights.InsightsRoute
 import com.roni.blocks.feature.settings.SettingsRoute
 import com.roni.blocks.feature.templatepicker.TemplatePickerRoute
+import com.roni.blocks.feature.templates.TemplateEditorRoute
 import com.roni.blocks.feature.templates.TemplatesRoute
 import com.roni.blocks.feature.weekly.WeeklyRoute
 import kotlinx.serialization.Serializable
@@ -26,6 +28,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object HistoryKey : NavKey
 @Serializable data object SettingsKey : NavKey
 @Serializable data class HistoryDayKey(val date: String) : NavKey
+@Serializable data class TemplateEditorKey(val key: String) : NavKey
 
 enum class StartDestination { TEMPLATE_PICKER, HOME }
 
@@ -78,9 +81,12 @@ fun AppRoot(start: StartDestination, modifier: Modifier = Modifier) {
                 TemplatesRoute(
                     onTab = ::openTab,
                     onMenu = { backStack.add(it) },
-                    onOpenTemplate = {},
+                    onOpenTemplate = { backStack.add(TemplateEditorKey(it.key)) },
                     onNewTemplate = {},
                 )
+            }
+            entry<TemplateEditorKey> { key ->
+                TemplateEditorRoute(id = TemplateId(key.key), onBack = { backStack.removeAt(backStack.lastIndex) })
             }
             entry<HistoryKey> { HistoryRoute(onBack = { backStack.removeAt(backStack.lastIndex) }, onDay = { backStack.add(HistoryDayKey(it)) }) }
             entry<HistoryDayKey> { key -> HistoryDetailRoute(date = key.date, onBack = { backStack.removeAt(backStack.lastIndex) }) }
