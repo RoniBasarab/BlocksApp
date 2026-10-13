@@ -118,7 +118,7 @@ Rules that hold everywhere:
 | `core/storage/PrefsStorage.kt` | SharedPreferences wrapper split into DAY / SETTINGS / HISTORY files | android.content.SharedPreferences |
 | `core/storage/Actions.kt` | The two use cases the Templates screens write through (3.1.0): `TemplateActions` (create/save/delete/setWeekdays; a save tells a waiting day) and `CategoryActions` (update/add/delete, rewriting using blocks) | TemplateStore, CategoryStore, DayOrchestrator |
 | `core/storage/CategoryStore.kt` | Loads/saves `CategorySet` from prefs and sets `Categories.current` (3.0.0); `update`/`add`/`delete` with `CategoryResult`, built-ins never deleted (3.1.0) | PrefsStorage, Categories |
-| `core/storage/TemplateStore.kt` | The stored templates and the one profile; seeds from assets, validates on load, `all`/`get`/`suggestedFor` (3.0.0); `find`/`isBuiltIn`, the writes (`create`/`save`/`delete`/`setWeekdays`/`replaceCategory`), broken own templates archived not crashing (3.1.0) | PrefsStorage, assets, TemplateRules, TemplateEditor |
+| `core/storage/TemplateStore.kt` | The stored templates and the one profile; seeds from assets, validates on load, `all`/`get`/`suggestedFor` (3.0.0); `find`/`isBuiltIn`, the writes (`create`/`save`/`delete`/`setWeekdays`/`replaceCategory`), broken own templates archived not crashing (3.1.0); `templates` StateFlow republished on every write and load (3.1.1) | PrefsStorage, assets, TemplateRules, TemplateEditor |
 | `core/storage/TemplateManager.kt` | A thin façade over `TemplateStore`, so `get`/`all` keep their call sites (3.0.0) | TemplateStore |
 
 ## core/widget
@@ -182,9 +182,9 @@ Rules that hold everywhere:
 | `feature/history/History.kt` | History list and the day-detail recap, plus both ViewModels; day detail shows "Walks" section for standalone walks (2.4.0) and each day's steps (2.5.0) | HistoryManager, DayRecapMapper |
 | `feature/weekly/Weekly.kt` | Weekly screen: planned vs actual per type as bars, week navigation; the week's step total tile (2.5.0) | HistoryManager |
 | `feature/insights/Insights.kt` | Insights screen: last complete week vs the one before | HistoryManager |
-| `feature/templatepicker/TemplatePicker.kt` | Template picker with a live preview of the rest of today | DayOrchestrator, TemplateStore |
+| `feature/templatepicker/TemplatePicker.kt` | Template picker with a live preview of the rest of today; a scrolling `LazyVerticalGrid` of cards, effects via `PickerEffect.Started` (3.1.1) | DayOrchestrator, TemplateStore |
 | `feature/templates/TemplatesScreen.kt` | The 3.1.0 Templates tab: the scaffold (top bar with History/Settings, bottom bar) and the section list | TemplateSection, CategorySection |
-| `feature/templates/TemplateSection.kt` | `TemplateListViewModel` + the templates section: one card per stored template, tap opens the editor, New/delete weekdays (3.1.0) | TemplateStore, TemplateActions |
+| `feature/templates/TemplateSection.kt` | `TemplateListViewModel` (@HiltViewModel) + the templates section: follows `TemplateStore.templates`, one card per stored template, tap opens the editor, New via `TemplateActions` (3.1.1) | TemplateStore, TemplateActions |
 | `feature/templates/TemplateEditorScreen.kt` | The template editor: the block list and preview strip; every accepted edit saved through `TemplateActions`, built-ins read-only (3.1.0) | TemplateEditor, TemplateActions, TemplateStore |
 | `feature/templates/BlockSheet.kt` | The block sheet: category, start, length, Delete/Save, with the editor's live result line (3.1.0) | TemplateEditor |
 | `feature/templates/CategorySection.kt` | `CategoryListViewModel` + the categories section: rows (built-ins, then yours) and the sheet that edits one (3.1.0) | CategoryStore, CategoryActions |

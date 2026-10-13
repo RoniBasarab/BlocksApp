@@ -144,3 +144,9 @@ stale — the title should become `Coding ran over` with the `Next: Free` action
 - [ ] Settings -> Developer -> Load demo data (4 weeks).
 - [ ] Open History, Weekly and Insights: non-empty, rendered from the seeded days.
 - [ ] Clear demo data: the past days disappear again.
+
+## Check on the phone (3.1.1)
+- [ ] Five or more templates: the picker scrolls; Off day sits in the grid, nothing overlaps.
+- [ ] Templates tab: open a template, rename it, change a day, back -> the card shows the new name and days at once.
+- [ ] Delete a template, back -> its card is gone.
+- [ ] + New template -> name -> Create opens the editor.

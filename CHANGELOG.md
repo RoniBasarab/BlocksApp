@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.1.1
+- The template picker scrolls: any number of templates fits, nothing overlaps.
+- The Templates list updates as soon as you come back from the editor.
+
 ## 3.1.0
 - A Templates tab: your templates and categories in one place.
 - Make your own templates from blank: add blocks, set their start and length; later blocks move along, and kid time at the end gets shorter.
