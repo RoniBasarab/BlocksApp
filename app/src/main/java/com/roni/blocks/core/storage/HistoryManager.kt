@@ -25,6 +25,7 @@ import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.minus
+import kotlinx.datetime.plus
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
@@ -77,6 +78,17 @@ class HistoryManager @Inject constructor(
     /** The standalone walks logged on [date], oldest first. */
     suspend fun walks(date: LocalDate): List<WalkLog> =
         prefs.read(PrefsFile.HISTORY, walkKey(date), ListSerializer(WalkLog.serializer())) ?: emptyList()
+
+    /** Every date in [from]..[toInclusive] with its walks, so a week can sum them in one read. */
+    suspend fun walksBetween(from: LocalDate, toInclusive: LocalDate): Map<LocalDate, List<WalkLog>> {
+        val result = linkedMapOf<LocalDate, List<WalkLog>>()
+        var cursor = from
+        while (cursor <= toInclusive) {
+            result[cursor] = walks(cursor)
+            cursor = cursor.plus(1, DateTimeUnit.DAY)
+        }
+        return result
+    }
 
     /** Re-reads [date]'s walks after every write, like [observeDay]. */
     fun observeWalks(date: LocalDate): Flow<List<WalkLog>> =

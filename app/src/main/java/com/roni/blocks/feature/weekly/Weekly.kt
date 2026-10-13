@@ -47,6 +47,7 @@ import androidx.navigation3.runtime.NavKey
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.SegmentKind
+import com.roni.blocks.core.model.WalkLog
 import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.TemplateManager
@@ -82,6 +83,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.plus
 import kotlinx.datetime.toLocalDateTime
@@ -175,7 +177,11 @@ class WeeklyViewModel @Inject constructor(
             plannedSummary = plannedSummary(days),
             missedSummary = missedSummary(days),
             rows = planRows(days),
-            stats = stats(days, days.mapNotNull { history.steps(it.date) }),
+            stats = stats(
+                days,
+                days.mapNotNull { history.steps(it.date) },
+                history.walksBetween(selected, selected.plus(6, DateTimeUnit.DAY)),
+            ),
         )
     }
 
@@ -289,6 +295,7 @@ class WeeklyViewModel @Inject constructor(
     private fun stats(
         days: List<com.roni.blocks.core.model.DayRecord>,
         stepTotals: List<Long>,
+        walks: Map<LocalDate, List<WalkLog>>,
     ): List<WeeklyStat> {
         val leak = days.sumOf { debtMinutes(it.segments) }
         val gymPlanned = days.sumOf { day -> day.segments.count { it.type == BlockType.Gym && it.kind == SegmentKind.PLANNED && it.plannedStart != null } }
@@ -305,8 +312,28 @@ class WeeklyViewModel @Inject constructor(
             "≈ ${formatStepsApprox(total)}",
             "About ${formatStepsApprox(total / stepTotals.size)} a day",
         )
+        val allWalks = walks.values.flatten()
+        val walkMinutes = allWalks.sumOf { (it.end - it.start).inWholeMinutes.toInt() }
+        val walksTile = if (allWalks.isEmpty()) {
+            WeeklyStat("Walks", "0", "No walks this week")
+        } else {
+            val noun = if (allWalks.size == 1) "walk" else "walks"
+            WeeklyStat("Walks", "${allWalks.size} $noun · ${formatHm(walkMinutes)}", "Day and evening walks together")
+        }
+        val walkSteps = allWalks.mapNotNull { it.steps }.sum()
+        val fromWalks = if (stepTotals.isNotEmpty() && allWalks.any { it.steps != null }) {
+            WeeklyStat(
+                "Steps from walks",
+                "≈ ${formatStepsApprox(walkSteps)}",
+                "About ${formatStepsApprox(walkSteps)} of your steps came from walks",
+            )
+        } else {
+            null
+        }
         return listOfNotNull(
             steps,
+            walksTile,
+            fromWalks,
             WeeklyStat("Ran over", formatHm(leak), "Time past block ends"),
             WeeklyStat("Gym sessions", "${gymDone.coerceAtLeast(0)} / $gymPlanned", "Done of planned"),
             WeeklyStat("Off days", days.count { DayFlag.OFF_DAY in it.flags }.toString(), "Days with no schedule"),

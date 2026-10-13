@@ -9,6 +9,7 @@ import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
+import com.roni.blocks.core.model.WalkLog
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
@@ -26,6 +27,7 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.minus
+import kotlinx.datetime.plus
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -257,6 +259,38 @@ class WeeklyViewModelTest {
         assertEquals(expected, hmToMinutes(row.planned))
     }
 
+    @Test
+    fun walks_countAndTime() = runBlocking {
+        seedDay(today, workedMin = 60, plannedMin = 100)
+        seedDay(friday, workedMin = 60, plannedMin = 100)
+        walk(today, 25)
+        walk(today.plus(1, DateTimeUnit.DAY), 40)
+        walk(today.plus(2, DateTimeUnit.DAY), 65)
+        walk(friday, 30)
+
+        val viewModel = build()
+
+        val walks = viewModel.state.value.stats.first { it.label == "Walks" }
+        assertEquals("3 walks · 2h 10m", walks.value)
+        assertEquals("Day and evening walks together", walks.hint)
+    }
+
+    @Test
+    fun stepsFromWalks_onlyWithWalkSteps() = runBlocking {
+        seedDay(today, workedMin = 60, plannedMin = 100)
+        history.setSteps(today, 8000)
+        walk(today, 25)
+
+        val withoutSteps = build()
+        assertTrue(withoutSteps.state.value.stats.none { it.label == "Steps from walks" })
+
+        walk(today, 30, steps = 2047L)
+        val withSteps = build()
+        val tile = withSteps.state.value.stats.first { it.label == "Steps from walks" }
+        assertEquals("≈ 2,050", tile.value)
+        assertTrue(tile.hint.contains("About 2,050 of your steps came from walks"))
+    }
+
     private fun hmToMinutes(text: String): Int {
         val hours = Regex("(\\d+)h").find(text)?.groupValues?.get(1)?.toInt() ?: 0
         val minutes = Regex("(\\d+)m").find(text)?.groupValues?.get(1)?.toInt() ?: 0
@@ -285,5 +319,10 @@ class WeeklyViewModelTest {
                 ),
             ),
         )
+    }
+
+    private suspend fun walk(date: LocalDate, minutes: Int, steps: Long? = null) {
+        val start = LocalTime(9, 0).at(date, zone)
+        history.addWalk(date, WalkLog(start = start, end = start + minutes.minutes, steps = steps))
     }
 }
