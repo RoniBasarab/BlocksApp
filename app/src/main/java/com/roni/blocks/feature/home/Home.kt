@@ -126,7 +126,7 @@ import com.roni.blocks.designsystem.AppType
 import com.roni.blocks.designsystem.Metrics
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.Spacing
-import com.roni.blocks.designsystem.formatSteps
+import com.roni.blocks.designsystem.formatStepsApprox
 import com.roni.blocks.designsystem.templateDisplay
 import com.roni.blocks.feature.weekly.tabKey
 import com.roni.blocks.navigation.HistoryKey
@@ -231,7 +231,7 @@ private val day: DayOrchestrator,
 
     /** "5,240 steps" for the top bar (2.5.0): the saved total plus the live reading; never written. */
     val stepsLabel: StateFlow<String?> =
-        combine(day.todaySteps, day.liveSteps) { saved, live -> (live ?: saved)?.let { "${formatSteps(it)} steps" } }
+        combine(day.todaySteps, day.liveSteps) { saved, live -> (live ?: saved)?.let { "about ${formatStepsApprox(it)} steps" } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {
