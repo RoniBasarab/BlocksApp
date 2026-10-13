@@ -4,6 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.roni.blocks.core.model.BlockSpec
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.StoredTemplate
+import com.roni.blocks.core.storage.ExplainerStore
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.testing.testActions
@@ -45,10 +46,12 @@ class CategoryListViewModelTest {
         context.getSharedPreferences(PrefsFile.SETTINGS.name.lowercase(), 0).edit().clear().commit()
     }
 
+    private fun explainers() = ExplainerStore(PrefsStorage(context, UnconfinedTestDispatcher()))
+
     @Test
     fun newCategory_appearsWithItsColour() = runBlocking {
         val (_, categories) = testActions(context)
-        val viewModel = CategoryListViewModel(categories)
+        val viewModel = CategoryListViewModel(categories, explainers())
 
         viewModel.onAction(CategoryAction.New)
         viewModel.onAction(CategoryAction.Name("Office"))
@@ -63,7 +66,7 @@ class CategoryListViewModelTest {
     @Test
     fun nameTaken_showsTheError() = runBlocking {
         val (_, categories) = testActions(context)
-        val viewModel = CategoryListViewModel(categories)
+        val viewModel = CategoryListViewModel(categories, explainers())
 
         viewModel.onAction(CategoryAction.New)
         viewModel.onAction(CategoryAction.Name("coding"))
@@ -91,7 +94,7 @@ class CategoryListViewModelTest {
                 ),
             ),
         )
-        val viewModel = CategoryListViewModel(categories)
+        val viewModel = CategoryListViewModel(categories, explainers())
 
         viewModel.onAction(CategoryAction.Open("cat_1"))
         viewModel.onAction(CategoryAction.Delete)
@@ -108,7 +111,7 @@ class CategoryListViewModelTest {
     fun cancelDelete_keepsTheSheetOpen() = runBlocking {
         val (_, categories) = testActions(context)
         categories.add("Office", 0xFFE08A7A, work = true, pomodoro = false)
-        val viewModel = CategoryListViewModel(categories)
+        val viewModel = CategoryListViewModel(categories, explainers())
 
         viewModel.onAction(CategoryAction.Open("cat_1"))
         viewModel.onAction(CategoryAction.Delete)

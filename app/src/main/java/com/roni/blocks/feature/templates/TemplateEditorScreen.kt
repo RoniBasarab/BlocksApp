@@ -1,5 +1,10 @@
 package com.roni.blocks.feature.templates
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -66,12 +71,15 @@ import com.roni.blocks.core.schedule.TemplateEditor
 import com.roni.blocks.core.schedule.TemplateRules
 import com.roni.blocks.core.schedule.toBlockSpecs
 import com.roni.blocks.core.schedule.toPlanBlocks
+import com.roni.blocks.core.storage.ExplainerKey
+import com.roni.blocks.core.storage.ExplainerStore
 import com.roni.blocks.core.storage.TemplateActions
 import com.roni.blocks.core.storage.TemplateStore
 import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.BackTopBar
 import com.roni.blocks.designsystem.BlockStrip
+import com.roni.blocks.designsystem.HintCard
 import com.roni.blocks.designsystem.Metrics
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.Spacing
@@ -110,6 +118,7 @@ data class TemplateEditorState(
     val sheet: BlockSheetUi? = null,
     val confirmDelete: Boolean = false,
     val deleted: Boolean = false,
+    val hint: Boolean = false,
     val use24: Boolean = true,
 )
 
@@ -123,6 +132,7 @@ sealed interface TemplateEditorAction {
     data object DeleteTemplate : TemplateEditorAction
     data object ConfirmDelete : TemplateEditorAction
     data object DismissDialog : TemplateEditorAction
+    data object DismissHint : TemplateEditorAction
 }
 
 internal val DAY_NAMES = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
@@ -196,6 +206,7 @@ class TemplateEditorViewModel @Inject constructor(
     private val store: TemplateStore,
     private val timeFormatter: TimeFormatter,
     private val logger: AppLogger,
+    private val explainers: ExplainerStore,
 ) : ViewModel() {
     private val _state = MutableStateFlow(TemplateEditorState())
     val state: StateFlow<TemplateEditorState> = _state.asStateFlow()
@@ -203,6 +214,14 @@ class TemplateEditorViewModel @Inject constructor(
     private var template: StoredTemplate? = null
     private var blocks: List<PlanBlock> = emptyList()
     private var editorSheet: EditorSheet? = null
+    private var blocksHint: Boolean = false
+
+    init {
+        viewModelScope.launch {
+            blocksHint = !explainers.seen(ExplainerKey.BLOCKS)
+            _state.update { it.copy(hint = blocksHint) }
+        }
+    }
 
     fun load(templateId: TemplateId) {
         val t = store.find(templateId) ?: return
@@ -213,6 +232,7 @@ class TemplateEditorViewModel @Inject constructor(
             title = t.title,
             iconKey = t.iconKey,
             readOnly = store.isBuiltIn(t.id),
+            hint = blocksHint,
             use24 = timeFormatter.use24.value,
         ).painted()
     }
@@ -226,6 +246,7 @@ class TemplateEditorViewModel @Inject constructor(
         TemplateEditorAction.DeleteTemplate -> _state.update { it.copy(confirmDelete = true) }
         TemplateEditorAction.DismissDialog -> _state.update { it.copy(confirmDelete = false) }
         TemplateEditorAction.ConfirmDelete -> confirmDelete()
+        TemplateEditorAction.DismissHint -> dismissHint()
     }
 
     fun onSheet(action: BlockSheetAction) {
@@ -345,6 +366,12 @@ class TemplateEditorViewModel @Inject constructor(
         }
     }
 
+    private fun dismissHint() {
+        blocksHint = false
+        _state.update { it.copy(hint = false) }
+        viewModelScope.launch { explainers.markSeen(ExplainerKey.BLOCKS) }
+    }
+
     /** Paint the rows and strip from the current template and blocks, keeping the screen fields. */
     private fun TemplateEditorState.painted(): TemplateEditorState {
         val t = template ?: return this
@@ -452,6 +479,16 @@ fun TemplateEditorScreen(state: TemplateEditorState, onAction: (TemplateEditorAc
                 .verticalScroll(rememberScrollState())
                 .padding(Spacing.m),
         ) {
+            AnimatedVisibility(
+                visible = state.hint,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+            ) {
+                Column {
+                    HintCard(ExplainerKey.BLOCKS, onGotIt = { onAction(TemplateEditorAction.DismissHint) })
+                    Spacer(Modifier.height(Spacing.m))
+                }
+            }
             if (!state.readOnly) {
                 EditorHeader(title = state.title, iconKey = state.iconKey, onAction = onAction)
                 Spacer(Modifier.height(Spacing.m))

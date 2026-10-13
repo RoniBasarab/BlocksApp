@@ -1,6 +1,7 @@
 package com.roni.blocks.feature.profiles
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.roni.blocks.core.storage.ExplainerStore
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.testing.testActions
@@ -37,12 +38,12 @@ class ProfilesViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun prefs() = PrefsStorage(context, UnconfinedTestDispatcher())
+    private fun explainers() = ExplainerStore(PrefsStorage(context, UnconfinedTestDispatcher()))
 
     @Test
     fun newProfile_copy_opensIt() = runBlocking {
         val rig = testActions(context)
-        val viewModel = ProfilesViewModel(rig.store, rig.profiles, prefs())
+        val viewModel = ProfilesViewModel(rig.store, rig.profiles, explainers())
         val effects = mutableListOf<ProfilesEffect>()
         val job = launch(Dispatchers.Unconfined) { viewModel.effects.collect { effects += it } }
 
@@ -61,16 +62,15 @@ class ProfilesViewModelTest {
     }
 
     @Test
-    fun hint_untilTheTourIsOpened() = runBlocking {
+    fun hint_untilGotIt() = runBlocking {
         val rig = testActions(context)
-        val viewModel = ProfilesViewModel(rig.store, rig.profiles, prefs())
-        assertTrue(viewModel.state.value.showHint)
+        val viewModel = ProfilesViewModel(rig.store, rig.profiles, explainers())
+        assertTrue("fresh prefs show the hint", viewModel.state.value.hint)
 
-        viewModel.onAction(ProfilesAction.HowTo)
-        assertTrue(viewModel.state.value.howTo)
-        assertFalse(viewModel.state.value.showHint)
+        viewModel.onAction(ProfilesAction.DismissHint)
+        assertFalse(viewModel.state.value.hint)
 
-        val fresh = ProfilesViewModel(rig.store, rig.profiles, prefs())
-        assertFalse("the tour stays seen across ViewModels", fresh.state.value.showHint)
+        val fresh = ProfilesViewModel(rig.store, rig.profiles, explainers())
+        assertFalse("seen stays across ViewModels", fresh.state.value.hint)
     }
 }

@@ -1,5 +1,10 @@
 package com.roni.blocks.feature.profiles
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -73,7 +78,7 @@ import com.roni.blocks.core.storage.TemplateStore
 import com.roni.blocks.designsystem.AppCard
 import com.roni.blocks.designsystem.AppShapes
 import com.roni.blocks.designsystem.AppTheme
-import com.roni.blocks.designsystem.ExplainerDialog
+import com.roni.blocks.designsystem.HintCard
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.SectionHeader
 import com.roni.blocks.designsystem.Spacing
@@ -114,7 +119,8 @@ data class ProfileState(
     val templates: ImmutableList<ProfileTemplateUi> = persistentListOf(),
     val days: ImmutableList<DayRowUi> = persistentListOf(),
     val dayPicker: Int? = null,
-    val explainDays: Boolean = false,
+    val templatesHint: Boolean = false,
+    val daysHint: Boolean = false,
     val addExisting: ImmutableList<ProfileTemplateUi>? = null,
     val newTemplate: String? = null,
     val confirmDelete: Boolean = false,
@@ -134,7 +140,7 @@ sealed interface ProfileAction {
     data class NewTemplateName(val text: String) : ProfileAction
     data object CreateTemplate : ProfileAction
     data class OpenDay(val iso: Int) : ProfileAction
-    data object GotItDays : ProfileAction
+    data class DismissHint(val key: ExplainerKey) : ProfileAction
     data class SetDay(val iso: Int, val id: TemplateId?) : ProfileAction
     data object Delete : ProfileAction
     data object ConfirmDelete : ProfileAction
@@ -167,9 +173,16 @@ class ProfileViewModel @Inject constructor(
     val effects: SharedFlow<ProfileEffect> = _effects.asSharedFlow()
 
     private var profileId: String? = null
-    private var pendingDay: Int? = null
 
     init {
+        viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    templatesHint = !explainers.seen(ExplainerKey.TEMPLATES),
+                    daysHint = !explainers.seen(ExplainerKey.DAYS),
+                )
+            }
+        }
         viewModelScope.launch {
             store.profiles.collect { book -> if (profileId != null) refresh(book) }
         }
@@ -196,7 +209,7 @@ class ProfileViewModel @Inject constructor(
             is ProfileAction.NewTemplateName -> _state.update { it.copy(newTemplate = action.text) }
             ProfileAction.CreateTemplate -> createTemplate()
             is ProfileAction.OpenDay -> openDay(action.iso)
-            ProfileAction.GotItDays -> gotItDays()
+            is ProfileAction.DismissHint -> dismissHint(action.key)
             is ProfileAction.SetDay -> if (id != null) viewModelScope.launch {
                 profiles.setDay(id, action.iso, action.id)
                 _state.update { it.copy(dayPicker = null) }
@@ -213,22 +226,17 @@ class ProfileViewModel @Inject constructor(
     }
 
     private fun openDay(iso: Int) {
-        viewModelScope.launch {
-            if (explainers.seen(ExplainerKey.DAYS)) {
-                _state.update { it.copy(dayPicker = iso) }
-            } else {
-                pendingDay = iso
-                _state.update { it.copy(explainDays = true) }
-            }
-        }
+        _state.update { it.copy(dayPicker = iso) }
     }
 
-    private fun gotItDays() {
-        viewModelScope.launch {
-            explainers.markSeen(ExplainerKey.DAYS)
-            val iso = pendingDay
-            pendingDay = null
-            _state.update { it.copy(explainDays = false, dayPicker = iso) }
+    private fun dismissHint(key: ExplainerKey) {
+        viewModelScope.launch { explainers.markSeen(key) }
+        _state.update {
+            when (key) {
+                ExplainerKey.TEMPLATES -> it.copy(templatesHint = false)
+                ExplainerKey.DAYS -> it.copy(daysHint = false)
+                else -> it
+            }
         }
     }
 
@@ -349,6 +357,16 @@ fun ProfileScreen(state: ProfileState, onAction: (ProfileAction) -> Unit, onBack
                     .verticalScroll(rememberScrollState())
                     .padding(Spacing.m),
             ) {
+                AnimatedVisibility(
+                    visible = state.templatesHint,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically(),
+                ) {
+                    Column {
+                        HintCard(ExplainerKey.TEMPLATES, onGotIt = { onAction(ProfileAction.DismissHint(ExplainerKey.TEMPLATES)) })
+                        Spacer(Modifier.height(Spacing.m))
+                    }
+                }
                 var name by remember(state.id) { mutableStateOf(state.name) }
                 OutlinedTextField(
                     value = name,
@@ -379,6 +397,16 @@ fun ProfileScreen(state: ProfileState, onAction: (ProfileAction) -> Unit, onBack
                 }
 
                 SectionHeader("Which template each day suggests")
+                AnimatedVisibility(
+                    visible = state.daysHint,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically(),
+                ) {
+                    Column {
+                        HintCard(ExplainerKey.DAYS, onGotIt = { onAction(ProfileAction.DismissHint(ExplainerKey.DAYS)) })
+                        Spacer(Modifier.height(Spacing.s))
+                    }
+                }
                 state.days.forEach { row ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -428,9 +456,6 @@ fun ProfileScreen(state: ProfileState, onAction: (ProfileAction) -> Unit, onBack
             state.addExisting?.let { AddExistingSheet(it, onAction) }
             state.newTemplate?.let { NewTemplateDialog(it, onAction) }
             if (state.confirmDelete) DeleteDialog(state.name, onAction)
-            if (state.explainDays) {
-                ExplainerDialog(ExplainerKey.DAYS, onGotIt = { onAction(ProfileAction.GotItDays) })
-            }
             if (state.howTo) {
                 HowToUse(state.howToPage) { howToAction ->
                     onAction(

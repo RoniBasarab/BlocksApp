@@ -2,6 +2,7 @@ package com.roni.blocks.feature.profiles
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.roni.blocks.core.model.TemplateId
+import com.roni.blocks.core.storage.ExplainerKey
 import com.roni.blocks.core.storage.ExplainerStore
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
@@ -44,22 +45,20 @@ class ProfileViewModelTest {
     private fun explainers() = ExplainerStore(PrefsStorage(context, UnconfinedTestDispatcher()))
 
     @Test
-    fun firstDayTap_explainsThenOpens() = runBlocking {
+    fun daysHint_neverBlocksTheDaySheet() = runBlocking {
         val rig = testActions(context)
         rig.store.load()
         val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates, explainers())
 
         viewModel.load("unemployed")
+        assertTrue("fresh prefs show the days hint", viewModel.state.value.daysHint)
+
         viewModel.onAction(ProfileAction.OpenDay(1))
-        assertTrue("the first tap explains Days", viewModel.state.value.explainDays)
-        assertNull("no sheet before the card is dismissed", viewModel.state.value.dayPicker)
+        assertEquals("the day sheet opens at once", 1, viewModel.state.value.dayPicker)
+        assertTrue("the hint stays until Got it", viewModel.state.value.daysHint)
 
-        viewModel.onAction(ProfileAction.GotItDays)
-        assertEquals(1, viewModel.state.value.dayPicker)
-        assertFalse(viewModel.state.value.explainDays)
-
-        viewModel.onAction(ProfileAction.OpenDay(2))
-        assertEquals("the second tap opens directly", 2, viewModel.state.value.dayPicker)
+        viewModel.onAction(ProfileAction.DismissHint(ExplainerKey.DAYS))
+        assertFalse(viewModel.state.value.daysHint)
     }
 
     @Test

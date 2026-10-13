@@ -8,7 +8,6 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.roni.blocks.core.daystate.DayState
 import com.roni.blocks.core.model.TemplateId
-import com.roni.blocks.core.storage.ExplainerKey
 import com.roni.blocks.designsystem.Motion
 import com.roni.blocks.feature.history.HistoryDetailRoute
 import com.roni.blocks.feature.history.HistoryRoute
@@ -16,7 +15,6 @@ import com.roni.blocks.feature.home.HomeRoute
 import com.roni.blocks.feature.insights.InsightsRoute
 import com.roni.blocks.feature.mainmenu.MainMenuRoute
 import com.roni.blocks.feature.profiles.CategoriesRoute
-import com.roni.blocks.feature.profiles.FirstVisit
 import com.roni.blocks.feature.profiles.ProfileRoute
 import com.roni.blocks.feature.profiles.ProfilesRoute
 import com.roni.blocks.feature.settings.SettingsRoute
@@ -78,12 +76,10 @@ fun AppRoot(start: StartDestination, modifier: Modifier = Modifier) {
                 TemplatePickerRoute(onStarted = { openTab(HomeKey) })
             }
             entry<MainMenuKey> {
-                FirstVisit(ExplainerKey.PROFILES) {
-                    MainMenuRoute(
-                        onOpenPicker = { openTab(TemplatePickerKey) },
-                        onOpenCategories = { backStack.add(CategoriesKey) },
-                    )
-                }
+                MainMenuRoute(
+                    onOpenPicker = { openTab(TemplatePickerKey) },
+                    onOpenCategories = { backStack.add(CategoriesKey) },
+                )
             }
             entry<HomeKey> {
                 HomeRoute(
@@ -95,32 +91,24 @@ fun AppRoot(start: StartDestination, modifier: Modifier = Modifier) {
             entry<WeeklyKey> { WeeklyRoute(onTab = ::openTab, onMenu = { backStack.add(it) }) }
             entry<InsightsKey> { InsightsRoute(onTab = ::openTab, onMenu = { backStack.add(it) }) }
             entry<ProfilesKey> {
-                FirstVisit(ExplainerKey.PROFILES) {
-                    ProfilesRoute(
-                        onBack = { backStack.removeAt(backStack.lastIndex) },
-                        onOpenProfile = { backStack.add(ProfileKey(it)) },
-                        onOpenCategories = { backStack.add(CategoriesKey) },
-                    )
-                }
+                ProfilesRoute(
+                    onBack = { backStack.removeAt(backStack.lastIndex) },
+                    onOpenProfile = { backStack.add(ProfileKey(it)) },
+                    onOpenCategories = { backStack.add(CategoriesKey) },
+                )
             }
             entry<ProfileKey> { key ->
-                FirstVisit(ExplainerKey.TEMPLATES) {
-                    ProfileRoute(
-                        id = key.id,
-                        onBack = { backStack.removeAt(backStack.lastIndex) },
-                        onOpenTemplate = { backStack.add(TemplateEditorKey(it.key)) },
-                    )
-                }
+                ProfileRoute(
+                    id = key.id,
+                    onBack = { backStack.removeAt(backStack.lastIndex) },
+                    onOpenTemplate = { backStack.add(TemplateEditorKey(it.key)) },
+                )
             }
             entry<CategoriesKey> {
-                FirstVisit(ExplainerKey.CATEGORIES) {
-                    CategoriesRoute(onBack = { backStack.removeAt(backStack.lastIndex) })
-                }
+                CategoriesRoute(onBack = { backStack.removeAt(backStack.lastIndex) })
             }
             entry<TemplateEditorKey> { key ->
-                FirstVisit(ExplainerKey.BLOCKS) {
-                    TemplateEditorRoute(id = TemplateId(key.key), onBack = { backStack.removeAt(backStack.lastIndex) })
-                }
+                TemplateEditorRoute(id = TemplateId(key.key), onBack = { backStack.removeAt(backStack.lastIndex) })
             }
             entry<HistoryKey> { HistoryRoute(onBack = { backStack.removeAt(backStack.lastIndex) }, onDay = { backStack.add(HistoryDayKey(it)) }) }
             entry<HistoryDayKey> { key -> HistoryDetailRoute(date = key.date, onBack = { backStack.removeAt(backStack.lastIndex) }) }

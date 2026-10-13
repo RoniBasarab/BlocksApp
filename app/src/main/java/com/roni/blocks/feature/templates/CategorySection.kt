@@ -1,11 +1,18 @@
 package com.roni.blocks.feature.templates
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -31,7 +38,10 @@ import com.roni.blocks.core.model.CategoryPalette
 import com.roni.blocks.core.model.CategorySet
 import com.roni.blocks.core.storage.CategoryActions
 import com.roni.blocks.core.storage.CategoryResult
+import com.roni.blocks.core.storage.ExplainerKey
+import com.roni.blocks.core.storage.ExplainerStore
 import com.roni.blocks.designsystem.AppTheme
+import com.roni.blocks.designsystem.HintCard
 import com.roni.blocks.designsystem.SectionHeader
 import com.roni.blocks.designsystem.Spacing
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -58,6 +68,7 @@ data class CategorySheetUi(
 @Immutable
 data class CategoryListState(
     val categories: CategorySet,
+    val hint: Boolean = false,
     val sheet: CategorySheetUi? = null,
 )
 
@@ -74,6 +85,7 @@ sealed interface CategoryAction {
     data object ConfirmDelete : CategoryAction
     data object CancelDelete : CategoryAction
     data object Dismiss : CategoryAction
+    data object DismissHint : CategoryAction
 }
 
 /**
@@ -83,9 +95,16 @@ sealed interface CategoryAction {
 @HiltViewModel
 class CategoryListViewModel @Inject constructor(
     private val actions: CategoryActions,
+    private val explainers: ExplainerStore,
 ) : ViewModel() {
     private val _state = MutableStateFlow(CategoryListState(Categories.current))
     val state: StateFlow<CategoryListState> = _state.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _state.update { it.copy(hint = !explainers.seen(ExplainerKey.CATEGORIES)) }
+        }
+    }
 
     fun onAction(action: CategoryAction) {
         when (action) {
@@ -100,6 +119,10 @@ class CategoryListViewModel @Inject constructor(
             CategoryAction.ConfirmDelete -> confirmDelete()
             CategoryAction.CancelDelete -> editSheet { it.copy(confirmDelete = false) }
             CategoryAction.Dismiss -> _state.update { it.copy(sheet = null) }
+            CategoryAction.DismissHint -> {
+                _state.update { it.copy(hint = false) }
+                viewModelScope.launch { explainers.markSeen(ExplainerKey.CATEGORIES) }
+            }
         }
     }
 
@@ -155,6 +178,16 @@ class CategoryListViewModel @Inject constructor(
 fun CategorySection(viewModel: CategoryListViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     SectionHeader("Categories")
+    AnimatedVisibility(
+        visible = state.hint,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically(),
+    ) {
+        Column {
+            HintCard(ExplainerKey.CATEGORIES, onGotIt = { viewModel.onAction(CategoryAction.DismissHint) })
+            Spacer(Modifier.height(Spacing.s))
+        }
+    }
     (state.categories.builtIns + state.categories.customs).forEach { info ->
         CategoryRow(info, onClick = { viewModel.onAction(CategoryAction.Open(info.id)) })
     }

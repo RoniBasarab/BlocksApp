@@ -7,6 +7,8 @@ import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.StoredTemplate
 import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.schedule.TemplateEdit
+import com.roni.blocks.core.storage.ExplainerKey
+import com.roni.blocks.core.storage.ExplainerStore
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateActions
@@ -23,6 +25,7 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.datetime.LocalTime
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -60,6 +63,7 @@ class TemplateEditorViewModelTest {
                 CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
             ),
             logger = AppLogger(context),
+            explainers = ExplainerStore(PrefsStorage(context, UnconfinedTestDispatcher())),
         )
     }
 
@@ -160,5 +164,17 @@ class TemplateEditorViewModelTest {
         viewModel.onAction(TemplateEditorAction.ConfirmDelete)
 
         assertTrue(store.all().none { it.id == created.id })
+    }
+
+    @Test
+    fun blocksHint_once() = runBlocking {
+        viewModel.load(TemplateId.MON_THU)
+        assertTrue("fresh prefs show the blocks hint", viewModel.state.value.hint)
+
+        viewModel.onAction(TemplateEditorAction.DismissHint)
+        assertFalse(viewModel.state.value.hint)
+
+        viewModel.load(TemplateId.FRI_SAT)
+        assertFalse("seen stays for the next template", viewModel.state.value.hint)
     }
 }

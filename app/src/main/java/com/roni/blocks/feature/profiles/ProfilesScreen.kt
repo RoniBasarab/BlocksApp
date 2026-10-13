@@ -1,5 +1,10 @@
 package com.roni.blocks.feature.profiles
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -51,12 +56,13 @@ import androidx.lifecycle.viewModelScope
 import com.roni.blocks.core.profiles.ProfileBook
 import com.roni.blocks.core.profiles.ProfileEdit
 import com.roni.blocks.core.profiles.ProfileRefusal
-import com.roni.blocks.core.storage.PrefsFile
-import com.roni.blocks.core.storage.PrefsStorage
+import com.roni.blocks.core.storage.ExplainerKey
+import com.roni.blocks.core.storage.ExplainerStore
 import com.roni.blocks.core.storage.ProfileActions
 import com.roni.blocks.core.storage.TemplateStore
 import com.roni.blocks.designsystem.AppCard
 import com.roni.blocks.designsystem.AppTheme
+import com.roni.blocks.designsystem.HintCard
 import com.roni.blocks.designsystem.SectionHeader
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.Spacing
@@ -73,7 +79,6 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.serialization.builtins.serializer
 
 @Immutable
 data class ProfileRowUi(val id: String, val name: String, val active: Boolean, val summary: String)
@@ -89,7 +94,7 @@ data class NewProfileUi(
 @Immutable
 data class ProfilesState(
     val rows: ImmutableList<ProfileRowUi> = persistentListOf(),
-    val showHint: Boolean = false,
+    val hint: Boolean = false,
     val newProfile: NewProfileUi? = null,
     val howTo: Boolean = false,
     val howToPage: Int = 0,
@@ -103,6 +108,7 @@ sealed interface ProfilesAction {
     data object Create : ProfilesAction
     data object DismissNew : ProfilesAction
     data object OpenCategories : ProfilesAction
+    data object DismissHint : ProfilesAction
     data object HowTo : ProfilesAction
     data class HowToPage(val page: Int) : ProfilesAction
     data object CloseHowTo : ProfilesAction
@@ -118,7 +124,7 @@ sealed interface ProfilesEffect {
 class ProfilesViewModel @Inject constructor(
     private val store: TemplateStore,
     private val actions: ProfileActions,
-    private val prefs: PrefsStorage,
+    private val explainers: ExplainerStore,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ProfilesState())
     val state: StateFlow<ProfilesState> = _state.asStateFlow()
@@ -128,8 +134,7 @@ class ProfilesViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            val seen = prefs.read(PrefsFile.SETTINGS, HOW_TO_SEEN, Boolean.serializer()) ?: false
-            _state.update { it.copy(showHint = !seen) }
+            _state.update { it.copy(hint = !explainers.seen(ExplainerKey.PROFILES)) }
         }
         viewModelScope.launch {
             store.profiles.collect { book -> _state.update { it.copy(rows = rowsOf(book)) } }
@@ -147,10 +152,11 @@ class ProfilesViewModel @Inject constructor(
             ProfilesAction.Create -> create()
             ProfilesAction.DismissNew -> _state.update { it.copy(newProfile = null) }
             ProfilesAction.OpenCategories -> viewModelScope.launch { _effects.emit(ProfilesEffect.OpenCategories) }
-            ProfilesAction.HowTo -> {
-                _state.update { it.copy(howTo = true, howToPage = 0, showHint = false) }
-                viewModelScope.launch { prefs.write(PrefsFile.SETTINGS, HOW_TO_SEEN, true, Boolean.serializer()) }
+            ProfilesAction.DismissHint -> {
+                _state.update { it.copy(hint = false) }
+                viewModelScope.launch { explainers.markSeen(ExplainerKey.PROFILES) }
             }
+            ProfilesAction.HowTo -> _state.update { it.copy(howTo = true, howToPage = 0) }
             is ProfilesAction.HowToPage -> _state.update { it.copy(howToPage = action.page) }
             ProfilesAction.CloseHowTo -> _state.update { it.copy(howTo = false) }
         }
@@ -185,10 +191,6 @@ class ProfilesViewModel @Inject constructor(
         ProfileRefusal.TOO_LONG -> "24 characters at most."
         else -> "That didn't work."
     }
-
-    private companion object {
-        const val HOW_TO_SEEN = "how_to_seen"
-    }
 }
 
 @Composable
@@ -219,6 +221,18 @@ fun ProfilesScreen(state: ProfilesState, onAction: (ProfilesAction) -> Unit, onB
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(Spacing.m),
             ) {
+                item(key = "hint") {
+                    AnimatedVisibility(
+                        visible = state.hint,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically(),
+                    ) {
+                        Column {
+                            HintCard(ExplainerKey.PROFILES, onGotIt = { onAction(ProfilesAction.DismissHint) })
+                            Spacer(Modifier.height(Spacing.m))
+                        }
+                    }
+                }
                 item(key = "new") {
                     Button(
                         onClick = { onAction(ProfilesAction.NewProfile) },
@@ -229,16 +243,6 @@ fun ProfilesScreen(state: ProfilesState, onAction: (ProfilesAction) -> Unit, onB
                     Spacer(Modifier.height(Spacing.m))
                 }
                 item(key = "header") { SectionHeader("Profiles") }
-                if (state.showHint) {
-                    item(key = "hint") {
-                        Text(
-                            "New here? Tap ? for a quick tour.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = AppTheme.colors.textSecondary,
-                            modifier = Modifier.padding(bottom = Spacing.s),
-                        )
-                    }
-                }
                 items(state.rows) { row ->
                     AppCard(
                         onClick = { onAction(ProfilesAction.Open(row.id)) },
