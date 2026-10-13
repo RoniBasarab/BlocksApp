@@ -80,6 +80,16 @@ class HistoryManager @Inject constructor(
     suspend fun walks(date: LocalDate): List<WalkLog> =
         prefs.read(PrefsFile.HISTORY, walkKey(date), ListSerializer(WalkLog.serializer())) ?: emptyList()
 
+    /**
+     * Replaces the logged walk starting at [old]'s start with [new] (3.4.1), keeping its steps when
+     * [new] doesn't say otherwise. Writes even when nothing matched, so the list can't go stale.
+     */
+    suspend fun replaceWalk(date: LocalDate, old: WalkLog, new: WalkLog) {
+        val updated = walks(date).map { if (it.start == old.start) new else it }
+        prefs.write(PrefsFile.HISTORY, walkKey(date), updated, ListSerializer(WalkLog.serializer()))
+        version.value++
+    }
+
     /** Every date in [from]..[toInclusive] with its walks, so a week can sum them in one read. */
     suspend fun walksBetween(from: LocalDate, toInclusive: LocalDate): Map<LocalDate, List<WalkLog>> {
         val result = linkedMapOf<LocalDate, List<WalkLog>>()

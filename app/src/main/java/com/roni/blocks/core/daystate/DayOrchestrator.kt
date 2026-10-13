@@ -53,6 +53,8 @@ import com.roni.blocks.core.steps.StepState
 import com.roni.blocks.core.steps.StepStateSerializer
 import com.roni.blocks.core.time.at
 import com.roni.blocks.core.walk.WalkClock
+import com.roni.blocks.core.walk.WalkCorrection
+import com.roni.blocks.core.walk.WalkFix
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.time.Clock
@@ -408,6 +410,83 @@ class DayOrchestrator @Inject constructor(
         sideEffects()
         return true
     }
+
+    /**
+     * Moves a logged walk's times (3.4.1): the walk log entry starting at [oldStart] gets the new
+     * start/end minutes with its steps unchanged, and when a closed Walk segment of [date] starts at
+     * [oldStart] its own times move the same way — in the live book for today (persist, re-render),
+     * in the stored record for a past day. The day's plan isn't touched. Refused with the reason
+     * when the day doesn't allow the new times.
+     */
+    suspend fun correctWalk(date: LocalDate, oldStart: Instant, newStartMin: Int, newEndMin: Int): WalkFix {
+        ensureRestored()
+        val old = history.walks(date).firstOrNull { it.start == oldStart }
+        val segment = closedWalkSegment(date, oldStart)
+        if (old == null && segment == null) return WalkFix.Refused("That walk isn't in the log.")
+        // A walk of today can't be moved into the future; a past day has no such limit.
+        val nowMin = if (date == today()) nowMinutes() else null
+        val (floorMin, ceilMin) = if (segment != null) {
+            walkSegmentBounds(date, segment)
+        } else {
+            walkLogBounds(date, oldStart)
+        }
+        val fix = WalkCorrection.check(newStartMin, newEndMin, floorMin, ceilMin, nowMin)
+        if (fix is WalkFix.Refused) return fix
+        val newStart = LocalTime(newStartMin / 60, newStartMin % 60).at(date, zone)
+        val newEnd = LocalTime(newEndMin / 60, newEndMin % 60).at(date, zone)
+        if (old != null) history.replaceWalk(date, old, old.copy(start = newStart, end = newEnd))
+        if (segment != null) moveWalkSegment(date, segment, newStart, newEnd)
+        return fix
+    }
+
+    /** The closed Walk segment of [date] that started at [start]: the live book for today, the record otherwise. */
+    private suspend fun closedWalkSegment(date: LocalDate, start: Instant): Segment? {
+        val segments = if (date == today()) book.segments else history.readDay(date)?.segments.orEmpty()
+        return segments.firstOrNull { isClosedWalk(it) && it.actualStart == start }
+    }
+
+    private fun isClosedWalk(segment: Segment): Boolean =
+        segment.kind == SegmentKind.PLANNED && segment.type == BlockType.Walk && segment.actualEnd != null
+
+    /** What the day allows around a day-block [segment]: the segment before it ends at [floorMin], the one after starts at [ceilMin]. */
+    private suspend fun walkSegmentBounds(date: LocalDate, segment: Segment): Pair<Int, Int> {
+        val segments = if (date == today()) book.segments else history.readDay(date)?.segments.orEmpty()
+        val i = segments.indexOf(segment)
+        val floor = segments.getOrNull(i - 1)?.actualEnd?.let { minutesOfDay(it) } ?: 0
+        val ceil = segments.getOrNull(i + 1)?.actualStart?.let { minutesOfDay(it) } ?: LAST_MINUTE
+        return floor to ceil
+    }
+
+    /** What the day allows around a standalone walk: the walk before it ends at [floorMin], the next starts at [ceilMin]. */
+    private suspend fun walkLogBounds(date: LocalDate, start: Instant): Pair<Int, Int> {
+        val logs = history.walks(date)
+        val i = logs.indexOfFirst { it.start == start }
+        val floor = logs.getOrNull(i - 1)?.end?.let { minutesOfDay(it) } ?: 0
+        val ceil = logs.getOrNull(i + 1)?.start?.let { minutesOfDay(it) } ?: LAST_MINUTE
+        return floor to ceil
+    }
+
+    /** Moves a closed Walk segment's times: in the live book for today, in the stored record and its week for a past day. */
+    private suspend fun moveWalkSegment(date: LocalDate, segment: Segment, newStart: Instant, newEnd: Instant) {
+        fun move(s: Segment): Segment = if (isClosedWalk(s) && s.actualStart == segment.actualStart) {
+            s.copy(actualStart = newStart, actualEnd = newEnd)
+        } else s
+        if (date == today()) {
+            book = book.copy(segments = book.segments.map(::move))
+            _segments.value = book.segments
+            persist()
+            sideEffects()
+        } else {
+            val record = history.readDay(date) ?: return
+            history.writeDay(record.copy(segments = record.segments.map(::move)))
+            rebuildWeek(date)
+        }
+    }
+
+    private fun minutesOfDay(instant: Instant): Int =
+        instant.toLocalDateTime(zone).let { it.hour * 60 + it.minute }
+
+    private fun nowMinutes(): Int = minutesOfDay(clock.now())
 
     /**
      * The walk the start sheet would take (2.3.0): when to turn back, when Roni is home, and what
@@ -1569,6 +1648,9 @@ class DayOrchestrator @Inject constructor(
         const val PROFILE_NAME = "profile_name"
         const val STEP_STATE = "step_state"
         const val MAX_REPLAY_STEPS = 500
+
+        /** The last minute of a day (3.4.1): a walk with no walk after it may end here. */
+        const val LAST_MINUTE = 23 * 60 + 59
 
         /** A drive open longer than this (a missed exit) is closed with no step total (3.4.0). */
         val DRIVE_MAX = 4.hours
