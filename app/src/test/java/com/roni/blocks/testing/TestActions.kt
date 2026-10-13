@@ -44,9 +44,11 @@ object SilentNotificationPort : NotificationPort {
 /**
  * The template and category actions for the track tests (3.1.0): real Robolectric stores and an
  * orchestrator built the way `DayOrchestratorTest` builds one, with a fake clock and the store
- * passed in.
+ * passed in. [TestRig] keeps the store the actions write through: `TemplateManager` must receive
+ * that same store (the context constructor would build a second one and overwrite
+ * `TemplateStore.instance`, which is only a display fallback).
  */
-fun testActions(context: Context): Pair<TemplateActions, CategoryActions> {
+fun testActions(context: Context): TestRig {
     val zone = TimeZone.of("Asia/Jerusalem")
     val clock = MovableClock(LocalTime(9, 0).at(LocalDate(2026, 9, 27), zone))
     val prefs = PrefsStorage(context, UnconfinedTestDispatcher())
@@ -58,7 +60,7 @@ fun testActions(context: Context): Pair<TemplateActions, CategoryActions> {
     val day = DayOrchestrator(
         prefs = prefs,
         engine = engine,
-        templates = TemplateManager(context),
+        templates = TemplateManager(store),
         history = HistoryManager(prefs),
         alarms = AlarmScheduler(context, SystemTimeMapper.Identity, logger),
         notificationMapper = NotificationModelMapper(engine, zone, TimeFormatter(prefs, scope)),
@@ -70,5 +72,20 @@ fun testActions(context: Context): Pair<TemplateActions, CategoryActions> {
         categories = categories,
         templateStore = store,
     )
-    return TemplateActions(store, day) to CategoryActions(categories, store, day)
+    return TestRig(
+        templates = TemplateActions(store, day),
+        categories = CategoryActions(categories, store, day),
+        store = store,
+        day = day,
+        clock = clock,
+    )
 }
+
+/** The real pieces the track tests drive, so they read the very store the actions write through. */
+data class TestRig(
+    val templates: TemplateActions,
+    val categories: CategoryActions,
+    val store: TemplateStore,
+    val day: DayOrchestrator,
+    val clock: MovableClock,
+)
