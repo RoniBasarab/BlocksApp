@@ -52,6 +52,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -177,7 +178,7 @@ class ProfileViewModel @Inject constructor(
         when (action) {
             is ProfileAction.Rename -> rename(action.name)
             ProfileAction.UseThis -> if (id != null) viewModelScope.launch { profiles.switchTo(id) }
-            is ProfileAction.OpenTemplate -> viewModelScope.launch { _effects.emit(ProfileEffect.OpenTemplate(action.id)) }
+            is ProfileAction.OpenTemplate -> if (action.id != TemplateId.OFF) viewModelScope.launch { _effects.emit(ProfileEffect.OpenTemplate(action.id)) }
             is ProfileAction.RemoveTemplate -> if (id != null) viewModelScope.launch { profiles.removeTemplate(id, action.id) }
             ProfileAction.AddExisting -> openAddExisting()
             is ProfileAction.AddTemplate -> if (id != null) viewModelScope.launch {
@@ -422,19 +423,29 @@ private fun TemplateCard(
     onRemove: () -> Unit,
 ) {
     val colors = AppTheme.colors
-    AppCard(onClick = onOpen, modifier = Modifier.fillMaxWidth().testTag("profile_template_${template.id.key}")) {
+    val off = template.id == TemplateId.OFF
+    AppCard(onClick = if (off) null else onOpen, modifier = Modifier.fillMaxWidth().testTag("profile_template_${template.id.key}")) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(iconFor(template.icon), null, tint = Color(template.accent))
             Spacer(Modifier.width(Spacing.m))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(template.title, style = MaterialTheme.typography.titleMedium, color = colors.textPrimary)
+                    Text(
+                        template.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = colors.textPrimary,
+                        modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     if (template.builtIn) {
                         Spacer(Modifier.width(Spacing.s))
                         Tag("Built-in")
                     }
                 }
-                if (template.days.isNotEmpty()) {
+                if (off) {
+                    Text("No blocks, no pings", style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+                } else if (template.days.isNotEmpty()) {
                     Text(template.days, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
                 }
             }
@@ -552,6 +563,8 @@ private fun Tag(text: String) {
         text,
         style = MaterialTheme.typography.labelSmall,
         color = AppTheme.colors.textSecondary,
+        maxLines = 1,
+        softWrap = false,
         modifier = Modifier
             .border(1.dp, AppTheme.colors.outline, RoundedCornerShape(50))
             .padding(horizontal = 6.dp, vertical = 2.dp),

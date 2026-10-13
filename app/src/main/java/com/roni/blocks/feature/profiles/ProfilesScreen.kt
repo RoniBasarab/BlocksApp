@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material3.AlertDialog
@@ -41,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -217,6 +219,15 @@ fun ProfilesScreen(state: ProfilesState, onAction: (ProfilesAction) -> Unit, onB
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(Spacing.m),
             ) {
+                item(key = "new") {
+                    Button(
+                        onClick = { onAction(ProfilesAction.NewProfile) },
+                        modifier = Modifier.fillMaxWidth().testTag("profile_new"),
+                    ) {
+                        Text("+ New profile")
+                    }
+                    Spacer(Modifier.height(Spacing.m))
+                }
                 item(key = "header") { SectionHeader("Profiles") }
                 if (state.showHint) {
                     item(key = "hint") {
@@ -236,7 +247,14 @@ fun ProfilesScreen(state: ProfilesState, onAction: (ProfilesAction) -> Unit, onB
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(row.name, style = MaterialTheme.typography.titleMedium, color = AppTheme.colors.textPrimary)
+                                    Text(
+                                        row.name,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = AppTheme.colors.textPrimary,
+                                        modifier = Modifier.weight(1f, fill = false),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
                                     if (row.active) {
                                         Spacer(Modifier.width(Spacing.s))
                                         Tag("Active")
@@ -248,11 +266,6 @@ fun ProfilesScreen(state: ProfilesState, onAction: (ProfilesAction) -> Unit, onB
                     }
                     Spacer(Modifier.height(Spacing.s))
                 }
-                item(key = "new") {
-                    TextButton(onClick = { onAction(ProfilesAction.NewProfile) }, modifier = Modifier.testTag("profile_new")) {
-                        Text("+ New profile")
-                    }
-                }
                 item(key = "categories") {
                     AppCard(
                         onClick = { onAction(ProfilesAction.OpenCategories) },
@@ -263,8 +276,13 @@ fun ProfilesScreen(state: ProfilesState, onAction: (ProfilesAction) -> Unit, onB
                             Spacer(Modifier.width(Spacing.m))
                             Column(Modifier.weight(1f)) {
                                 Text("Categories", style = MaterialTheme.typography.titleMedium, color = AppTheme.colors.textPrimary)
-                                Text("Shared by every profile", style = MaterialTheme.typography.bodySmall, color = AppTheme.colors.textSecondary)
+                                Text(
+                                    "The kinds of blocks: CV, Coding, Gym and your own. Shared by every profile.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = AppTheme.colors.textSecondary,
+                                )
                             }
+                            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = AppTheme.colors.textMuted)
                         }
                     }
                 }
@@ -358,6 +376,8 @@ private fun Tag(text: String) {
         text,
         style = MaterialTheme.typography.labelSmall,
         color = AppTheme.colors.textSecondary,
+        maxLines = 1,
+        softWrap = false,
         modifier = Modifier
             .border(1.dp, AppTheme.colors.outline, RoundedCornerShape(50))
             .padding(horizontal = 6.dp, vertical = 2.dp),

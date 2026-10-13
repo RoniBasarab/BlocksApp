@@ -5,6 +5,7 @@ import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.testing.testActions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -74,6 +75,21 @@ class ProfileViewModelTest {
         assertTrue(viewModel.state.value.templates.none { it.id == TemplateId.MON_THU })
         val stored = requireNotNull(rig.store.profiles.value.find(empty.id))
         assertTrue("no day points at the removed template", stored.days.orEmpty().values.none { it == TemplateId.MON_THU })
+    }
+
+    @Test
+    fun offDay_opensNothing() = runBlocking {
+        val rig = testActions(context)
+        rig.store.load()
+        val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates)
+        val effects = mutableListOf<ProfileEffect>()
+        val job = launch(Dispatchers.Unconfined) { viewModel.effects.collect { effects += it } }
+
+        viewModel.load("unemployed")
+        viewModel.onAction(ProfileAction.OpenTemplate(TemplateId.OFF))
+        job.cancel()
+
+        assertTrue("the Off-day card is not clickable", effects.isEmpty())
     }
 
     @Test
