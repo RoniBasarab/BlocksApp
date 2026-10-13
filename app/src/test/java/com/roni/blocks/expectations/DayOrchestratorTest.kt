@@ -40,6 +40,7 @@ import com.roni.blocks.core.storage.ProfileActions
 import com.roni.blocks.core.storage.TemplateManager
 import com.roni.blocks.core.storage.TemplateStore
 import com.roni.blocks.core.storage.debtMinutes
+import com.roni.blocks.core.walk.WalkFix
 import com.roni.blocks.core.time.at
 import com.roni.blocks.core.time.SystemTimeMapper
 import com.roni.blocks.core.time.TimeFormatter
@@ -1129,6 +1130,51 @@ class DayOrchestratorTest {
         val running = orchestrator.state.value as DayState.Running
         val plan = requireNotNull(orchestrator.todayPlan.value)
         assertEquals("walk-602", plan.blocks[running.blockIndex].id)
+    }
+
+    @Test
+    fun standaloneWalk_cameHomeEarly() = runBlocking {
+        clock.now = LocalTime(21, 0, 0).at(date, zone)
+        stepSensor.next = 60_000
+        assertTrue(orchestrator.startWalk(60))
+
+        clock.now = LocalTime(22, 0, 5).at(date, zone)
+        stepSensor.next = 63_200
+        orchestrator.onAlarm()
+        val logged = history.walks(date).single()
+        assertEquals(LocalTime(21, 0).at(date, zone), logged.start)
+        assertEquals(LocalTime(22, 0).at(date, zone), logged.end)
+
+        val fix = orchestrator.correctWalk(date, LocalTime(21, 0).at(date, zone), 21 * 60, 21 * 60 + 35)
+        assertEquals(WalkFix.Ok(21 * 60, 21 * 60 + 35), fix)
+
+        val after = history.walks(date).single()
+        assertEquals(LocalTime(21, 0).at(date, zone), after.start)
+        assertEquals(LocalTime(21, 35).at(date, zone), after.end)
+        assertEquals("the steps stay as counted", 3_200L, after.steps)
+    }
+
+    @Test
+    fun dayBlockWalk_segmentFollows() = runBlocking {
+        clock.now = LocalTime(10, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        awaitBlockIndex(1)
+        assertTrue(orchestrator.startWalk(30))
+
+        clock.now = LocalTime(10, 30).at(date, zone)
+        orchestrator.handle(DayEvent.Next("walk-600"))
+        val logged = history.walks(date).single()
+        assertEquals(LocalTime(10, 0).at(date, zone), logged.start)
+        assertEquals(LocalTime(10, 30).at(date, zone), logged.end)
+
+        val fix = orchestrator.correctWalk(date, LocalTime(10, 0).at(date, zone), 10 * 60, 10 * 60 + 20)
+        assertEquals(WalkFix.Ok(10 * 60, 10 * 60 + 20), fix)
+
+        val walk = orchestrator.segments.value.single { it.type == BlockType.Walk }
+        assertEquals(LocalTime(10, 0).at(date, zone), walk.actualStart)
+        assertEquals(LocalTime(10, 20).at(date, zone), walk.actualEnd)
+        val next = orchestrator.segments.value.first { it.actualStart == LocalTime(10, 30).at(date, zone) }
+        assertEquals("the next segment still starts at 10:30", LocalTime(10, 30).at(date, zone), next.actualStart)
     }
 
     @Test

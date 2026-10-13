@@ -63,7 +63,7 @@ class AndroidWalkRinger @Inject constructor(
             }
             else -> return
         }
-        val notification = NotificationCompat.Builder(context, CHANNEL)
+        val builder = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_blocks)
             .setContentTitle(title)
             .setContentText(text)
@@ -76,7 +76,9 @@ class AndroidWalkRinger @Inject constructor(
             .setAutoCancel(true)
             .setTimeoutAfter(60_000)
             .addAction(0, "Stop", stopIntent())
-            .build()
+        // 3.4.1: the walk may have run on after Roni got home; this opens Home's "Fix the time" card.
+        if (kind == AlertKind.WALK_DONE) builder.addAction(0, "Fix the time", openAppIntent(context))
+        val notification = builder.build()
         // INSISTENT repeats the alarm sound until Roni taps Stop or dismisses it.
         notification.flags = notification.flags or Notification.FLAG_INSISTENT
         manager.notify(ID, notification)

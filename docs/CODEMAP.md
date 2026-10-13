@@ -34,7 +34,7 @@ Rules that hold everywhere:
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `core/daystate/DayOrchestrator.kt` | Single writer of the day's state: owns today's plan, applies events and plan edits, persists, pushes alarm/notification/history; `liveRecord()`/`correctPast()`/`onAppForeground()` (2.2.0); standalone walks `walkSession`/`walkPreview`/`startWalk`/`turnBack`/`endWalk` (2.4.0); step checkpoints and the evening flow `pendingEvening`/`switchEvening`/`skipDishes`/`resizeDishesTo` (2.5.0); a day picked before its first block waits: `startsAt`, `startNow()`, quiet until that block starts by itself (2.7.0); `placeBlock(id?, type, startMin, lengthMin)` for Home's sheet and the shared `commitPlan` (3.3.0); Dishes no longer ends itself (it ends on `skipDishes`/Next) and its reminders are quiet; drives: `onDrive(enter, at)` logs a `DriveLog` (steps shown, never subtracted, missed exits closed after 4h) and `simulateDrive()` (3.4.0) | DayStateMachine, ScheduleEngine, HistoryManager, PrefsStorage |
+| `core/daystate/DayOrchestrator.kt` | Single writer of the day's state: owns today's plan, applies events and plan edits, persists, pushes alarm/notification/history; `liveRecord()`/`correctPast()`/`onAppForeground()` (2.2.0); standalone walks `walkSession`/`walkPreview`/`startWalk`/`turnBack`/`endWalk` (2.4.0); step checkpoints and the evening flow `pendingEvening`/`switchEvening`/`skipDishes`/`resizeDishesTo` (2.5.0); a day picked before its first block waits: `startsAt`, `startNow()`, quiet until that block starts by itself (2.7.0); `placeBlock(id?, type, startMin, lengthMin)` for Home's sheet and the shared `commitPlan` (3.3.0); Dishes no longer ends itself (it ends on `skipDishes`/Next) and its reminders are quiet; drives: `onDrive(enter, at)` logs a `DriveLog` (steps shown, never subtracted, missed exits closed after 4h) and `simulateDrive()` (3.4.0); fixes a logged walk's times: `correctWalk(date, oldStart, newStartMin, newEndMin)` and the sheet's `walkBounds(date, oldStart)` (3.4.1) | DayStateMachine, ScheduleEngine, HistoryManager, PrefsStorage |
 | `core/daystate/DayState.kt` | `DayState` and `DayEvent` — the persisted vocabulary of a day | Model, ScheduleEngine |
 | `core/daystate/DayStateMachine.kt` | Every legal transition as one pure function | DayState, DayEvent |
 | `core/daystate/NotificationActionMapping.kt` | Maps notification buttons onto day events; new actions fail to compile unmapped | NotificationModel, DayStateMachine |
@@ -123,7 +123,7 @@ Rules that hold everywhere:
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `core/storage/HistoryManager.kt` | The only reader/writer of days and week aggregates; a version flow lets Home observe writes; `addWalk`/`walks`/`observeWalks` for standalone walks (2.4.0); each day's step total (2.5.0); `walksBetween` for a week's walks (3.4.0); `addDrive`/`drives`/`drivesBetween` for drives (3.4.0) | PrefsStorage, Model |
+| `core/storage/HistoryManager.kt` | The only reader/writer of days and week aggregates; a version flow lets Home observe writes; `addWalk`/`walks`/`observeWalks` for standalone walks (2.4.0); each day's step total (2.5.0); `walksBetween` for a week's walks (3.4.0); `addDrive`/`drives`/`drivesBetween` for drives (3.4.0); `replaceWalk(date, old, new)` corrects a logged walk in place (3.4.1) | PrefsStorage, Model |
 | `core/storage/PrefsStorage.kt` | SharedPreferences wrapper split into DAY / SETTINGS / HISTORY files; `exportAll`/`replaceAll` back up and restore every key (3.4.0) | android.content.SharedPreferences |
 | `core/storage/Backup.kt` | The backup file shape (3.4.0): `BackupFile` (app tag, versionCode, createdAt, every file's keys) and `Backup.encode`/`decode`/`canRestore` | Model |
 | `core/storage/Actions.kt` | The use cases the profile screens write through: `TemplateActions` (`createIn`/`save`/`delete`; a save tells a waiting day) and `CategoryActions` (update/add/delete, rewriting using blocks) (3.1.0); `ProfileActions` (create/rename/delete/switchTo/addTemplate/removeTemplate/setDay) (3.2.0) | TemplateStore, CategoryStore, DayOrchestrator |
@@ -161,6 +161,7 @@ Rules that hold everywhere:
 | path | what it does | talks to |
 | --- | --- | --- |
 | `core/walk/WalkClock.kt` | The only place walk time is computed (2.6.0): `view`/`turnSec`/`turnBackEnd`/`format` over epoch seconds | — |
+| `core/walk/WalkCorrection.kt` | The rule for moving a walk (3.4.1): `WalkFix` (`Ok`/`Refused`) and `WalkCorrection.check(startMin, endMin, floorMin, ceilMin, nowMin)` — at least 5 minutes, inside the day's bounds, never in the future | — |
 
 ## designsystem
 
