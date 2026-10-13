@@ -114,7 +114,7 @@ class TemplateEditorViewModelTest {
 
         val sheet = viewModel.state.value.sheet!!
         assertEquals("Coding runs until 11:30. Start at 11:30 or later.", sheet.line)
-        assertTrue(sheet.result is TemplateEdit.Refused)
+        assertTrue(sheet.lineIsError)
 
         // Save is disabled: the refused edit changes nothing in storage.
         val before = store.find(t.id)!!.blocks.size

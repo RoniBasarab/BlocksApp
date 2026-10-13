@@ -31,9 +31,12 @@ import com.roni.blocks.core.widget.WidgetPort
 import com.roni.blocks.core.schedule.CurrentBlock
 import com.roni.blocks.core.schedule.DayBook
 import com.roni.blocks.core.schedule.PlanEdit
+import com.roni.blocks.core.schedule.PlanBlock
 import com.roni.blocks.core.schedule.PlanEditor
 import com.roni.blocks.core.schedule.ScheduleEngine
 import com.roni.blocks.core.schedule.SegmentBook
+import com.roni.blocks.core.schedule.TodayEdit
+import com.roni.blocks.core.schedule.TodayEditor
 import com.roni.blocks.core.schedule.timelineAt
 import com.roni.blocks.core.schedule.toBlockSpecs
 import com.roni.blocks.core.schedule.toPlanBlocks
@@ -267,8 +270,45 @@ class DayOrchestrator @Inject constructor(
             logger.info("refusing plan edit $edit: not allowed or it changes nothing")
             return false
         }
+        commitPlan(edited)
+        logger.info("edited plan with $edit")
+        return true
+    }
+
+    /**
+     * Places block [id] (an existing block ahead, or a new one when [id] is null — the sheet's Add after)
+     * at [startMin] for [lengthMin] minutes (3.3.0), with [TodayEditor]'s rules and the orchestrator's own
+     * clock, then commits it. False when the edit isn't allowed or changes nothing.
+     */
+    suspend fun placeBlock(id: String?, type: BlockType, startMin: Int, lengthMin: Int): Boolean {
+        ensureRestored()
+        val state = _state.value
+        if (state !is DayState.Running && state !is DayState.Paused) return false
+        val plan = _todayPlan.value ?: return false
+        val current = currentForEditing() ?: return false
+        val nowMin = clock.now().toLocalDateTime(zone).time.let { it.hour * 60 + it.minute }
+        val planBlocks = plan.blocks.toPlanBlocks()
+        val edit = if (id == null) {
+            TodayEditor.place(planBlocks, TodayEditor.newId(planBlocks), type, startMin, lengthMin, nowMin, current)
+        } else {
+            TodayEditor.place(planBlocks, id, type, startMin, lengthMin, nowMin, current)
+        }
+        val placed = edit as? TodayEdit.Ok ?: return false
+        commitPlan(placed.blocks)
+        logger.info("placed block $id as $type at $startMin for $lengthMin min")
+        return true
+    }
+
+    /**
+     * Commits an edited plan (3.3.0): converts it back to specs, keeps the day on its block, follows the
+     * open segment with the new plan, and persists. Shared by [editPlan] and [placeBlock].
+     */
+    private suspend fun commitPlan(edited: List<PlanBlock>) {
+        val plan = _todayPlan.value ?: return
+        val state = _state.value
+        val current = currentForEditing()
         val blocks = edited.toBlockSpecs(plan.blocks)
-        val index = blocks.indexOfFirst { it.id == current.id }.coerceAtLeast(0)
+        val index = (current?.let { c -> blocks.indexOfFirst { it.id == c.id } } ?: -1).coerceAtLeast(0)
         _todayPlan.value = plan.copy(blocks = blocks, edited = true)
         _state.value = when (state) {
             is DayState.Running -> state.copy(blockIndex = index)
@@ -278,14 +318,15 @@ class DayOrchestrator @Inject constructor(
         // Ran over is measured against the edited plan, so the current block's open segment follows
         // the new plan: a planned segment takes its new end (and new type when retyped); a
         // synthetic-free segment from "Done early" takes the current block's new end (2.2.0).
-        val currentBlockSpec = blocks.firstOrNull { it.id == current.id }
+        val currentId = current?.id
+        val currentBlockSpec = currentId?.let { id -> blocks.firstOrNull { it.id == id } }
         val currentEnd = currentBlockSpec?.end?.at(today(), zone)
         val currentType = currentBlockSpec?.type
         book = book.copy(
             segments = book.segments.map { segment ->
                 if (segment.actualEnd == null) {
                     when {
-                        segment.blockId == current.id && segment.kind == SegmentKind.PLANNED ->
+                        segment.blockId == currentId && segment.kind == SegmentKind.PLANNED ->
                             segment.copy(
                                 plannedEnd = currentEnd ?: segment.plannedEnd,
                                 type = currentType ?: segment.type,
@@ -304,8 +345,6 @@ class DayOrchestrator @Inject constructor(
         reactedAt = clock.now()
         persist()
         sideEffects()
-        logger.info("edited plan with $edit")
-        return true
     }
 
     /**

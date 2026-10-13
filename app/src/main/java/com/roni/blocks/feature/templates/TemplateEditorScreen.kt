@@ -81,6 +81,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -96,18 +97,6 @@ data class TemplateRow(
     val detail: String,
     val isFree: Boolean,
     val color: Color,
-)
-
-/** What the block sheet is editing right now; [result] and [line] follow every change live. */
-@Immutable
-data class BlockSheetUi(
-    val id: String?,
-    val type: BlockType,
-    val startMin: Int,
-    val lengthMin: Int,
-    val isDayEnd: Boolean,
-    val result: TemplateEdit,
-    val line: String,
 )
 
 /** Everything the template editor shows: the template's display data, its rows, the open sheet. */
@@ -154,6 +143,36 @@ internal fun typeForCategory(info: CategoryInfo): BlockType = when (info.id) {
     else -> BlockType.Custom(info.id, info.name, info.colorArgb, info.work, info.pomodoro)
 }
 
+/** The dropdown's options: every category in use, then kid time. */
+private fun templateCategories() =
+    (Categories.current.builtIns.map { typeForCategory(it) } + Categories.current.customs.map { typeForCategory(it) } + BlockType.KidTime)
+        .toPersistentList()
+
+/** The template editor's own sheet state; [BlockSheetUi] is derived from it for the shared sheet. */
+private data class EditorSheet(
+    val id: String?,
+    val type: BlockType,
+    val startMin: Int,
+    val lengthMin: Int,
+    val isDayEnd: Boolean,
+    val result: TemplateEdit,
+    val line: String,
+) {
+    fun ui(use24: Boolean) = BlockSheetUi(
+        title = if (id == null) "New block" else blockName(type),
+        type = type,
+        categories = templateCategories(),
+        startMin = startMin,
+        lengthMin = if (isDayEnd) null else lengthMin,
+        lengthText = if (isDayEnd) "Until ${TimeFormatter.label(TemplateRules.DAY_END, use24)}" else null,
+        line = line.ifEmpty { null },
+        lineIsError = result !is TemplateEdit.Ok,
+        canSave = result is TemplateEdit.Ok,
+        canDelete = id != null && !isDayEnd,
+        canAddAfter = false,
+    )
+}
+
 private fun iconFor(key: String): ImageVector = when (key) {
     "fitness" -> Icons.Outlined.FitnessCenter
     "code" -> Icons.Outlined.Code
@@ -183,19 +202,19 @@ class TemplateEditorViewModel @Inject constructor(
 
     private var template: StoredTemplate? = null
     private var blocks: List<PlanBlock> = emptyList()
+    private var editorSheet: EditorSheet? = null
 
     fun load(templateId: TemplateId) {
         val t = store.find(templateId) ?: return
         template = t
         blocks = t.blocks.toPlanBlocks()
-        _state.update {
-            TemplateEditorState(
-                title = t.title,
-                iconKey = t.iconKey,
-                readOnly = store.isBuiltIn(t.id),
-                use24 = timeFormatter.use24.value,
-            ).painted()
-        }
+        editorSheet = null
+        _state.value = TemplateEditorState(
+            title = t.title,
+            iconKey = t.iconKey,
+            readOnly = store.isBuiltIn(t.id),
+            use24 = timeFormatter.use24.value,
+        ).painted()
     }
 
     fun onAction(action: TemplateEditorAction) = when (action) {
@@ -210,68 +229,81 @@ class TemplateEditorViewModel @Inject constructor(
     }
 
     fun onSheet(action: BlockSheetAction) {
-        val current = _state.value.sheet ?: return
+        val current = editorSheet ?: return
         when (action) {
-            is BlockSheetAction.Type -> _state.update { it.copy(sheet = recompute(current.copy(type = action.type))) }
-            is BlockSheetAction.StartBy -> {
-                val start = (current.startMin + action.minutes).coerceAtLeast(TemplateEditor.EARLIEST)
-                _state.update { it.copy(sheet = recompute(current.copy(startMin = start))) }
-            }
-            is BlockSheetAction.StartAt -> _state.update { it.copy(sheet = recompute(current.copy(startMin = action.minute))) }
-            is BlockSheetAction.LengthBy -> {
-                val length = (current.lengthMin + action.minutes).coerceIn(TemplateRules.MIN_BLOCK, MAX_LENGTH)
-                _state.update { it.copy(sheet = recompute(current.copy(lengthMin = length))) }
-            }
+            is BlockSheetAction.Type -> setSheet(current.copy(type = action.type))
+            is BlockSheetAction.StartBy ->
+                setSheet(current.copy(startMin = (current.startMin + action.minutes).coerceAtLeast(TemplateEditor.EARLIEST)))
+            is BlockSheetAction.StartAt -> setSheet(current.copy(startMin = action.minute))
+            is BlockSheetAction.LengthBy ->
+                setSheet(current.copy(lengthMin = (current.lengthMin + action.minutes).coerceIn(TemplateRules.MIN_BLOCK, MAX_LENGTH)))
+            BlockSheetAction.AddAfter -> Unit
             BlockSheetAction.Delete -> deleteSheetBlock()
             BlockSheetAction.Save -> saveSheet()
-            BlockSheetAction.Dismiss -> _state.update { it.copy(sheet = null) }
+            BlockSheetAction.Dismiss -> dismissSheet()
         }
+    }
+
+    private fun setSheet(sheet: EditorSheet) {
+        val recomputed = recompute(sheet)
+        editorSheet = recomputed
+        _state.update { it.copy(sheet = recomputed.ui(it.use24)) }
+    }
+
+    private fun dismissSheet() {
+        editorSheet = null
+        _state.update { it.copy(sheet = null) }
     }
 
     private fun openBlock(rowId: String) {
         if (_state.value.readOnly) return
         val b = blocks.firstOrNull { it.id == rowId } ?: return
-        val sheet = BlockSheetUi(
-            id = b.id,
-            type = b.type,
-            startMin = b.startMin,
-            lengthMin = b.length,
-            isDayEnd = b.id == TemplateEditor.dayEnd(blocks).id,
-            result = TemplateEdit.Ok(blocks),
-            line = "",
+        val dayEndId = if (blocks.isEmpty()) null else TemplateEditor.dayEnd(blocks).id
+        setSheet(
+            EditorSheet(
+                id = b.id,
+                type = b.type,
+                startMin = b.startMin,
+                lengthMin = b.length,
+                isDayEnd = b.id == dayEndId,
+                result = TemplateEdit.Ok(blocks),
+                line = "",
+            ),
         )
-        _state.update { it.copy(sheet = recompute(sheet)) }
     }
 
     private fun addBlock() {
         if (_state.value.readOnly) return
         val type = Categories.current.builtIns.firstOrNull { it.work }?.let { typeForCategory(it) } ?: BlockType.Cv
-        val sheet = BlockSheetUi(
-            id = null,
-            type = type,
-            startMin = TemplateEditor.addStart(blocks),
-            lengthMin = TemplateEditor.DEFAULT_LENGTH,
-            isDayEnd = false,
-            result = TemplateEdit.Ok(blocks),
-            line = "",
+        val start = if (blocks.isEmpty()) TemplateEditor.FIRST_START else TemplateEditor.addStart(blocks)
+        setSheet(
+            EditorSheet(
+                id = null,
+                type = type,
+                startMin = start,
+                lengthMin = TemplateEditor.DEFAULT_LENGTH,
+                isDayEnd = false,
+                result = TemplateEdit.Ok(blocks),
+                line = "",
+            ),
         )
-        _state.update { it.copy(sheet = recompute(sheet)) }
     }
 
     private fun saveSheet() {
-        val s = _state.value.sheet ?: return
+        val s = editorSheet ?: return
         val result = s.result as? TemplateEdit.Ok ?: return
         val t = template ?: return
         viewModelScope.launch {
             actions.save(t.copy(blocks = result.blocks.toBlockSpecs(t.blocks)))
             template = store.find(t.id)
             blocks = template?.blocks?.toPlanBlocks().orEmpty()
+            editorSheet = null
             _state.update { it.copy(sheet = null).painted() }
         }
     }
 
     private fun deleteSheetBlock() {
-        val s = _state.value.sheet ?: return
+        val s = editorSheet ?: return
         val rowId = s.id ?: return
         val result = TemplateEditor.delete(blocks, rowId) as? TemplateEdit.Ok ?: return
         val t = template ?: return
@@ -279,6 +311,7 @@ class TemplateEditorViewModel @Inject constructor(
             actions.save(t.copy(blocks = result.blocks.toBlockSpecs(t.blocks)))
             template = store.find(t.id)
             blocks = template?.blocks?.toPlanBlocks().orEmpty()
+            editorSheet = null
             _state.update { it.copy(sheet = null).painted() }
         }
     }
@@ -325,7 +358,7 @@ class TemplateEditorViewModel @Inject constructor(
         )
     }
 
-    private fun recompute(sheet: BlockSheetUi): BlockSheetUi {
+    private fun recompute(sheet: EditorSheet): EditorSheet {
         val prefix = template?.id?.key ?: return sheet
         val editId = sheet.id ?: TemplateEditor.newId(blocks, prefix)
         val result = TemplateEditor.place(blocks, editId, sheet.type, sheet.startMin, sheet.lengthMin, prefix)
@@ -333,6 +366,7 @@ class TemplateEditorViewModel @Inject constructor(
     }
 
     private fun rowsOf(): List<TemplateRow> {
+        if (blocks.isEmpty()) return emptyList()
         val use24 = _state.value.use24
         val sorted = blocks.sortedBy { it.startMin }
         val kidId = TemplateEditor.dayEnd(sorted).id
@@ -432,7 +466,13 @@ fun TemplateEditorScreen(state: TemplateEditorState, onAction: (TemplateEditorAc
                 )
             }
             Spacer(Modifier.height(Spacing.s))
-            if (state.readOnly) {
+            if (state.rows.isEmpty()) {
+                Text(
+                    "Off day has no blocks.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.textSecondary,
+                )
+            } else if (state.readOnly) {
                 Text(
                     "Built-in templates can't be changed. Make your own from blank in Templates.",
                     style = MaterialTheme.typography.bodyMedium,

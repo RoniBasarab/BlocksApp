@@ -77,6 +77,7 @@ import androidx.navigation3.runtime.NavKey
 import com.roni.blocks.BuildConfig
 import com.roni.blocks.core.daystate.DayEvent
 import com.roni.blocks.core.schedule.BlockEdit
+import com.roni.blocks.core.schedule.CurrentBlock
 import com.roni.blocks.core.schedule.DayTimeline
 import com.roni.blocks.core.schedule.Edge
 import com.roni.blocks.core.schedule.PlanBlock
@@ -85,6 +86,9 @@ import com.roni.blocks.core.schedule.PlanEditor
 import com.roni.blocks.core.schedule.RecordEdit
 import com.roni.blocks.core.schedule.SegmentSpan
 import com.roni.blocks.core.schedule.TimelinePhase
+import com.roni.blocks.core.schedule.TodayEdit
+import com.roni.blocks.core.schedule.TodayEditor
+import com.roni.blocks.core.schedule.TodayRefusal
 import com.roni.blocks.core.schedule.isEditable
 import com.roni.blocks.core.schedule.toBlockSpecs
 import com.roni.blocks.core.schedule.toPlanBlocks
@@ -98,6 +102,7 @@ import com.roni.blocks.core.debug.RecompositionCounter
 import com.roni.blocks.core.model.BlockSpec
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.CheckIn
+import com.roni.blocks.core.model.Categories
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
 import com.roni.blocks.core.model.isWork
@@ -132,6 +137,10 @@ import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.formatStepsApprox
 import com.roni.blocks.designsystem.templateDisplay
+import com.roni.blocks.feature.templates.BlockSheet
+import com.roni.blocks.feature.templates.BlockSheetAction
+import com.roni.blocks.feature.templates.BlockSheetUi
+import com.roni.blocks.feature.templates.typeForCategory
 import com.roni.blocks.feature.weekly.tabKey
 import com.roni.blocks.navigation.HistoryKey
 import com.roni.blocks.navigation.ProfilesKey
@@ -200,6 +209,15 @@ private val day: DayOrchestrator,
 
     /** The block a just-finished insert should select, so its handles show. */
     private var insertedBlockId: String? = null
+
+    /** The shared block sheet's state (3.3.0); null when it's closed. */
+    private var sheet: BlockSheetUi? = null
+    /** The block the sheet edits; null for a new (Add after) block. */
+    private var sheetId: String? = null
+    /** Which edit the sheet is doing: the block ahead, or the running block. */
+    private var sheetMode: BlockEdit = BlockEdit.NONE
+    /** The sheet's block start in the committed plan, for the running block's Resize. */
+    private var sheetPlanStart: Int = 0
 
     /** The calendar's real text heights (2.6.1); [HomeAction.TextMeasured] replaces it and re-publishes. */
     private var textMetrics = TextMetrics()
@@ -372,8 +390,8 @@ private val day: DayOrchestrator,
             }
             is HomeAction.StepEdge -> if (action.id == EVENING_DISHES_ID) stepDishes(action.byMin)
                 else stepEdge(action.id, action.edge, action.byMin)
-            is HomeAction.Retype -> commitEdit(PlanEdit.Retype(action.id, action.type))
-            is HomeAction.Insert -> insertBlock(action.id, action.type)
+            is HomeAction.OpenBlock -> openBlockSheet(action.id)
+            is HomeAction.Sheet -> onSheet(action.action)
             is HomeAction.LockedBlockTapped -> {
                 val block = _state.value.blocks.firstOrNull { it.id == action.id }
                 val row = block?.let { recapRowForBlock(it) }
@@ -437,18 +455,224 @@ private val day: DayOrchestrator,
         resizeDishes(endMin + byMin)
     }
 
-    private fun insertBlock(id: String, type: BlockType) {
-        val free = day.todayPlan.value?.blocks?.firstOrNull { it.id == id } ?: return
+    // ── The shared block sheet (3.3.0) ──────────────────────────────────────────────────────────
+
+    /** Opens the sheet for an editable block; the running block and blocks ahead edit differently. */
+    private fun openBlockSheet(id: String) {
+        val plan = day.todayPlan.value?.blocks?.toPlanBlocks() ?: return
+        val block = plan.firstOrNull { it.id == id } ?: return
         val nowMin = clock.now().minuteOfDay(zone)
-        val start = maxOf(free.start.hour * 60 + free.start.minute, snapUp(nowMin + PlanEditor.SNAP))
+        val current = day.currentForEditing()
+        val mode = PlanEditor.editMode(plan, id, nowMin, current)
+        if (mode == BlockEdit.NONE) return
+        sheetId = id
+        sheetMode = mode
+        sheetPlanStart = block.startMin
+        insertedBlockId = id
+        sheet = if (mode == BlockEdit.END_AND_TYPE || mode == BlockEdit.END_ONLY) {
+            runningSheet(plan, block, mode, nowMin, current)
+        } else {
+            aheadSheet(plan, block, mode, nowMin, current)
+        }
+    }
+
+    /** A block ahead of the day: category, start, length, Add after and (unless free) Delete. */
+    private fun aheadSheet(plan: List<PlanBlock>, block: PlanBlock, mode: BlockEdit, nowMin: Int, current: CurrentBlock?): BlockSheetUi {
+        val (line, error) = aheadLine(plan, block.id, block.type, block.startMin, block.length, nowMin, current)
+        return BlockSheetUi(
+            title = blockTitle(block.type),
+            type = block.type,
+            categories = homeCategories(),
+            startMin = block.startMin,
+            lengthMin = block.length,
+            line = line,
+            lineIsError = error,
+            canSave = !error,
+            canDelete = block.type != BlockType.Free,
+            canAddAfter = true,
+        )
+    }
+
+    /** The running block: category (only while it can be retyped), length (its end), Add after; no Delete/Start. */
+    private fun runningSheet(plan: List<PlanBlock>, block: PlanBlock, mode: BlockEdit, nowMin: Int, current: CurrentBlock?): BlockSheetUi {
+        val (line, error) = runningLine(plan, block.id, block.type, block.length, nowMin, current)
+        return BlockSheetUi(
+            title = blockTitle(block.type),
+            type = block.type,
+            categories = if (mode == BlockEdit.END_AND_TYPE) workCategories().toPersistentList() else persistentListOf(),
+            startMin = null,
+            lengthMin = block.length,
+            line = line,
+            lineIsError = error,
+            canSave = true,
+            canDelete = false,
+            canAddAfter = true,
+        )
+    }
+
+    private fun onSheet(action: BlockSheetAction) {
+        val ui = sheet ?: return
+        when (action) {
+            is BlockSheetAction.Type -> editSheet(type = action.type)
+            is BlockSheetAction.StartBy -> editSheet(startMin = (ui.startMin ?: sheetPlanStart) + action.minutes)
+            is BlockSheetAction.StartAt -> editSheet(startMin = action.minute)
+            is BlockSheetAction.LengthBy -> editSheet(lengthMin = (ui.lengthMin ?: 0) + action.minutes)
+            BlockSheetAction.AddAfter -> addAfter()
+            BlockSheetAction.Delete -> deleteSheetBlock()
+            BlockSheetAction.Save -> saveSheet()
+            BlockSheetAction.Dismiss -> dismissSheet()
+        }
+    }
+
+    /** Recomputes the sheet's live line after one change; nothing is committed until Save. */
+    private fun editSheet(type: BlockType? = null, startMin: Int? = null, lengthMin: Int? = null) {
+        val ui = sheet ?: return
+        val id = sheetId ?: return
+        val plan = day.todayPlan.value?.blocks?.toPlanBlocks() ?: return
+        val nowMin = clock.now().minuteOfDay(zone)
+        val current = day.currentForEditing()
+        val newType = type ?: ui.type
+        if (sheetMode == BlockEdit.END_AND_TYPE || sheetMode == BlockEdit.END_ONLY) {
+            val length = (lengthMin ?: ui.lengthMin ?: PlanEditor.MIN_WORK).coerceAtLeast(PlanEditor.MIN_WORK)
+            val (line, error) = runningLine(plan, id, newType, length, nowMin, current)
+            sheet = ui.copy(type = newType, lengthMin = length, line = line, lineIsError = error)
+        } else {
+            val start = startMin ?: ui.startMin ?: sheetPlanStart
+            val length = lengthMin ?: ui.lengthMin ?: PlanEditor.MIN_WORK
+            val (line, error) = aheadLine(plan, id, newType, start, length, nowMin, current)
+            sheet = ui.copy(
+                type = newType,
+                startMin = start,
+                lengthMin = length,
+                line = line,
+                lineIsError = error,
+                canSave = !error,
+                canDelete = newType != BlockType.Free,
+            )
+        }
+    }
+
+    /** "Add after": a new block right after the sheet's block; the sheet switches to it, uncommitted. */
+    private fun addAfter() {
+        val id = sheetId ?: return
+        val plan = day.todayPlan.value?.blocks?.toPlanBlocks() ?: return
+        val nowMin = clock.now().minuteOfDay(zone)
+        val current = day.currentForEditing()
+        val type = workCategories().firstOrNull() ?: BlockType.Cv
+        val result = TodayEditor.addAfter(plan, id, type, nowMin, current) as? TodayEdit.Ok ?: return
+        val newId = TodayEditor.newId(plan)
+        val added = result.blocks.firstOrNull { it.id == newId } ?: return
+        sheetId = null
+        sheetMode = BlockEdit.FULL
+        sheetPlanStart = added.startMin
+        insertedBlockId = null
+        sheet = BlockSheetUi(
+            title = blockTitle(added.type),
+            type = added.type,
+            categories = homeCategories(),
+            startMin = added.startMin,
+            lengthMin = added.length,
+            line = movedLine(plan, result.blocks, added.id),
+            lineIsError = false,
+            canSave = true,
+            canDelete = added.type != BlockType.Free,
+            canAddAfter = true,
+        )
+    }
+
+    private fun saveSheet() {
+        val ui = sheet ?: return
+        val id = sheetId
+        if (sheetMode == BlockEdit.END_AND_TYPE || sheetMode == BlockEdit.END_ONLY) {
+            val plan = day.todayPlan.value?.blocks?.toPlanBlocks() ?: return
+            val original = plan.firstOrNull { it.id == id } ?: return
+            val type = ui.type
+            val length = ui.lengthMin ?: original.length
+            dismissSheet()
+            viewModelScope.launch {
+                if (type != original.type) day.editPlan(PlanEdit.Retype(original.id, type))
+                if (length != original.length) day.editPlan(PlanEdit.Resize(original.id, Edge.BOTTOM, original.startMin + length))
+                publish(day.state.value)
+            }
+            return
+        }
+        val start = ui.startMin ?: return
+        val length = ui.lengthMin ?: return
+        val type = ui.type
+        dismissSheet()
         viewModelScope.launch {
-            if (!day.editPlan(PlanEdit.Insert(id, type))) return@launch
-            insertedBlockId = day.todayPlan.value?.blocks?.firstOrNull {
-                it.type == type && it.start.hour * 60 + it.start.minute == start
-            }?.id
-            preview = null
-            draggingId = null
+            day.placeBlock(id, type, start, length)
             publish(day.state.value)
+        }
+    }
+
+    private fun deleteSheetBlock() {
+        val id = sheetId ?: return
+        dismissSheet()
+        viewModelScope.launch {
+            day.editPlan(PlanEdit.Retype(id, BlockType.Free))
+            publish(day.state.value)
+        }
+    }
+
+    private fun dismissSheet() {
+        sheet = null
+        sheetId = null
+        sheetMode = BlockEdit.NONE
+    }
+
+    /** The work categories in use plus Free, for a block ahead (3.3.0). */
+    private fun homeCategories() = (workCategories() + BlockType.Free).toPersistentList()
+
+    private fun workCategories(): List<BlockType> = buildList {
+        Categories.current.builtIns.filter { it.work }.forEach { add(typeForCategory(it)) }
+        Categories.current.customs.filter { it.work }.forEach { add(typeForCategory(it)) }
+    }
+
+    /** The live line for a block ahead: what moves, or why TodayEditor refused (3.3.0). */
+    private fun aheadLine(plan: List<PlanBlock>, id: String, type: BlockType, start: Int, length: Int, nowMin: Int, current: CurrentBlock?): Pair<String?, Boolean> =
+        when (val result = TodayEditor.place(plan, id, type, start, length, nowMin, current)) {
+            is TodayEdit.Ok -> movedLine(plan, result.blocks, id) to false
+            is TodayEdit.Refused -> todayRefusalLine(plan, result.why) to true
+        }
+
+    /** The live line for the running block: PlanEditor (Retype, then Resize BOTTOM), as EditCard did. */
+    private fun runningLine(plan: List<PlanBlock>, id: String, type: BlockType, length: Int, nowMin: Int, current: CurrentBlock?): Pair<String?, Boolean> {
+        val original = plan.firstOrNull { it.id == id } ?: return null to false
+        var blocks = plan
+        if (type != original.type) {
+            blocks = PlanEditor.apply(blocks, PlanEdit.Retype(id, type), nowMin, current) ?: plan
+        }
+        val start = blocks.firstOrNull { it.id == id }?.startMin ?: original.startMin
+        val resized = PlanEditor.apply(blocks, PlanEdit.Resize(id, Edge.BOTTOM, start + length), nowMin, current) ?: blocks
+        return movedLine(plan, resized, id) to false
+    }
+
+    /** "Moves later: Coding, Gym": non-free blocks other than the edited one whose start changed. */
+    private fun movedLine(before: List<PlanBlock>, after: List<PlanBlock>, editId: String): String? {
+        val original = before.associateBy { it.id }
+        val moved = after.sortedBy { it.startMin }.filter {
+            it.id != editId && it.type != BlockType.Free &&
+                original[it.id] != null && original.getValue(it.id).startMin != it.startMin
+        }
+        return if (moved.isEmpty()) null else "Moves later: " + moved.joinToString(", ") { blockTitle(it.type) }
+    }
+
+    private fun todayRefusalLine(plan: List<PlanBlock>, why: TodayRefusal): String {
+        val use24 = timeFormatter.use24.value
+        return when (why) {
+            TodayRefusal.Locked -> "This block can't be changed now."
+            is TodayRefusal.TooSoon -> "Starts at ${label(why.floorMin, use24)} at the earliest."
+            TodayRefusal.TooShort -> "A block is at least 10 minutes."
+            is TodayRefusal.StartsInside -> {
+                val at = label(why.endMin, use24)
+                "${plan.firstOrNull { it.id == why.id }?.let { blockTitle(it.type) } ?: "A block"} runs until $at. Start at $at or later."
+            }
+            is TodayRefusal.NoRoom -> when {
+                why.id == null -> "No room before ${label(PlanEditor.DAY_END, use24)}."
+                plan.firstOrNull { it.id == why.id }?.type == BlockType.KidTime -> "No room before kid time at ${label(why.atMin, use24)}."
+                else -> "No room before your walk at ${label(why.atMin, use24)}."
+            }
         }
     }
 
@@ -699,6 +923,9 @@ private val day: DayOrchestrator,
         if (dayState is DayState.Ended || dayState is DayState.Off || dayState is DayState.NotStarted) {
             preview = null
             draggingId = null
+            sheet = null
+            sheetId = null
+            sheetMode = BlockEdit.NONE
         }
         // The evening sheet opens once when Dishes starts (2.5.0); dismissing it is fine, and the
         // card's "Choose evening" reopens it. Outside the evening it is always closed.
@@ -745,6 +972,8 @@ private val day: DayOrchestrator,
             eveningSheetOpen = eveningSheetOpen,
             draggingId = draggingId,
             selectId = insertedBlockId,
+            sheet = sheet,
+            sheetId = sheetId,
             use24 = timeFormatter.use24.value,
             calendarStartMin = calendarStartMin,
         )
@@ -1203,13 +1432,7 @@ fun HomeScreen(
     LaunchedEffect(textMetrics) {
         onAction(HomeAction.TextMeasured(textMetrics))
     }
-    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
-    val selected = state.blocks.firstOrNull { it.id == selectedId }?.takeIf { it.edit != BlockEdit.NONE }
     var correcting by remember { mutableStateOf<RecapRow?>(null) }
-
-    LaunchedEffect(state.selectId) {
-        state.selectId?.let { selectedId = it }
-    }
 
     LaunchedEffect(state.currentBlockId) {
         val start = state.blocks.firstOrNull { it.id == state.currentBlockId }?.startMin
@@ -1220,7 +1443,7 @@ fun HomeScreen(
         scroll.animateScrollTo(target.toInt().coerceAtLeast(0))
     }
 
-    BackHandler(enabled = selected != null) { selectedId = null }
+    BackHandler(enabled = state.sheet != null) { onAction(HomeAction.Sheet(BlockSheetAction.Dismiss)) }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -1272,10 +1495,10 @@ fun HomeScreen(
                         if (block != null && block.edit == BlockEdit.NONE) {
                             onAction(HomeAction.LockedBlockTapped(clicked))
                         } else {
-                            selectedId = if (selectedId == clicked) null else clicked
+                            onAction(HomeAction.OpenBlock(clicked))
                         }
                     },
-                    selectedBlockId = selected?.id,
+                    selectedBlockId = state.sheetId ?: state.selectId,
                     draggingId = state.draggingId,
                     onAction = onAction,
                     modifier = Modifier.weight(1f).testTag("home_calendar"),
@@ -1283,16 +1506,7 @@ fun HomeScreen(
             }
         }
         if (state.recap == null) {
-            if (selected != null) {
-                EditCard(
-                    block = selected,
-                    onDone = { selectedId = null },
-                    onAction = onAction,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(horizontal = Spacing.l, vertical = Spacing.s),
-                )
-            } else state.walkCard?.let { ui ->
+            state.walkCard?.let { ui ->
                 WalkCard(
                     ui = ui,
                     view = walkView,
@@ -1322,6 +1536,13 @@ fun HomeScreen(
         EveningChoiceSheet(
             onPick = { onAction(HomeAction.PickEvening(it)) },
             onDismiss = { onAction(HomeAction.DismissEveningSheet) },
+        )
+    }
+    state.sheet?.let { ui ->
+        BlockSheet(
+            ui = ui,
+            use24 = state.use24,
+            onAction = { onAction(HomeAction.Sheet(it)) },
         )
     }
     state.walkSheet?.let { sheet ->
