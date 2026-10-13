@@ -9,6 +9,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -31,9 +32,15 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -63,6 +70,9 @@ import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.model.BlockSpec
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.TemplateId
+import com.roni.blocks.core.model.shortFor
+import com.roni.blocks.core.profiles.Profiles
+import com.roni.blocks.core.storage.ProfileActions
 import com.roni.blocks.core.storage.TemplateStore
 import com.roni.blocks.core.time.Ticker
 import com.roni.blocks.designsystem.AppBackground
@@ -75,6 +85,8 @@ import com.roni.blocks.designsystem.Metrics
 import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.blockColors
 import com.roni.blocks.designsystem.templateDisplay
+import com.roni.blocks.feature.profiles.HowToAction
+import com.roni.blocks.feature.profiles.HowToUse
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlin.math.PI
@@ -92,6 +104,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.TimeZone
@@ -108,6 +121,8 @@ data class PickerCard(
     val suggested: Boolean,
     val outlined: Boolean,
     val strip: ImmutableList<Pair<Color, Float>>,
+    /** "MON · THU" from the active profile, or "" when no day suggests it (3.2.0). */
+    val days: String = "",
 )
 
 @Immutable
@@ -115,10 +130,21 @@ data class PickerUiState(
     val greeting: String = "",
     val date: String = "",
     val cards: ImmutableList<PickerCard> = persistentListOf(),
+    val profileName: String = "",
+    val profiles: ImmutableList<Pair<String, String>> = persistentListOf(),
+    val profileMenu: Boolean = false,
+    val howTo: Boolean = false,
+    val howToPage: Int = 0,
 )
 
 sealed interface PickerAction {
     data class Pick(val id: TemplateId) : PickerAction
+    data object OpenProfileMenu : PickerAction
+    data class SwitchProfile(val id: String) : PickerAction
+    data object DismissProfileMenu : PickerAction
+    data object HowTo : PickerAction
+    data class HowToPage(val page: Int) : PickerAction
+    data object CloseHowTo : PickerAction
 }
 
 /** What the picker asks the screen around it to do once a pick is applied. */
@@ -138,6 +164,7 @@ sealed interface PickerEffect {
 class TemplatePickerViewModel @Inject constructor(
     private val day: DayOrchestrator,
     private val templates: TemplateStore,
+    private val profiles: ProfileActions,
     private val ticker: Ticker,
     private val clock: Clock,
     private val zone: TimeZone,
@@ -159,33 +186,52 @@ class TemplatePickerViewModel @Inject constructor(
     }
 
     fun onAction(action: PickerAction) {
-        if (action is PickerAction.Pick) {
-            if (action.id == TemplateId.OFF) day.send(DayEvent.TakeOffDay) else day.send(DayEvent.StartDay(action.id))
-            viewModelScope.launch { _effects.emit(PickerEffect.Started) }
+        when (action) {
+            is PickerAction.Pick -> {
+                if (action.id == TemplateId.OFF) day.send(DayEvent.TakeOffDay) else day.send(DayEvent.StartDay(action.id))
+                viewModelScope.launch { _effects.emit(PickerEffect.Started) }
+            }
+            PickerAction.OpenProfileMenu -> _state.update { it.copy(profileMenu = true) }
+            is PickerAction.SwitchProfile -> {
+                _state.update { it.copy(profileMenu = false) }
+                viewModelScope.launch { profiles.switchTo(action.id) }
+            }
+            PickerAction.DismissProfileMenu -> _state.update { it.copy(profileMenu = false) }
+            PickerAction.HowTo -> _state.update { it.copy(howTo = true, howToPage = 0) }
+            is PickerAction.HowToPage -> _state.update { it.copy(howToPage = action.page) }
+            PickerAction.CloseHowTo -> _state.update { it.copy(howTo = false) }
         }
     }
 
     private fun publish() {
         val local = clock.now().toLocalDateTime(zone)
-        val today = todayTemplate(local.dayOfWeek)
-        _state.value = PickerUiState(
-            greeting = greetingFor(local.hour),
-            date = "${local.dayOfWeek.title()}, ${local.day} ${local.month.name.title()}",
-            cards = templates.all().map { template ->
-                val display = templateDisplay(template.id)
-                PickerCard(
-                    id = template.id,
-                    title = display.title,
-                    subtitle = display.subtitle,
-                    summary = summarize(template.blocks),
-                    icon = display.icon,
-                    accent = display.accent,
-                    suggested = template.id == today,
-                    outlined = template.id == TemplateId.OFF,
-                    strip = stripFor(template.blocks),
-                )
-            }.toPersistentList(),
-        )
+        val today = templates.suggestedFor(local.dayOfWeek)
+        val book = templates.profiles.value
+        val cards = templates.all().map { template ->
+            val display = templateDisplay(template.id)
+            val days = Profiles.daysOf(book.active, template.id)
+            PickerCard(
+                id = template.id,
+                title = display.title,
+                subtitle = display.subtitle,
+                summary = summarize(template.blocks),
+                icon = display.icon,
+                accent = display.accent,
+                suggested = template.id == today,
+                outlined = template.id == TemplateId.OFF,
+                strip = stripFor(template.blocks),
+                days = if (days.isEmpty()) "" else shortFor(days),
+            )
+        }.toPersistentList()
+        _state.update {
+            it.copy(
+                greeting = greetingFor(local.hour),
+                date = "${local.dayOfWeek.title()}, ${local.day} ${local.month.name.title()}",
+                cards = cards,
+                profileName = book.active.name,
+                profiles = book.profiles.map { profile -> profile.id to profile.name }.toPersistentList(),
+            )
+        }
     }
 }
 
@@ -316,6 +362,32 @@ fun TemplatePickerScreen(state: PickerUiState, onAction: (PickerAction) -> Unit)
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Box {
+                            Box(Modifier.testTag("picker_profile").clickable { onAction(PickerAction.OpenProfileMenu) }) {
+                                AppChip("${state.profileName} ▾", colors.primary)
+                            }
+                            DropdownMenu(
+                                expanded = state.profileMenu,
+                                onDismissRequest = { onAction(PickerAction.DismissProfileMenu) },
+                                shape = AppShapes.card,
+                            ) {
+                                state.profiles.forEach { (id, name) ->
+                                    DropdownMenuItem(
+                                        text = { Text(name) },
+                                        onClick = { onAction(PickerAction.SwitchProfile(id)) },
+                                        trailingIcon = if (name == state.profileName) {
+                                            { Icon(Icons.Outlined.Check, "Active") }
+                                        } else null,
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.weight(1f))
+                        IconButton(onClick = { onAction(PickerAction.HowTo) }, modifier = Modifier.testTag("how_to")) {
+                            Icon(Icons.Outlined.HelpOutline, "How to use")
+                        }
+                    }
                     Text(
                         "${state.greeting}, Roni",
                         style = MaterialTheme.typography.headlineSmall,
@@ -346,6 +418,16 @@ fun TemplatePickerScreen(state: PickerUiState, onAction: (PickerAction) -> Unit)
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = Spacing.l),
+                )
+            }
+        }
+        if (state.howTo) {
+            HowToUse(state.howToPage) { howToAction ->
+                onAction(
+                    when (howToAction) {
+                        is HowToAction.Page -> PickerAction.HowToPage(howToAction.page)
+                        HowToAction.Close -> PickerAction.CloseHowTo
+                    },
                 )
             }
         }
@@ -419,6 +501,15 @@ private fun TemplateCard(card: PickerCard, index: Int, onClick: () -> Unit) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                if (card.days.isNotEmpty()) {
+                    Text(
+                        card.days,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             Column {
                 Text(

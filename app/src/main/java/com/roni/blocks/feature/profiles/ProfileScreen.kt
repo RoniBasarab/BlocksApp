@@ -115,6 +115,7 @@ data class ProfileState(
     val confirmDelete: Boolean = false,
     val error: String? = null,
     val howTo: Boolean = false,
+    val howToPage: Int = 0,
 )
 
 sealed interface ProfileAction {
@@ -133,6 +134,7 @@ sealed interface ProfileAction {
     data object ConfirmDelete : ProfileAction
     data object DismissSheet : ProfileAction
     data object HowTo : ProfileAction
+    data class HowToPage(val page: Int) : ProfileAction
     data object CloseHowTo : ProfileAction
 }
 
@@ -195,7 +197,8 @@ class ProfileViewModel @Inject constructor(
             ProfileAction.DismissSheet -> _state.update {
                 it.copy(dayPicker = null, addExisting = null, newTemplate = null, confirmDelete = false)
             }
-            ProfileAction.HowTo -> _state.update { it.copy(howTo = true) }
+            ProfileAction.HowTo -> _state.update { it.copy(howTo = true, howToPage = 0) }
+            is ProfileAction.HowToPage -> _state.update { it.copy(howToPage = action.page) }
             ProfileAction.CloseHowTo -> _state.update { it.copy(howTo = false) }
         }
     }
@@ -397,7 +400,14 @@ fun ProfileScreen(state: ProfileState, onAction: (ProfileAction) -> Unit, onBack
             state.newTemplate?.let { NewTemplateDialog(it, onAction) }
             if (state.confirmDelete) DeleteDialog(state.name, onAction)
             if (state.howTo) {
-                Box(Modifier.fillMaxSize().background(colors.background).clickable { onAction(ProfileAction.CloseHowTo) }.testTag("how_to_placeholder"))
+                HowToUse(state.howToPage) { howToAction ->
+                    onAction(
+                        when (howToAction) {
+                            is HowToAction.Page -> ProfileAction.HowToPage(howToAction.page)
+                            HowToAction.Close -> ProfileAction.CloseHowTo
+                        },
+                    )
+                }
             }
         }
     }

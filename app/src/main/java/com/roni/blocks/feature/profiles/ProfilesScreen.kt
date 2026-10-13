@@ -90,6 +90,7 @@ data class ProfilesState(
     val showHint: Boolean = false,
     val newProfile: NewProfileUi? = null,
     val howTo: Boolean = false,
+    val howToPage: Int = 0,
 )
 
 sealed interface ProfilesAction {
@@ -101,6 +102,7 @@ sealed interface ProfilesAction {
     data object DismissNew : ProfilesAction
     data object OpenCategories : ProfilesAction
     data object HowTo : ProfilesAction
+    data class HowToPage(val page: Int) : ProfilesAction
     data object CloseHowTo : ProfilesAction
 }
 
@@ -144,9 +146,10 @@ class ProfilesViewModel @Inject constructor(
             ProfilesAction.DismissNew -> _state.update { it.copy(newProfile = null) }
             ProfilesAction.OpenCategories -> viewModelScope.launch { _effects.emit(ProfilesEffect.OpenCategories) }
             ProfilesAction.HowTo -> {
-                _state.update { it.copy(howTo = true, showHint = false) }
+                _state.update { it.copy(howTo = true, howToPage = 0, showHint = false) }
                 viewModelScope.launch { prefs.write(PrefsFile.SETTINGS, HOW_TO_SEEN, true, Boolean.serializer()) }
             }
+            is ProfilesAction.HowToPage -> _state.update { it.copy(howToPage = action.page) }
             ProfilesAction.CloseHowTo -> _state.update { it.copy(howTo = false) }
         }
     }
@@ -268,7 +271,14 @@ fun ProfilesScreen(state: ProfilesState, onAction: (ProfilesAction) -> Unit, onB
             }
             state.newProfile?.let { ui -> NewProfileDialog(ui = ui, onAction = onAction) }
             if (state.howTo) {
-                Box(Modifier.fillMaxSize().background(AppTheme.colors.background).clickable { onAction(ProfilesAction.CloseHowTo) }.testTag("how_to_placeholder"))
+                HowToUse(state.howToPage) { howToAction ->
+                    onAction(
+                        when (howToAction) {
+                            is HowToAction.Page -> ProfilesAction.HowToPage(howToAction.page)
+                            HowToAction.Close -> ProfilesAction.CloseHowTo
+                        },
+                    )
+                }
             }
         }
     }
