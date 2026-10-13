@@ -61,7 +61,7 @@ import com.roni.blocks.designsystem.Secondary
 import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.TextSecondary
 import com.roni.blocks.designsystem.blockColors
-import com.roni.blocks.designsystem.formatSteps
+import com.roni.blocks.designsystem.formatStepsApprox
 import com.roni.blocks.designsystem.templateDisplay
 import com.roni.blocks.feature.home.CorrectBlockSheet
 import com.roni.blocks.feature.home.DayRecapMapper
@@ -333,7 +333,7 @@ class HistoryDetailViewModel @Inject constructor(
                             recap = DayRecapMapper.map(it, timeFormatter.use24.value, checkInTitle = "How was this day?"),
                             use24 = timeFormatter.use24.value,
                             walks = logs.map(::walkLine),
-                            steps = steps?.let { value -> "${formatSteps(value)} steps" },
+                            steps = steps?.let { value -> "About ${formatStepsApprox(value)} steps" },
                         )
                     }
                 }
@@ -343,7 +343,7 @@ class HistoryDetailViewModel @Inject constructor(
     private fun walkLine(log: WalkLog): String {
         val t = timeFormatter
         val line = "Walk · ${t.label(log.start.minuteOfDay(zone))}–${t.label(log.end.minuteOfDay(zone))} · ${(log.end - log.start).inWholeMinutes} min"
-        return log.steps?.let { "$line · ${formatSteps(it)} steps" } ?: line
+        return log.steps?.let { "$line · about ${formatStepsApprox(it)} steps" } ?: line
     }
 
     fun checkIn(pick: CheckIn) {

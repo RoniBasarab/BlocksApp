@@ -104,4 +104,14 @@ class StartEarlyWalkTest {
         assertEquals("walk-600 Walk 10:00-10:16 | coding_am@630 Coding 10:16-11:30", r.subList(2, 4).show())
         assertNull(PlanEditor.shortenWalk(walked, "walk-600", t(10, 40)))
     }
+
+    @Test
+    fun startNow_beforeTheDay_movesTheFirstBlockToNow() {
+        val r = PlanEditor.startFirstNow(day, t(7, 40))!!
+        assertEquals("cv Cv 07:40-08:10 | edit-1 Free 08:10-09:30 | coding_am Coding 09:30-11:30", r.take(3).show())
+        assertNull(PlanEditor.startFirstNow(day, t(9, 0)))                    // already due: the normal start
+        val friSat = listOf(PlanBlock("kid_am", BlockType.KidTime, t(9, 0), t(13, 0)), PlanBlock("free", BlockType.Free, t(13, 0), t(15, 0)))
+        assertEquals("kid_am KidTime 08:15-13:00", PlanEditor.startFirstNow(friSat, t(8, 15))!!.first().let { "${it.id} KidTime ${hm(it.startMin)}-${hm(it.endMin)}" })
+        assertNull(PlanEditor.startFirstNow(emptyList(), t(8, 0)))
+    }
 }

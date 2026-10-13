@@ -126,7 +126,7 @@ import com.roni.blocks.designsystem.AppType
 import com.roni.blocks.designsystem.Metrics
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.Spacing
-import com.roni.blocks.designsystem.formatSteps
+import com.roni.blocks.designsystem.formatStepsApprox
 import com.roni.blocks.designsystem.templateDisplay
 import com.roni.blocks.feature.weekly.tabKey
 import com.roni.blocks.navigation.HistoryKey
@@ -231,7 +231,7 @@ private val day: DayOrchestrator,
 
     /** "5,240 steps" for the top bar (2.5.0): the saved total plus the live reading; never written. */
     val stepsLabel: StateFlow<String?> =
-        combine(day.todaySteps, day.liveSteps) { saved, live -> (live ?: saved)?.let { "${formatSteps(it)} steps" } }
+        combine(day.todaySteps, day.liveSteps) { saved, live -> (live ?: saved)?.let { "about ${formatStepsApprox(it)} steps" } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {
@@ -250,6 +250,11 @@ private val day: DayOrchestrator,
         viewModelScope.launch {
             // Picking during Dishes only moves the pending choice, not the state or the segments (2.5.0).
             day.pendingEvening.collect { publish(day.state.value) }
+        }
+        viewModelScope.launch {
+            // The first block's start is written in persist(), after the state and the segments
+            // (2.7.0), so it needs its own collector to flip Home into the waiting card.
+            day.startsAt.collect { publish(day.state.value) }
         }
         viewModelScope.launch {
             history.observeWalks(clock.now().toLocalDateTime(zone).date).collect { logs ->
@@ -318,6 +323,10 @@ private val day: DayOrchestrator,
             HomeAction.Pause -> day.send(DayEvent.Pause)
             HomeAction.Emergency -> day.send(DayEvent.EndDay(EndReason.EMERGENCY))
             HomeAction.Resume -> day.send(DayEvent.Resume)
+            HomeAction.StartNow -> viewModelScope.launch {
+                day.startNow()
+                publish(day.state.value)
+            }
             HomeAction.KidAsleep -> day.send(DayEvent.KidAsleep)
             HomeAction.ChooseEvening -> eveningSheetOpen = true
             HomeAction.SkipDishes -> viewModelScope.launch {
@@ -555,7 +564,13 @@ private val day: DayOrchestrator,
         val doneEarly = dayState is DayState.Running && openAny?.kind == SegmentKind.SYNTHETIC_FREE
         val specs = preview?.let { pv -> todayPlan?.blocks?.let { pv.toBlockSpecs(it) } } ?: template?.blocks
         val daySpecs = specs?.let { withEvening(it, segments, day.pendingEvening.value) }
-        val index = currentIndex(dayState, daySpecs)
+        // 2.7.0: picked before its first block, the day waits: no current block, and the calendar
+        // starts at min(08:00, the first start rounded down to the hour).
+        val startsAt = day.startsAt.value
+        val startsAtMin = startsAt?.minuteOfDay(zone)
+        val waiting = startsAtMin != null && dayState is DayState.Running
+        val index = if (waiting) -1 else currentIndex(dayState, daySpecs)
+        val calendarStartMin = specs?.firstOrNull()?.start?.let { minOf(DAY_START_MIN, it.hour * 60) } ?: DAY_START_MIN
         val mapped = daySpecs?.let {
             CalendarMapper.toBlocks(
                 it,
@@ -649,7 +664,7 @@ private val day: DayOrchestrator,
         val calendarFit = CalendarLayout.fit(
             blocks = blocks.filterNot { it.id in walkMarkerIds }.map { LayoutBlock(it.id, it.startMin, it.endMin) },
             ticks = walkMarkers.map { LayoutTick(it.id, it.startMin) },
-            dayStartMin = DAY_START_MIN,
+            dayStartMin = calendarStartMin,
             text = textMetrics,
         )
         val blockById = blocks.associateBy { it.id }
@@ -690,14 +705,15 @@ private val day: DayOrchestrator,
                 ranOverMin = if (leaking) minute - (effectiveEndMin ?: minute) else null,
                 emergency = emergencyEnded,
                 nowMin = minute,
+                startsAtMin = startsAtMin,
             ),
             debugClock = debugClockLabel(minute),
-            hourLabels = CalendarMapper.hourLabels(DAY_START_MIN, DAY_END_MIN, timeFormatter.use24.value).toPersistentList(),
+            hourLabels = CalendarMapper.hourLabels(calendarStartMin, DAY_END_MIN, timeFormatter.use24.value).toPersistentList(),
             blocks = blocks,
             currentBlockId = current?.id,
             leakFromMin = if (leaking) effectiveEndMin else null,
             recap = recap,
-            nowCard = if (walkCard != null) null else nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel, doneEarly),
+            nowCard = if (walkCard != null) null else nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel, doneEarly, startsAtMin),
             walkCard = walkCard,
             walkMarkers = walkMarkers,
             calendarFit = calendarFit,
@@ -710,6 +726,7 @@ private val day: DayOrchestrator,
             draggingId = draggingId,
             selectId = insertedBlockId,
             use24 = timeFormatter.use24.value,
+            calendarStartMin = calendarStartMin,
         )
     }
 
@@ -774,8 +791,10 @@ private val day: DayOrchestrator,
         ranOverMin: Int?,
         emergency: Boolean,
         nowMin: Int,
+        startsAtMin: Int? = null,
     ): String {
         if (emergency) return "Stopped early (emergency)"
+        if (startsAtMin != null) return "Starts at ${timeFormatter.label(startsAtMin)}"
         if (dayState == DayState.Off) return "Off day"
         if (dayState == DayState.NotStarted || blocks.isEmpty()) return "Pick a template"
         val dayBlocks = blocks.filter { it.type.isWork || it.type == BlockType.Free }
@@ -809,7 +828,24 @@ private val day: DayOrchestrator,
         minute: Int,
         next: CalendarBlockUi?,
         doneEarly: Boolean,
+        startsAtMin: Int? = null,
     ): NowCardUi? {
+        // 2.7.0: the day is picked but waits for its first block: a calm card, Start now or Change day.
+        if (startsAtMin != null) {
+            return NowCardUi(
+                title = "Day starts at ${timeFormatter.label(startsAtMin)}",
+                type = null,
+                chip = null,
+                chipTone = ChipTone.NEUTRAL,
+                subtitle = "in ${waitingLeft(startsAtMin - minute)}",
+                isLeaking = false,
+                showProgress = false,
+                buttons = persistentListOf(
+                    NowButton(NowButtonId.START_NOW, "Start now", NowButtonStyle.PRIMARY),
+                    NowButton(NowButtonId.CHANGE_DAY, "Change day", NowButtonStyle.SECONDARY),
+                ),
+            )
+        }
         val nextTitle = next?.title
         return when (dayState) {
             DayState.NotStarted -> NowCardUi(
@@ -1017,6 +1053,12 @@ private fun choiceLabel(choice: Choice): String = when (choice) {
     Choice.CHILL -> "Chill"
 }
 
+/** "1h 20m" / "45 min": how long until the day's first block (2.7.0). */
+private fun waitingLeft(minutes: Int): String {
+    val m = minutes.coerceAtLeast(0)
+    return if (m >= 60) "${m / 60}h ${m % 60}m" else "$m min"
+}
+
 /** "Done HH:MM–HH:MM" or "Missed" for the calendar subtitle of a past block. */
 private fun pastSubtitleFor(row: RecapRow, use24: Boolean): String? {
     val range = row.range
@@ -1148,7 +1190,7 @@ fun HomeScreen(
         val start = state.blocks.firstOrNull { it.id == state.currentBlockId }?.startMin
             ?: return@LaunchedEffect
         val target = with(density) {
-            TopInset.toPx() + (start - DAY_START_MIN) * HourHeight.toPx() / 60f - Metrics.scrollLeadIn.toPx()
+            TopInset.toPx() + (start - state.calendarStartMin) * HourHeight.toPx() / 60f - Metrics.scrollLeadIn.toPx()
         }
         scroll.animateScrollTo(target.toInt().coerceAtLeast(0))
     }
@@ -1194,6 +1236,7 @@ fun HomeScreen(
                     calendarFit = state.calendarFit,
                     pillLabels = state.pillLabels,
                     walkMarkers = state.walkMarkers,
+                    dayStartMin = state.calendarStartMin,
                     currentBlockId = state.currentBlockId,
                     leakFromMin = state.leakFromMin,
                     hourLabels = state.hourLabels,
@@ -1662,6 +1705,8 @@ private fun nowButtonIcon(id: NowButtonId): ImageVector = when (id) {
     NowButtonId.KID_ASLEEP -> Icons.Outlined.Nightlight
     NowButtonId.CHOOSE_EVENING -> Icons.Outlined.Nightlight
     NowButtonId.SKIP_DISHES -> Icons.Outlined.PlayArrow
+    NowButtonId.START_NOW -> Icons.Outlined.PlayArrow
+    NowButtonId.CHANGE_DAY -> Icons.Outlined.SwapHoriz
 }
 
 private fun NowButtonId.toAction(): HomeAction = when (this) {
@@ -1674,6 +1719,8 @@ private fun NowButtonId.toAction(): HomeAction = when (this) {
     NowButtonId.CHOOSE_EVENING -> HomeAction.ChooseEvening
     NowButtonId.SKIP_DISHES -> HomeAction.SkipDishes
     NowButtonId.END_DAY -> HomeAction.EndDay
+    NowButtonId.START_NOW -> HomeAction.StartNow
+    NowButtonId.CHANGE_DAY -> HomeAction.SwapTemplate
 }
 
 private fun ChipTone.color(c: com.roni.blocks.designsystem.AppColors): Color = when (this) {

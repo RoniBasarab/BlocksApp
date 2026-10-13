@@ -26,7 +26,7 @@ data class CalendarBlockUi(
 
 enum class ChipTone { NEUTRAL, BREAK, LEAK }
 
-enum class NowButtonId { PAUSE, EMERGENCY, NEXT, WALK, RESUME, KID_ASLEEP, CHOOSE_EVENING, SKIP_DISHES, END_DAY }
+enum class NowButtonId { PAUSE, EMERGENCY, NEXT, WALK, RESUME, KID_ASLEEP, CHOOSE_EVENING, SKIP_DISHES, END_DAY, START_NOW, CHANGE_DAY }
 
 /** [PRIMARY] is the full-width action; [SECONDARY] buttons share one weighted row. */
 enum class NowButtonStyle { SECONDARY, PRIMARY }
@@ -112,6 +112,8 @@ data class HomeState(
     val draggingId: String? = null,
     val selectId: String? = null,
     val use24: Boolean = true,
+    /** The calendar's first minute (2.7.0): min(08:00, the plan's first start rounded down to the hour). */
+    val calendarStartMin: Int = DAY_START_MIN,
 )
 
 sealed interface HomeAction {
@@ -127,6 +129,8 @@ sealed interface HomeAction {
     /** "End walk" on a standalone walk (2.4.0): logs it and closes the timer, leaving the day alone. */
     data object EndWalk : HomeAction
     data object Resume : HomeAction
+    /** "Start now" while the day waits for its first block (2.7.0): the first block starts now. */
+    data object StartNow : HomeAction
     data object KidAsleep : HomeAction
     data object ChooseEvening : HomeAction
     /** "Skip dishes" (2.5.0): Dishes ends now and tonight's activity starts now. */

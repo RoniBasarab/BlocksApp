@@ -34,7 +34,7 @@ Rules that hold everywhere:
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `core/daystate/DayOrchestrator.kt` | Single writer of the day's state: owns today's plan, applies events and plan edits, persists, pushes alarm/notification/history; `liveRecord()`/`correctPast()`/`onAppForeground()` (2.2.0); standalone walks `walkSession`/`walkPreview`/`startWalk`/`turnBack`/`endWalk` (2.4.0); step checkpoints and the evening flow `pendingEvening`/`switchEvening`/`skipDishes`/`resizeDishesTo` (2.5.0) | DayStateMachine, ScheduleEngine, HistoryManager, PrefsStorage |
+| `core/daystate/DayOrchestrator.kt` | Single writer of the day's state: owns today's plan, applies events and plan edits, persists, pushes alarm/notification/history; `liveRecord()`/`correctPast()`/`onAppForeground()` (2.2.0); standalone walks `walkSession`/`walkPreview`/`startWalk`/`turnBack`/`endWalk` (2.4.0); step checkpoints and the evening flow `pendingEvening`/`switchEvening`/`skipDishes`/`resizeDishesTo` (2.5.0); a day picked before its first block waits: `startsAt`, `startNow()`, quiet until that block starts by itself (2.7.0) | DayStateMachine, ScheduleEngine, HistoryManager, PrefsStorage |
 | `core/daystate/DayState.kt` | `DayState` and `DayEvent` — the persisted vocabulary of a day | Model, ScheduleEngine |
 | `core/daystate/DayStateMachine.kt` | Every legal transition as one pure function | DayState, DayEvent |
 | `core/daystate/NotificationActionMapping.kt` | Maps notification buttons onto day events; new actions fail to compile unmapped | NotificationModel, DayStateMachine |
@@ -91,11 +91,11 @@ Rules that hold everywhere:
 | --- | --- | --- |
 | `core/schedule/AlertPlanner.kt` | The pure rules for when an alert fires (5-min warning, Pomodoro breaks/starts, nags until the user reacts); walk rings at half time and the end (2.3.0) | Model |
 | `core/schedule/PlanConversion.kt` | Converts `BlockSpec` to and from the editor's `PlanBlock`; preview and commit share it | Model, PlanEditor |
-| `core/schedule/PlanEditor.kt` | The pure rules for reshaping today's plan (add, resize, retype, insert); free time absorbs, work blocks push, kid time stays; `END_AND_TYPE` lets a running work block also become another work type (2.2.0); walks: `walkEnd`/`insertWalk`/`shortenWalk` (2.3.0); `startEarly`/`nextStop` pick the very next block, no free-time skipping (2.6.0) | Model |
+| `core/schedule/PlanEditor.kt` | The pure rules for reshaping today's plan (add, resize, retype, insert); free time absorbs, work blocks push, kid time stays; `END_AND_TYPE` lets a running work block also become another work type (2.2.0); walks: `walkEnd`/`insertWalk`/`shortenWalk` (2.3.0); `startEarly`/`nextStop` pick the very next block, no free-time skipping (2.6.0); `startFirstNow` moves the first block to now, its gap becomes free time (2.7.0) | Model |
 | `core/schedule/RecordConversion.kt` | `toRecordRows`/`withRows`: day record ↔ editable rows for correcting a past day | Model, RecordEditor |
 | `core/schedule/RecordEditor.kt` | The pure rules for editing a past day's rows: `fixMode`, `apply` (SetEnd/Retype/MarkDone, `MIN_LENGTH`/`LAST_MINUTE` limits), `snap` | Model |
 | `core/schedule/ScheduleEngine.kt` | Resolves template + date into concrete blocks and segments; `nextWakeUp(anchor)` anchors the Pomodoro cursor on the open segment's actual start (2.2.0) | Model, Clock, TimeZone |
-| `core/schedule/SegmentBook.kt` | Builds the segment list History renders; rehydrates it after process death; `kidAsleep` opens Dishes then the choice, `eveningChoice` switches it (2.5.0) | ScheduleEngine, Model, PrefsStorage |
+| `core/schedule/SegmentBook.kt` | Builds the segment list History renders; rehydrates it after process death; `kidAsleep` opens Dishes then the choice, `eveningChoice` switches it (2.5.0); `startDay` returns an empty book while the clock is before the first block (2.7.0) | ScheduleEngine, Model, PrefsStorage |
 | `core/schedule/TimelineQueries.kt` | `ScheduleEngine` extensions that read the published plan: `timelineAt`, `currentBlock`, `pomodoroStatus`, `pomodoroPhases` | ScheduleEngine, Model |
 
 ## core/steps
@@ -164,7 +164,7 @@ Rules that hold everywhere:
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `feature/home/Home.kt` | Home screen, `HomeViewModel` (publishes the calendar, the now/walk cards, `walkView`, `calendarFit`/`pillLabels`, and previews plan edits), top bar, now-card dialogs, edit card; walk icon in top bar, standalone walk card support (2.4.0); the top-bar step count, evening built from segments with Dishes/switch/skip (2.5.0) | DayOrchestrator, HistoryManager, TemplateManager, DebugTimeController |
+| `feature/home/Home.kt` | Home screen, `HomeViewModel` (publishes the calendar, the now/walk cards, `walkView`, `calendarFit`/`pillLabels`, and previews plan edits), top bar, now-card dialogs, edit card; walk icon in top bar, standalone walk card support (2.4.0); the top-bar step count, evening built from segments with Dishes/switch/skip (2.5.0); the waiting card ("Day starts at HH:MM · in 1h 20m", Start now / Change day), the "Starts at HH:MM" status and `HomeState.calendarStartMin` (2.7.0) | DayOrchestrator, HistoryManager, TemplateManager, DebugTimeController |
 | `feature/home/HomeUi.kt` | `HomeState` and the calendar/block/now-card/walk UI models (`WalkCardUi.standalone`, `walkEnabled`, `calendarFit`, `pillLabels`) | Compose, designsystem |
 | `feature/home/HomeSheets.kt` | Bottom sheets: evening choice (dismissible, 2.5.0), walk start (`WalkSheet`, 2.3.0), template swap, the recap's `CorrectBlockSheet` | DayOrchestrator, TemplateManager |
 | `feature/home/NowCardDialogs.kt` | The now-card's dialog states and confirmations | DayOrchestrator |

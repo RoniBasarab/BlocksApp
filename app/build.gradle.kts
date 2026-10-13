@@ -22,8 +22,8 @@ android {
         applicationId = "com.roni.blocks"
         minSdk = 34
         targetSdk = 37
-    versionCode = 20602
-    versionName = "2.6.2"
+    versionCode = 20700
+    versionName = "2.7.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

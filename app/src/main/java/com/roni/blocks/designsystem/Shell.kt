@@ -134,6 +134,7 @@ private val ExplainerTerms = listOf(
     "Evenings skipped" to "Days the evening never started because Kid asleep wasn't tapped before 22:30.",
     "Off days" to "Days you picked the Off template.",
     "Missed blocks" to "Planned blocks that never happened: the day started after them, or an earlier block ran past their end.",
+    "Steps" to "Estimated by the phone's step sensor. Bumps while driving can add a few; steps walked without the phone don't count.",
 )
 
 @Composable

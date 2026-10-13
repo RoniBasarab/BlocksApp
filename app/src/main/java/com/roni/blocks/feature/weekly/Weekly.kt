@@ -64,7 +64,7 @@ import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.WhatTheseMeanDialog
 import com.roni.blocks.designsystem.blockColors
-import com.roni.blocks.designsystem.formatSteps
+import com.roni.blocks.designsystem.formatStepsApprox
 import com.roni.blocks.navigation.HistoryKey
 import com.roni.blocks.navigation.HomeKey
 import com.roni.blocks.navigation.InsightsKey
@@ -301,8 +301,8 @@ class WeeklyViewModel @Inject constructor(
         val total = stepTotals.sum()
         val steps = if (stepTotals.isEmpty()) null else WeeklyStat(
             "Steps",
-            formatSteps(total),
-            "About ${formatSteps(total / stepTotals.size)} a day",
+            "≈ ${formatStepsApprox(total)}",
+            "About ${formatStepsApprox(total / stepTotals.size)} a day",
         )
         return listOfNotNull(
             steps,

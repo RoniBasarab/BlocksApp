@@ -149,6 +149,11 @@ class DayOrchestrator @Inject constructor(
     /** The activity picked during Dishes, before it starts (2.5.0); Home draws it as the planned block. */
     val pendingEvening: StateFlow<Choice?> = _pendingEvening.asStateFlow()
 
+    private val _startsAt = MutableStateFlow<Instant?>(null)
+
+    /** The first block's start while the day waits for it (2.7.0); null when no block is waited on. */
+    val startsAt: StateFlow<Instant?> = _startsAt.asStateFlow()
+
     /**
      * Today's steps including the live sensor reading while it is collected (2.5.0), for the Home
      * top bar. Emits null first, so a saved total still shows when the live sensor is silent. Nothing
@@ -442,6 +447,35 @@ class DayOrchestrator @Inject constructor(
         persist()
         sideEffects()
         logger.info("walk started for $minutes min at $now")
+        return true
+    }
+
+    /**
+     * "Start now" while the day waits for its first block (2.7.0): the first block starts now and
+     * keeps its length; the gap it leaves behind becomes free time (kid time just starts now). A
+     * user action, so it counts as Roni reacting. False when the day isn't waiting for its first block.
+     */
+    suspend fun startNow(): Boolean {
+        ensureRestored()
+        val now = clock.now()
+        val today = today()
+        val plan = _todayPlan.value ?: return false
+        if (waitingStart(now, today) == null) return false
+        val nowMin = now.toLocalDateTime(zone).let { it.hour * 60 + it.minute }
+        val edited = PlanEditor.startFirstNow(plan.blocks.toPlanBlocks(), nowMin) ?: return false
+        _todayPlan.value = plan.copy(blocks = edited.toBlockSpecs(plan.blocks), edited = true)
+        val template = currentTemplate() ?: return false
+        book = SegmentBook.startDay(template, today, zone, now)
+        _segments.value = book.segments
+        _state.value = if (template.blocks.getOrNull(book.index)?.type == BlockType.KidTime) {
+            DayState.KidTime
+        } else {
+            DayState.Running(plan.templateId, book.index.coerceAtLeast(0))
+        }
+        reactedAt = now
+        persist()
+        sideEffects(transition = true)
+        logger.info("started the day now at $now")
         return true
     }
 
@@ -797,8 +831,10 @@ class DayOrchestrator @Inject constructor(
             event is DayEvent.StartDay && event.template != TemplateId.OFF -> {
                 val template = templates.get(event.template)
                 _todayPlan.value = TodayPlan(event.template, template.blocks)
+                // 2.7.0: before its first block opens the day waits with an empty book, even when
+                // that first block is kid time: the state stays Running until its time comes.
                 val currentBlock = template.blocks.getOrNull(book.index)
-                if (currentBlock?.type == BlockType.KidTime) {
+                if (book.segments.isNotEmpty() && currentBlock?.type == BlockType.KidTime) {
                     DayState.KidTime
                 } else {
                     DayState.Running(event.template, book.index.coerceAtLeast(0))
@@ -923,6 +959,24 @@ class DayOrchestrator @Inject constructor(
         return _state.value.templateId()?.let { runCatching { templates.get(it) }.getOrNull() }
     }
 
+    /**
+     * The first block's start while the day waits for it (2.7.0): the day is [DayState.Running] with
+     * no segment yet. Null once the day has started, or when there is no plan to read.
+     */
+    private fun planFirstStart(today: LocalDate): Instant? {
+        val state = _state.value
+        // Only a fresh pick waits: block 0, no segment yet. A legacy restored day (an old
+        // "Interrupted" state with a higher block index and no segments) is not waiting.
+        if (state !is DayState.Running || state.blockIndex != 0) return null
+        if (_segments.value.isNotEmpty()) return null
+        val plan = _todayPlan.value ?: return null
+        return plan.blocks.firstOrNull()?.start?.at(today, zone)
+    }
+
+    /** [planFirstStart], but only while the clock is still before it: the day is waiting. */
+    private fun waitingStart(now: Instant, today: LocalDate): Instant? =
+        planFirstStart(today)?.takeIf { now < it }
+
     private suspend fun flush(flags: Set<DayFlag>) {
         val today = today()
         val template = _state.value.templateId() ?: prefs.read(PrefsFile.DAY, TEMPLATE, TemplateId.serializer())
@@ -980,12 +1034,14 @@ class DayOrchestrator @Inject constructor(
             dishesEnd != null -> dishesEnd
             else -> nextAlertTime(now, template, index, anchor)
         }
-        val alarmAt = listOfNotNull(wake, nextAlert).minOrNull()
+        val alarmAt = listOfNotNull(wake, nextAlert, waitingStart(now, today)).minOrNull()
         if (alarmAt == null) alarms.cancel() else alarms.schedule(alarmAt, clock = walk != null || session != null)
         val timeline = engine.timelineAt(template, today, zone, _segments.value, now)
         val model = if (session != null) notificationMapper.walk(session.start, session.end, now)
-        else notificationMapper.from(_state.value, timeline, now)
-        notificationRenderer.render(model, transition, alert)
+        else notificationMapper.from(_state.value, timeline, now, template?.name)
+        // While waiting the day is quiet: no transition sound and no alert until the first block starts.
+        val quiet = waitingStart(now, today) != null
+        notificationRenderer.render(model, transition && !quiet, alert && !quiet)
         widgetUpdater.update(model)
     }
 
@@ -1054,7 +1110,7 @@ class DayOrchestrator @Inject constructor(
         val today = today()
         val template = currentTemplate()
         val timeline = engine.timelineAt(template, today, zone, _segments.value, now)
-        widgetUpdater.update(notificationMapper.from(_state.value, timeline, now))
+        widgetUpdater.update(notificationMapper.from(_state.value, timeline, now, template?.name))
     }
 
     /**
@@ -1150,6 +1206,21 @@ class DayOrchestrator @Inject constructor(
         val template = currentTemplate() ?: return false
         val now = clock.now()
         val today = today()
+        // 2.7.0: the day waits for its first block; when its time comes the day starts by itself,
+        // exactly as a StartDay at this clock would.
+        val firstStart = planFirstStart(today)
+        if (firstStart != null && now >= firstStart) {
+            book = SegmentBook.startDay(template, today, zone, now)
+            _segments.value = book.segments
+            _state.value = if (template.blocks.getOrNull(book.index)?.type == BlockType.KidTime) {
+                DayState.KidTime
+            } else {
+                DayState.Running(template.id, book.index.coerceAtLeast(0))
+            }
+            persist()
+            sideEffects(transition = true)
+            return true
+        }
         if (_state.value is DayState.Paused) {
             val blockEnd = book.segments.lastOrNull { it.kind == SegmentKind.PLANNED && it.actualEnd == null }?.plannedEnd
             if (blockEnd != null && now >= blockEnd) {
@@ -1202,6 +1273,7 @@ class DayOrchestrator @Inject constructor(
         _walkSession.value = currentWalkSession()
         _todaySteps.value = if (steps.baseline < 0) null else steps.today
         _pendingEvening.value = pendingChoice
+        _startsAt.value = waitingStart(clock.now(), today())
     }
 
     /** The walk Home should show: an open day-block walk's segment, else the standalone walk (2.4.0). */
