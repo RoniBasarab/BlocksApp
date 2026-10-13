@@ -10,6 +10,18 @@ With a phone attached, run them with:
 These four cannot be automated reliably (they depend on the launcher, the reboot flow, the keyguard
 and the system DND state), so Roni runs them by hand.
 
+**Check on the phone (3.1.0).** Use the debug app for steps that move the clock (Settings -> Developer tools).
+
+1. Templates tab: the four templates and the four categories.
+2. New category "Office", a palette colour, Work on, Pomodoro off.
+3. New template "Office day": add Office 09:00, length 8h → kid time still 17:00–22:30; claim Monday → Mon/Thu shows THU.
+4. Make Office 8h 30m → "Moves later" mentions kid time from 17:30. Start Office at 08:55 when a block ends at 09:00 → the reason shows and Save is off.
+5. Picker on a Monday: "Office day" is Suggested.
+6. Rename CV, recolour Gym: Home, History and Weekly follow.
+7. Delete "Office": Office day becomes free time until kid time.
+8. Pick Office day before its first block, edit it in Templates: Home's "Day starts at" follows.
+9. Delete Office day: History of a day that used it still shows its name.
+
 **Check on the phone (3.0.0).** Install over 2.7.1, don't uninstall.
 
 1. Today's day continues exactly where it was (same block, same timer).

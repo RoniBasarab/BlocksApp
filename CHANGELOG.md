@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.1.0
+- A Templates tab: your templates and categories in one place.
+- Make your own templates from blank: add blocks, set their start and length; later blocks move along, and kid time at the end gets shorter.
+- Pick which days suggest which template.
+- Your own categories with 12 colours, "counts as work" and Pomodoro; built-ins can be renamed and recoloured.
+
 ## 3.0.0
 - Under the hood: templates are now stored data, block kinds can be your own categories, and your four templates live in a profile ("Unemployed"). Nothing looks different yet; the template editor (3.1) and profiles (3.2) build on this.
 - Data saved by 3.0 can't be opened by 2.x.

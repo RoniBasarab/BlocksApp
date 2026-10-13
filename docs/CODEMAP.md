@@ -73,8 +73,8 @@ Rules that hold everywhere:
 | path | what it does | talks to |
 | --- | --- | --- |
 | `core/model/Model.kt` | `Template`, `TemplateId`, `BlockSpec`, `TodayPlan`, `Segment`, `DayRecord` — the persisted shapes; `WalkSession`/`WalkLog` for standalone walks (2.4.0); `TemplateId` is a `value class` over a String and `BlockType.Custom` carries your own kinds (3.0.0) | kotlinx.serialization |
-| `core/model/Categories.kt` | `CategoryInfo`/`CategorySet` and the `Categories.current` snapshot the pure mappers read; CV/Coding/Gym/Free defaults (3.0.0) | Model |
-| `core/model/Templates.kt` | `StoredTemplate`, `Profile` and the built-in seed texts/icons/accents/weekdays (3.0.0) | Model |
+| `core/model/Categories.kt` | `CategoryInfo`/`CategorySet` and the `Categories.current` snapshot the pure mappers read; CV/Coding/Gym/Free defaults (3.0.0); `CategoryPalette`, the 12 colours a category can take (3.1.0) | Model |
+| `core/model/Templates.kt` | `StoredTemplate`, `Profile` and the built-in seed texts/icons/accents/weekdays (3.0.0); `archived`, `shortFor`/`subtitleFor`/`accentFor` and `OWN_TEMPLATE_ICONS` for your own templates (3.1.0) | Model |
 
 ## core/notifications
 
@@ -98,7 +98,8 @@ Rules that hold everywhere:
 | `core/schedule/RecordEditor.kt` | The pure rules for editing a past day's rows: `fixMode`, `apply` (SetEnd/Retype/MarkDone, `MIN_LENGTH`/`LAST_MINUTE` limits), `snap` | Model |
 | `core/schedule/ScheduleEngine.kt` | Resolves template + date into concrete blocks and segments; `nextWakeUp(anchor)` anchors the Pomodoro cursor on the open segment's actual start (2.2.0) | Model, Clock, TimeZone |
 | `core/schedule/SegmentBook.kt` | Builds the segment list History renders; rehydrates it after process death; `kidAsleep` opens Dishes then the choice, `eveningChoice` switches it (2.5.0); `startDay` returns an empty book while the clock is before the first block (2.7.0) | ScheduleEngine, Model, PrefsStorage |
-| `core/schedule/TemplateRules.kt` | `problems`/`normalize`: the rules every template follows (no overlap, kid time to 22:30, unique ids) (3.0.0) | Model |
+| `core/schedule/TemplateEditor.kt` | Editing one template's blocks in minutes (3.1.0): add/retype/start/length, later blocks pushed and kid time shrunk, a start inside an earlier block refused | Model, TemplateRules |
+| `core/schedule/TemplateRules.kt` | `problems`/`normalize`: the rules every template follows (no overlap, kid time to 22:30, unique ids) (3.0.0); free time may be shorter than 10 min (3.1.0) | Model |
 | `core/schedule/TimelineQueries.kt` | `ScheduleEngine` extensions that read the published plan: `timelineAt`, `currentBlock`, `pomodoroStatus`, `pomodoroPhases` | ScheduleEngine, Model |
 
 ## core/steps
@@ -115,8 +116,9 @@ Rules that hold everywhere:
 | --- | --- | --- |
 | `core/storage/HistoryManager.kt` | The only reader/writer of days and week aggregates; a version flow lets Home observe writes; `addWalk`/`walks`/`observeWalks` for standalone walks (2.4.0); each day's step total (2.5.0) | PrefsStorage, Model |
 | `core/storage/PrefsStorage.kt` | SharedPreferences wrapper split into DAY / SETTINGS / HISTORY files | android.content.SharedPreferences |
-| `core/storage/CategoryStore.kt` | Loads/saves `CategorySet` from prefs and sets `Categories.current` (3.0.0) | PrefsStorage, Categories |
-| `core/storage/TemplateStore.kt` | The stored templates and the one profile; seeds from assets, validates on load, `all`/`get`/`suggestedFor` (3.0.0) | PrefsStorage, assets, TemplateRules |
+| `core/storage/Actions.kt` | The two use cases the Templates screens write through (3.1.0): `TemplateActions` (create/save/delete/setWeekdays; a save tells a waiting day) and `CategoryActions` (update/add/delete, rewriting using blocks) | TemplateStore, CategoryStore, DayOrchestrator |
+| `core/storage/CategoryStore.kt` | Loads/saves `CategorySet` from prefs and sets `Categories.current` (3.0.0); `update`/`add`/`delete` with `CategoryResult`, built-ins never deleted (3.1.0) | PrefsStorage, Categories |
+| `core/storage/TemplateStore.kt` | The stored templates and the one profile; seeds from assets, validates on load, `all`/`get`/`suggestedFor` (3.0.0); `find`/`isBuiltIn`, the writes (`create`/`save`/`delete`/`setWeekdays`/`replaceCategory`), broken own templates archived not crashing (3.1.0) | PrefsStorage, assets, TemplateRules, TemplateEditor |
 | `core/storage/TemplateManager.kt` | A thin façade over `TemplateStore`, so `get`/`all` keep their call sites (3.0.0) | TemplateStore |
 
 ## core/widget
@@ -160,7 +162,7 @@ Rules that hold everywhere:
 | `designsystem/Motion.kt` | The app's only motion token | Compose animation |
 | `designsystem/Primitives.kt` | Row-level primitives: `SettingsRow`, tonal chips, `ScreenColumn` | Tokens, Components, Color |
 | `designsystem/Shell.kt` | `AppTab` and the bottom-bar / top-bar shell | Color, Type, Tokens |
-| `designsystem/TemplateDisplay.kt` | Title, subtitle and block preview for one template, read from `TemplateStore` (3.0.0) | Model, TemplateStore |
+| `designsystem/TemplateDisplay.kt` | Title, subtitle and block preview for one template, read from `TemplateStore` (3.0.0); `iconFor` gains work/school/home icons (3.1.0) | Model, TemplateStore |
 | `designsystem/Theme.kt` | Material color scheme and typography wiring | Color, Type |
 | `designsystem/Tokens.kt` | `Spacing`, `AppShapes`, `Metrics` | Compose units |
 | `designsystem/Type.kt` | Corner radii and the type scale | Compose units |
@@ -181,4 +183,10 @@ Rules that hold everywhere:
 | `feature/weekly/Weekly.kt` | Weekly screen: planned vs actual per type as bars, week navigation; the week's step total tile (2.5.0) | HistoryManager |
 | `feature/insights/Insights.kt` | Insights screen: last complete week vs the one before | HistoryManager |
 | `feature/templatepicker/TemplatePicker.kt` | Template picker with a live preview of the rest of today | DayOrchestrator, TemplateStore |
+| `feature/templates/TemplatesScreen.kt` | The 3.1.0 Templates tab: the scaffold (top bar with History/Settings, bottom bar) and the section list | TemplateSection, CategorySection |
+| `feature/templates/TemplateSection.kt` | `TemplateListViewModel` + the templates section: one card per stored template, tap opens the editor, New/delete weekdays (3.1.0) | TemplateStore, TemplateActions |
+| `feature/templates/TemplateEditorScreen.kt` | The template editor: the block list and preview strip; every accepted edit saved through `TemplateActions`, built-ins read-only (3.1.0) | TemplateEditor, TemplateActions, TemplateStore |
+| `feature/templates/BlockSheet.kt` | The block sheet: category, start, length, Delete/Save, with the editor's live result line (3.1.0) | TemplateEditor |
+| `feature/templates/CategorySection.kt` | `CategoryListViewModel` + the categories section: rows (built-ins, then yours) and the sheet that edits one (3.1.0) | CategoryStore, CategoryActions |
+| `feature/templates/CategorySheet.kt` | The category sheet: name, `CategoryPalette`, Pomodoro, "counts as work" and Delete (yours only) (3.1.0) | CategoryInfo |
 | `feature/settings/Settings.kt` | Settings screen, `SettingsViewModel`, developer tools in one dialog (test a day, debug clock, demo data); the step-counting row and permission state (2.5.0) | DayOrchestrator, DemoDataGenerator, SystemStatuses, DebugTimeController |
