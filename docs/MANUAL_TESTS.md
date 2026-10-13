@@ -10,6 +10,14 @@ With a phone attached, run them with:
 These four cannot be automated reliably (they depend on the launcher, the reboot flow, the keyguard
 and the system DND state), so Roni runs them by hand.
 
+**Check on the phone (3.0.0).** Install over 2.7.1, don't uninstall.
+
+1. Today's day continues exactly where it was (same block, same timer).
+2. History shows every past day as before; Weekly and Insights show the same numbers.
+3. The picker shows the same four cards, texts, icons and "Suggested" day.
+4. Coding still has its Pomodoro; colours are unchanged.
+5. Kill the app and reopen it: all of the above again.
+
 **Check on the phone (2.7.0).** Use the debug app for steps that move the clock (Settings -> Developer tools).
 
 1. After midnight (or with the debug clock at 07:00), pick a template: the calendar plus "Day starts at 09:00 · in 2h 0m", nothing counting.

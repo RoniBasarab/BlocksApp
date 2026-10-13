@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.0.0
+- Under the hood: templates are now stored data, block kinds can be your own categories, and your four templates live in a profile ("Unemployed"). Nothing looks different yet; the template editor (3.1) and profiles (3.2) build on this.
+- Data saved by 3.0 can't be opened by 2.x.
+
 ## 2.7.1
 - The debug build shows as Blocks Debug
 
