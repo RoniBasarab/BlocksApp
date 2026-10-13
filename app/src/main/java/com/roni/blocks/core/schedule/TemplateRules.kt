@@ -14,7 +14,7 @@ sealed interface TemplateProblem {
 
 /**
  * The rules every template follows (3.0.0), in minutes of the day:
- * - blocks don't overlap and are at least [MIN_BLOCK] minutes (kid time may be any length);
+ * - blocks don't overlap and are at least [MIN_BLOCK] minutes (kid time and free time may be any length: 3.1.0);
  * - nothing runs past 22:30, and the day ends with kid time until 22:30 (more kid time earlier is fine, as Fri/Sat);
  * - ids are unique.
  * [normalize] makes a sorted, gap-free plan: gaps become free time and neighbouring free time merges. The Off day
@@ -32,7 +32,7 @@ object TemplateRules {
         blocks.groupBy { it.id }.filter { it.value.size > 1 }.keys.sorted().forEach { out += TemplateProblem.DuplicateId(it) }
         sorted.zipWithNext().forEach { (a, b) -> if (b.startMin < a.endMin) out += TemplateProblem.Overlap(a.id, b.id) }
         sorted.forEach { b ->
-            if (b.type != BlockType.KidTime && b.endMin - b.startMin < MIN_BLOCK) out += TemplateProblem.TooShort(b.id)
+            if (b.type != BlockType.KidTime && b.type != BlockType.Free && b.endMin - b.startMin < MIN_BLOCK) out += TemplateProblem.TooShort(b.id)
             if (b.endMin > DAY_END) out += TemplateProblem.PastDayEnd(b.id)
         }
         val last = sorted.last()

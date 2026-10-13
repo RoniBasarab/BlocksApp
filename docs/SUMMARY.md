@@ -1,6 +1,6 @@
 # Blocks: Project Summary (handoff)
 
-Last updated: Tuesday 13 October 2026. Written so an agent with no prior context can take over: the **planning agent** (the next Claude chat working with Roni) or the **working agent** (a coding agent in the repo). Read it fully before anything else.
+Last updated: Tuesday 13 October 2026 (after 3.0.0). Written so an agent with no prior context can take over: the **planning agent** (the next Claude chat working with Roni) or the **working agent** (a coding agent in the repo). Read it fully before anything else.
 
 ---
 
@@ -13,7 +13,8 @@ Why it exists: Roni is job-hunting and his unstructured days were drifting (even
 - Code: `C:\Blocks App` on Roni's Windows machine. A git repo; `master` holds released work, tagged `vX.Y.Z`. Remote `origin` = `github.com/RoniBasarab/BlocksApp`. Keep it private (§17).
 - All spec and task files live in the repo root (committed from Task-6 on).
 - Timezone Asia/Jerusalem. The work week is Sunday–Thursday; the weekend is Friday–Saturday.
-- Released: **2.7.1** (Task-17: days wait for their first block; steps as an estimate; 2.7.1 names the debug app "Blocks Debug"). In progress: **3.0.0** (Task-18: the invisible foundation for your own templates). Then 3.1 (editor), 3.2 (profiles).
+- Released: **3.0.0** (Task-18: the invisible foundation for your own templates; checked in Blocks Debug 13 Oct, "everything still works"). In progress: **3.1.0** (Task-19: Templates tab, template editor, category editor, run as Base + two parallel tracks + Finish). Then 3.2.0 (Home edits with the same sheet), 3.3.0 (profiles).
+- **Roni's phone:** the release app stays on **2.6.2** (his real days). Every new version is tested only in **Blocks Debug** (`com.roni.blocks.debug`); he upgrades the release only once a version is proven stable and data-safe. Same signing key, never uninstall.
 - All docs live in `docs/` (from Task-8 on); the root holds only the build files, `README.md` and `CHANGELOG.md`.
 
 ## 2. People and roles
@@ -200,7 +201,11 @@ Roni walks in the evenings now and likes the subtle steps counter.
 
 **The repo is public** (Roni opened it so the planning agent could read it). The docs describe his family's routine; he was told he can switch it back to private.
 
-**Waiting on Roni:** extract the Task-18 files into the repo and start the working agent with "Read "C:/Blocks App/docs/AGENT.md" and do what it says." Before installing release, a keystore (`keystore.properties` in the root) and a backup of it.
+**Done, 3.0.0 (Task-18, reviewed 13 Oct):** `TemplateId` is a string value class (old "MON_THU" data decodes; `LegacyFormatTest` pins it), `BlockType.Custom`, `Categories`/`CategoryStore`, `StoredTemplate`/`Profile`/`TemplateStore` seeded from assets. Installed in Blocks Debug: no visible change, as intended.
+
+**Waiting on Roni:** run Task-19 (Base, then Track A and Track B in parallel, then Finish; prompts in §18).
+
+**Roni's Home feedback on 3.0 (13 Oct), for Task-20 (3.2.0):** adding a block only works on free time (by design since 2.1: Insert takes the start of a free block); after inserting one and *dragging its handle*, the time didn't change on screen (cause not found by reading: `PlanEditor` insert-then-resize is correct in the harness; the orchestrator logs "refusing plan edit" for silent refusals: check logcat on the phone); no Delete anywhere (turning a block into Free is the hidden way). Decided: Home gets the editor's `BlockSheet` (category, start, length, Add after, Delete) on any future block.
 
 **Deviation to remember:** Roni once asked for "minutes left, updated once a minute" in the notification. It uses the system chronometer instead (it shows negative time while running over). He hasn't objected.
 
@@ -274,8 +279,9 @@ Roni walks in the evenings now and likes the subtle steps counter.
 - **Major bump, 3.0.0:** the stored data model changes and can't go back to 2.x.
 - **Order:**
   - **3.0.0:** the model underneath, with no visible change. Categories and stored templates replace the fixed lists, everything is seeded from today's four templates, and old history keeps decoding.
-  - **3.1.0:** the Templates area and the editor. Possibly two parallel tracks (categories screen and template editor) if their files don't overlap.
-  - **3.2.0:** profiles and switching.
+  - **3.1.0 (Task-19):** a Templates tab (not in Settings): templates + categories. Editor = list + sheet; push-later rule (`TemplateEditor`, verified); start from blank; delete own (archived, History keeps titles); built-in templates' blocks read-only; weekdays claimable on every template, one template per day; 12-colour palette; today follows an edit only while it is still waiting.
+  - **3.2.0 (Task-20):** Home's today-edits use the same `BlockSheet`: Add after and Delete on any future block, the drag bug.
+  - **3.3.0 (Task-21):** profiles and switching.
 - **Technical plan for 3.0 (planning agent's, not yet a task):**
   - Keep `BlockType`'s built-ins and add `BlockType.Custom(id, name, colorArgb, work, pomodoro)`. Each block carries its category's flags, so an old record still says what it was after the category is edited, and old JSON needs no migration.
   - `TemplateId` (enum) becomes a String-backed `TemplateKey`. Enum values serialize as their names, so "MON_THU" in stored state and history still decodes.
@@ -290,10 +296,10 @@ Roni walks in the evenings now and likes the subtle steps counter.
 
 ## 11. Next steps
 
-1. **Roni:** run Task-18 (3.0.0) and install it *over* 2.7.1 (never uninstall): nothing should look different.
-2. **Planning agent:** review Task-18 in the repo, especially that `LegacyFormatTest` was written before the `TemplateId` change and passes unedited after it.
-3. Then Task-19 (3.1.0): the Templates area, the category editor and the visual template editor. Ask Roni about the editor's interactions first, and decide whether categories and the editor run as two parallel tracks (`task-19a/v3.1.0-categories`, `task-19b/v3.1.0-editor`).
-4. Then Task-20 (3.2.0): profiles.
+1. **Roni:** run Task-19 (3.1.0): Base, then Track A and B in two agents at once, then Finish. Test in Blocks Debug only.
+2. **Planning agent:** review Task-19: `TemplateEditor`/`TemplateRules` untouched, every edit goes through `TemplateActions`/`CategoryActions`, the tracks touched only their files.
+3. Task-20 (3.2.0): Home's edit card → the `BlockSheet` (Add after, Delete anywhere; PlanEditor needs a verified `insertAfter`/`delete`), reproduce the drag bug first. Ask Roni what "Add after" does when no free time follows (push like the editor, or take the next block's start).
+4. Task-21 (3.3.0): profiles. Optionally a "Back up my data" button before it.
 
 ## 12. Decisions log (settled; don't reopen without a reason)
 
@@ -332,6 +338,9 @@ Roni walks in the evenings now and likes the subtle steps counter.
 | Tap any block of today: past blocks corrected live, the running block's end and type editable (11 Oct) | Roni: "changing the blocks themselves is impossible" |
 | Day waits for its first block; start per template; pick from midnight (13 Oct) | Picking at 00:30 started a 9-hour countdown |
 | Profiles, own templates and categories are 3.x, one version per task (13 Oct) | Generalizing beyond Roni's four days; data model changes, hence 3.0.0 |
+| Templates tab; list + sheet editor; edits push later blocks, never earlier ones; blank + delete own; built-in blocks read-only; one template per weekday; 12-colour palette; today follows only while waiting (13 Oct) | Roni's 3.1 questionnaire |
+| Free time in a template may be shorter than 10 min (3.1.0, `TemplateRules`) | Otherwise a 5-minute gap left by an edit would make the template "broken" |
+| Home's today-edits get the editor's sheet in 3.2.0 (13 Oct) | Roni couldn't find Add on non-free blocks or Delete at all |
 | No foreground service yet (11 Oct) | The silent alarms were the cause; revisit only if alerts come late |
 | Next before the next block's time starts it now, keeping its length; free time in between is skipped (11 Oct) | Planned times on an early block gave a 327-minute countdown |
 | Walks ring like a timer, with vibration (11 Oct) | The phone is in a pocket on a walk; the only exception to the no-vibration rule |
@@ -425,6 +434,15 @@ Roni asked whether big comments in every file the agent touches (how it works, a
 
 ```
 Read "C:/Blocks App/docs/AGENT.md" and do what it says.
+```
+
+Task-19 has parts, one prompt each (Track A and B at the same time, in two agent windows):
+
+```
+Read "C:/Blocks App/docs/AGENT.md" and do the Base of Task-19.
+Read "C:/Blocks App 19a/docs/AGENT.md" and do Track A of Task-19.
+Read "C:/Blocks App 19b/docs/AGENT.md" and do Track B of Task-19.
+Read "C:/Blocks App/docs/AGENT.md" and do the Finish of Task-19.
 ```
 
 The planning agent updates `AGENT.md` for each task (task name, branch, version, verified files). It encodes every lesson so far: grep first and never web-search the repo, no scratch files in the repo, the PowerShell 5.1 rules, the error-only Gradle command, reading test results instead of rerunning, `./gradlew --stop` after 10 minutes, no waiting on anything external, few big steps per slice, at most two sentences of thinking between commands, a 15-minute time-box, and resume-from-git-log. The same line restarts a fresh session after a quota stop.
