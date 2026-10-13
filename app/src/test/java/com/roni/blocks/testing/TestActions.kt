@@ -12,6 +12,7 @@ import com.roni.blocks.core.storage.CategoryActions
 import com.roni.blocks.core.storage.CategoryStore
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsStorage
+import com.roni.blocks.core.storage.ProfileActions
 import com.roni.blocks.core.storage.TemplateActions
 import com.roni.blocks.core.storage.TemplateStore
 import com.roni.blocks.core.storage.TemplateManager
@@ -75,6 +76,7 @@ fun testActions(context: Context): TestRig {
     return TestRig(
         templates = TemplateActions(store, day),
         categories = CategoryActions(categories, store, day),
+        profiles = ProfileActions(store),
         store = store,
         day = day,
         clock = clock,
@@ -85,6 +87,7 @@ fun testActions(context: Context): TestRig {
 data class TestRig(
     val templates: TemplateActions,
     val categories: CategoryActions,
+    val profiles: ProfileActions,
     val store: TemplateStore,
     val day: DayOrchestrator,
     val clock: MovableClock,

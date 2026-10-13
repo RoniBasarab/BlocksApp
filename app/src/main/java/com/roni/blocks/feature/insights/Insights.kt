@@ -61,6 +61,7 @@ import com.roni.blocks.designsystem.blockColors
 import com.roni.blocks.feature.weekly.formatHm
 import com.roni.blocks.feature.weekly.tabKey
 import com.roni.blocks.navigation.HistoryKey
+import com.roni.blocks.navigation.ProfilesKey
 import com.roni.blocks.navigation.SettingsKey
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -614,6 +615,7 @@ fun InsightsRoute(onTab: (NavKey) -> Unit, onMenu: (NavKey) -> Unit, viewModel: 
             AppTopBar(
                 title = { Text("Insights", style = MaterialTheme.typography.titleLarge) },
                 onHistory = { onMenu(HistoryKey) },
+                onProfiles = { onMenu(ProfilesKey) },
                 onSettings = { onMenu(SettingsKey) },
                 onExplain = { explain = true },
             )

@@ -140,6 +140,7 @@ sealed interface HomeAction {
     data object EndDay : HomeAction
     data class PickEvening(val choice: Choice) : HomeAction
     data object History : HomeAction
+    data object Profiles : HomeAction
     data object Settings : HomeAction
     data class DragEdge(val id: String, val edge: Edge, val toMin: Int) : HomeAction
     data class DragDone(val id: String, val edge: Edge, val toMin: Int) : HomeAction

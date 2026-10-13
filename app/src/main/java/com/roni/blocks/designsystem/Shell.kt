@@ -13,9 +13,9 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Today
-import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
@@ -43,7 +43,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
-enum class AppTab { HOME, WEEKLY, INSIGHTS, TEMPLATES }
+enum class AppTab { HOME, WEEKLY, INSIGHTS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,6 +52,7 @@ fun AppTopBar(
     scrolled: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
     onHistory: () -> Unit = {},
+    onProfiles: () -> Unit = {},
     onSettings: () -> Unit = {},
     showMenu: Boolean = true,
     onExplain: (() -> Unit)? = null,
@@ -65,6 +66,7 @@ fun AppTopBar(
                 AppMenuButton { destination ->
                     when (destination) {
                         MenuDestination.History -> onHistory()
+                        MenuDestination.Profiles -> onProfiles()
                         MenuDestination.Settings -> onSettings()
                     }
                 }
@@ -80,6 +82,7 @@ fun AppTopBar(
 
 enum class MenuDestination(val label: String, val icon: ImageVector) {
     History("History", Icons.Outlined.History),
+    Profiles("Profiles", Icons.Outlined.People),
     Settings("Settings", Icons.Outlined.Settings),
 }
 
@@ -200,7 +203,6 @@ fun AppBottomBar(selected: AppTab, onSelect: (AppTab) -> Unit) {
         BarItem(AppTab.HOME, selected, Icons.Outlined.Today, "Home", onSelect)
         BarItem(AppTab.WEEKLY, selected, Icons.Outlined.BarChart, "Weekly", onSelect)
         BarItem(AppTab.INSIGHTS, selected, Icons.Outlined.Insights, "Insights", onSelect)
-        BarItem(AppTab.TEMPLATES, selected, Icons.Outlined.ViewAgenda, "Templates", onSelect)
     }
 }
 

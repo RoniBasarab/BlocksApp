@@ -68,8 +68,8 @@ import com.roni.blocks.designsystem.formatStepsApprox
 import com.roni.blocks.navigation.HistoryKey
 import com.roni.blocks.navigation.HomeKey
 import com.roni.blocks.navigation.InsightsKey
+import com.roni.blocks.navigation.ProfilesKey
 import com.roni.blocks.navigation.SettingsKey
-import com.roni.blocks.navigation.TemplatesKey
 import com.roni.blocks.navigation.WeeklyKey
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -514,6 +514,7 @@ fun WeeklyRoute(onTab: (NavKey) -> Unit, onMenu: (NavKey) -> Unit, viewModel: We
             AppTopBar(
                 title = { Text("Weekly", style = MaterialTheme.typography.titleLarge) },
                 onHistory = { onMenu(HistoryKey) },
+                onProfiles = { onMenu(ProfilesKey) },
                 onSettings = { onMenu(SettingsKey) },
                 onExplain = { explain = true },
             )
@@ -539,5 +540,4 @@ internal fun tabKey(tab: AppTab): NavKey = when (tab) {
     AppTab.HOME -> HomeKey
     AppTab.WEEKLY -> WeeklyKey
     AppTab.INSIGHTS -> InsightsKey
-    AppTab.TEMPLATES -> TemplatesKey
 }
