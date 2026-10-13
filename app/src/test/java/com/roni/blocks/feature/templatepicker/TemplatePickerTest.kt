@@ -2,10 +2,12 @@ package com.roni.blocks.feature.templatepicker
 
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.roni.blocks.core.logging.AppLogger
 import com.roni.blocks.core.model.BlockSpec
@@ -89,7 +91,7 @@ class TemplatePickerTest {
     fun suggestedCard_followsToday() {
         compose.mainClock.autoAdvance = false
         var picked: TemplateId? = null
-        compose.setContent { BlocksTheme { TemplatePickerScreen(fakeState(TemplateId.FRI_SAT)) { picked = it } } }
+        compose.setContent { BlocksTheme { TemplatePickerScreen(fakeState(TemplateId.FRI_SAT)) { picked = (it as PickerAction.Pick).id } } }
         compose.mainClock.advanceTimeBy(1_000)
         compose.onNodeWithTag("template_card_FRI_SAT").assertIsDisplayed()
         compose.onAllNodesWithText("Suggested").assertCountEquals(1)
@@ -136,6 +138,50 @@ class TemplatePickerTest {
         }
         compose.onAllNodesWithText("Suggested").assertCountEquals(1)
         compose.onNodeWithTag("template_card_${ownId.key}").assertIsDisplayed()
+
+        // A fresh store restores the seed so sibling tests still see the built-in suggestion.
+        TemplateStore(context, PrefsStorage(context, UnconfinedTestDispatcher()), AppLogger(context))
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "w320dp-h1000dp")
+    fun manyTemplates_scrollAndNeverOverlap() {
+        val context = RuntimeEnvironment.getApplication()
+        context.getSharedPreferences(PrefsFile.SETTINGS.name.lowercase(), 0).edit().clear().commit()
+        val state = runBlocking {
+            val store = TemplateStore(context, PrefsStorage(context, UnconfinedTestDispatcher()), AppLogger(context))
+            store.create("One")
+            store.create("Two")
+            store.create("Three")
+            PickerUiState(
+                greeting = "Good morning",
+                date = "Monday",
+                cards = store.all().map { template ->
+                    val display = templateDisplay(template.id)
+                    PickerCard(
+                        id = template.id,
+                        title = display.title,
+                        subtitle = display.subtitle,
+                        summary = display.short,
+                        icon = display.icon,
+                        accent = display.accent,
+                        suggested = template.id == TemplateId.SUN_TUE_WED,
+                        outlined = template.id == TemplateId.OFF,
+                        strip = stripFor(template.blocks),
+                    )
+                }.toPersistentList(),
+            )
+        }
+        compose.mainClock.autoAdvance = false
+        compose.setContent { BlocksTheme { TemplatePickerScreen(state = state, onAction = {}) } }
+        compose.mainClock.advanceTimeBy(1_000)
+
+        compose.onNodeWithTag("picker_grid").performScrollToNode(hasTestTag("template_card_OFF"))
+
+        val friSat = compose.onNodeWithTag("template_card_FRI_SAT").fetchSemanticsNode().boundsInRoot
+        val off = compose.onNodeWithTag("template_card_OFF").fetchSemanticsNode().boundsInRoot
+        assertTrue("the last card is on screen after scrolling", off.height > 0f)
+        assertFalse("cards in different rows must never overlap", friSat.overlaps(off))
 
         // A fresh store restores the seed so sibling tests still see the built-in suggestion.
         TemplateStore(context, PrefsStorage(context, UnconfinedTestDispatcher()), AppLogger(context))

@@ -14,8 +14,8 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
@@ -26,6 +26,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -82,7 +86,10 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.launch
@@ -114,6 +121,11 @@ sealed interface PickerAction {
     data class Pick(val id: TemplateId) : PickerAction
 }
 
+/** What the picker asks the screen around it to do once a pick is applied. */
+sealed interface PickerEffect {
+    data object Started : PickerEffect
+}
+
 @HiltViewModel
 /**
  * Lists the templates and previews what picking one would do to the rest of today. Rules: the
@@ -133,16 +145,23 @@ class TemplatePickerViewModel @Inject constructor(
     private val _state = MutableStateFlow(PickerUiState())
     val state = _state.asStateFlow()
 
+    private val _effects = MutableSharedFlow<PickerEffect>()
+    val effects: SharedFlow<PickerEffect> = _effects.asSharedFlow()
+
     init {
         publish()
         viewModelScope.launch {
             ticker.minutes.distinctUntilChangedBy { it / 60 }.collect { publish() }
+        }
+        viewModelScope.launch {
+            templates.templates.collect { publish() }
         }
     }
 
     fun onAction(action: PickerAction) {
         if (action is PickerAction.Pick) {
             if (action.id == TemplateId.OFF) day.send(DayEvent.TakeOffDay) else day.send(DayEvent.StartDay(action.id))
+            viewModelScope.launch { _effects.emit(PickerEffect.Started) }
         }
     }
 
@@ -270,70 +289,71 @@ fun AuroraBackground(modifier: Modifier = Modifier) {
 @Composable
 fun TemplatePickerRoute(onStarted: () -> Unit, viewModel: TemplatePickerViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    TemplatePickerScreen(
-        state = state,
-        onPick = {
-            viewModel.onAction(PickerAction.Pick(it))
-            onStarted()
-        },
-    )
+    LaunchedEffect(Unit) {
+        viewModel.effects.collect { effect ->
+            when (effect) {
+                PickerEffect.Started -> onStarted()
+            }
+        }
+    }
+    TemplatePickerScreen(state = state, onAction = viewModel::onAction)
 }
 
 @Composable
-fun TemplatePickerScreen(state: PickerUiState, onPick: (TemplateId) -> Unit) {
+fun TemplatePickerScreen(state: PickerUiState, onAction: (PickerAction) -> Unit) {
     val colors = AppTheme.colors
     AppBackground {
         AuroraBackground()
-        Column(
-            Modifier
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing)
-                .padding(Spacing.l),
-            verticalArrangement = Arrangement.Center,
+                .testTag("picker_grid"),
+            contentPadding = PaddingValues(Spacing.l),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.m),
+            verticalArrangement = Arrangement.spacedBy(Spacing.m),
         ) {
-            Text(
-                "${state.greeting}, Roni",
-                style = MaterialTheme.typography.headlineSmall,
-                color = colors.textPrimary,
-            )
-            Text(state.date, style = MaterialTheme.typography.bodyMedium, color = colors.textSecondary)
-            Text(
-                "How does today look?",
-                style = MaterialTheme.typography.titleMedium,
-                color = colors.textPrimary,
-                modifier = Modifier.padding(top = Spacing.xl),
-            )
-            state.cards.chunked(2).forEachIndexed { rowIndex, row ->
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = Spacing.m),
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.m),
-                ) {
-                    row.forEachIndexed { columnIndex, card ->
-                        TemplateCard(
-                            card = card,
-                            index = rowIndex * 2 + columnIndex,
-                            onClick = { onPick(card.id) },
-                        )
-                    }
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Column {
+                    Text(
+                        "${state.greeting}, Roni",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = colors.textPrimary,
+                    )
+                    Text(state.date, style = MaterialTheme.typography.bodyMedium, color = colors.textSecondary)
+                    Text(
+                        "How does today look?",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = colors.textPrimary,
+                        modifier = Modifier.padding(top = Spacing.xl),
+                    )
                 }
             }
-            Text(
-                "You can swap later from Home",
-                style = MaterialTheme.typography.labelMedium,
-                color = colors.textMuted,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = Spacing.l),
-            )
+            itemsIndexed(state.cards, key = { _, card -> card.id.key }) { index, card ->
+                TemplateCard(
+                    card = card,
+                    index = index,
+                    onClick = { onAction(PickerAction.Pick(card.id)) },
+                )
+            }
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Text(
+                    "You can swap later from Home",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = colors.textMuted,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = Spacing.l),
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun RowScope.TemplateCard(card: PickerCard, index: Int, onClick: () -> Unit) {
+private fun TemplateCard(card: PickerCard, index: Int, onClick: () -> Unit) {
     val colors = AppTheme.colors
     val enter = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
@@ -349,7 +369,7 @@ private fun RowScope.TemplateCard(card: PickerCard, index: Int, onClick: () -> U
     )
     AppCard(
         modifier = Modifier
-            .weight(1f)
+            .fillMaxWidth()
             .aspectRatio(Metrics.cardAspect)
             .testTag("template_card_${card.id.key}")
             .graphicsLayer {
