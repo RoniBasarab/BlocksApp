@@ -259,4 +259,40 @@ class InsightsViewModelTest {
         assertEquals(25, worst[1].avgMinutes)
         assertEquals(25f / 45f, worst[1].fraction, 0.005f)
     }
+
+    /** An evening whose Dishes block lasted [minutes] minutes (planned 20). */
+    private suspend fun seedDishesEvening(date: LocalDate, minutes: Int) {
+        val start = LocalTime(20, 0).at(date, zone)
+        history.writeDay(
+            DayRecord(
+                date = date,
+                template = null,
+                segments = listOf(
+                    Segment(
+                        type = BlockType.Dishes,
+                        kind = SegmentKind.PLANNED,
+                        plannedStart = start,
+                        plannedEnd = start + 20.minutes,
+                        actualStart = start,
+                        actualEnd = start + minutes.minutes,
+                    ),
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun dishesRow_countsTheEveningsOver20() = runBlocking {
+        seedStubWeek(previousStart)
+        seedStubWeek(subjectStart)
+        seedDishesEvening(subjectStart, 27)
+        seedDishesEvening(subjectStart.plus(1, DateTimeUnit.DAY), 25)
+        seedDishesEvening(subjectStart.plus(2, DateTimeUnit.DAY), 20)
+
+        val rows = build().state.value.rows
+
+        val dishes = rows.first { it.label == "Dishes" }
+        assertEquals("2 of 3 evenings over 20 min", dishes.value)
+        assertEquals("+6 min on average", dishes.hint)
+    }
 }

@@ -262,6 +262,8 @@ class HomeViewModelTest {
 
         clock.now = LocalTime(21, 32).at(date, zone)
         viewModel.onAction(HomeAction.PickEvening(Choice.GAME))
+        // 3.3.0: Dishes never ends by itself; "Done dishes" starts the picked activity.
+        viewModel.onAction(HomeAction.SkipDishes)
         withTimeout(5_000) { orchestrator.state.first { it == DayState.Evening(1) } }
 
         clock.now = LocalTime(21, 40).at(date, zone)
@@ -437,9 +439,10 @@ class HomeViewModelTest {
         viewModel.onAction(HomeAction.KidAsleep)
         withTimeout(5_000) { orchestrator.state.first { it == DayState.Evening(0) } }
 
-        // Dishes runs 21:12-21:32; the pick lands exactly on its end, so the activity starts at once.
+        // Dishes runs 21:12-21:32; 3.3.0: it runs over until "Done dishes" starts the pick.
         clock.now = LocalTime(21, 32).at(date, zone)
         viewModel.onAction(HomeAction.PickEvening(Choice.READ))
+        viewModel.onAction(HomeAction.SkipDishes)
         withTimeout(5_000) { orchestrator.state.first { it == DayState.Evening(1) } }
 
         viewModel.onAction(HomeAction.Walk)

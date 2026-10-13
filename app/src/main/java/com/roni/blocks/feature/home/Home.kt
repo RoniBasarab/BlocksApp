@@ -1239,7 +1239,7 @@ private val day: DayOrchestrator,
                     showProgress = false,
                     buttons = persistentListOf(
                         NowButton(NowButtonId.CHOOSE_EVENING, if (pick != null) "Change evening" else "Choose evening", NowButtonStyle.PRIMARY),
-                        NowButton(NowButtonId.SKIP_DISHES, "Skip dishes", NowButtonStyle.SECONDARY),
+                        NowButton(NowButtonId.SKIP_DISHES, "Done dishes", NowButtonStyle.SECONDARY),
                         NowButton(NowButtonId.END_DAY, "End day", NowButtonStyle.SECONDARY),
                     ),
                 )

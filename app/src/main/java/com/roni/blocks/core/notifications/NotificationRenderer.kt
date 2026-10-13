@@ -54,6 +54,7 @@ class NotificationRenderer @Inject constructor(
         manager.createNotificationChannel(
             channel(EVENING, R.string.channel_evening, NotificationManager.IMPORTANCE_LOW, sound = false),
         )
+        manager.createNotificationChannel(dishesChannel())
     }
 
     override fun render(model: NotificationModel?, transition: Boolean, alert: Boolean) {
@@ -63,7 +64,13 @@ class NotificationRenderer @Inject constructor(
             return
         }
         ensureChannels()
-        val channelId = if (model.channel == NotificationChannelKind.EVENING) EVENING else DAY
+        // Dishes reminders vibrate only, and only while an alert is due (3.3.0); every other render
+        // (and every transition) stays on the day/evening channel it always used.
+        val channelId = when {
+            alert && model.isDishesSlot() -> DISHES
+            model.channel == NotificationChannelKind.EVENING -> EVENING
+            else -> DAY
+        }
         // Changing channel on a live notification is ignored by the platform, so replace it.
         if (lastChannel != null && lastChannel != channelId) manager.cancel(ID)
         if (transition || alert) {
@@ -131,10 +138,17 @@ class NotificationRenderer @Inject constructor(
             setSound(if (sound) android.provider.Settings.System.DEFAULT_NOTIFICATION_URI else null, null)
         }
 
+    /** Dishes reminders (3.3.0): no sound, a double vibration; the only other vibration besides walks. */
+    private fun dishesChannel(): NotificationChannel =
+        NotificationChannel(DISHES, "Dishes reminders", NotificationManager.IMPORTANCE_DEFAULT).apply {
+            setSound(null, null)
+            enableVibration(true)
+            vibrationPattern = longArrayOf(0, 400, 200, 400)
+        }
+
     private fun openApp(): PendingIntent = openAppIntent(context)
 
-    private fun actionIntent(action: NotificationActionModel, index: Int): PendingIntent {
-        val intent = Intent(context, NotificationActionReceiver::class.java)
+    private fun actionIntent(action: NotificationActionModel, index: Int): PendingIntent {        val intent = Intent(context, NotificationActionReceiver::class.java)
             .setAction(NotificationActionReceiver.ACTION_EVENT)
             .putExtra(NotificationActionReceiver.EXTRA_EVENT, action.event.name)
             .putExtra(NotificationActionReceiver.EXTRA_FOR_BLOCK_ID, action.forBlockId)
@@ -163,9 +177,13 @@ class NotificationRenderer @Inject constructor(
         const val TEST_ID = 99
         const val DAY = "day"
         const val EVENING = "evening"
+        const val DISHES = "dishes"
         private const val LEGACY_STATUS = "status"
         private const val LEGACY_ALERTS = "day_alerts"
         private const val REQUEST_ACTION = 20
         private const val REQUEST_DISMISSED = 60
     }
 }
+
+/** The Dishes slot's model (3.3.0): its alerts vibrate on the DISHES channel. */
+private fun NotificationModel.isDishesSlot(): Boolean = key == "dishes" || key == "dishes:done"
