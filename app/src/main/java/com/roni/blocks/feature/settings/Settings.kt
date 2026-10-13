@@ -163,6 +163,7 @@ sealed interface SettingsAction {
     data object DebugKidAsleep : SettingsAction
     data object DebugSkipDishes : SettingsAction
     data object ResetExplainers : SettingsAction
+    data object ShowMainMenu : SettingsAction
 }
 
 /** One-shot outcomes the screen surfaces in its snackbar. */
@@ -708,6 +709,7 @@ private fun DeveloperToolsDialog(
                 }
                 DebugSection("Explainers") {
                     DebugButton(DebugButtonUi("Reset explainers", null, SettingsAction.ResetExplainers), onAction, Modifier.fillMaxWidth())
+                    DebugButton(DebugButtonUi("Show main menu", null, SettingsAction.ShowMainMenu), onAction, Modifier.fillMaxWidth())
                 }
             }
         }
@@ -835,6 +837,7 @@ fun SettingsRoute(
     onBack: () -> Unit,
     onResetToday: () -> Unit,
     onOpenHome: () -> Unit,
+    onShowMainMenu: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -895,6 +898,10 @@ fun SettingsRoute(
             SettingsAction.DebugKidAsleep -> viewModel.debugKidAsleep()
             SettingsAction.DebugSkipDishes -> viewModel.debugSkipDishes()
             SettingsAction.ResetExplainers -> viewModel.resetExplainers()
+            SettingsAction.ShowMainMenu -> {
+                devToolsOpen = false
+                onShowMainMenu()
+            }
         }
     }
 

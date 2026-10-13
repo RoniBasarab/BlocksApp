@@ -4,6 +4,7 @@ import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.model.CategoryInfo
 import com.roni.blocks.core.model.StoredTemplate
 import com.roni.blocks.core.model.TemplateId
+import com.roni.blocks.core.profiles.ProfileEdit
 import com.roni.blocks.core.profiles.Profiles
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -25,10 +26,12 @@ class TemplateActions @Inject constructor(
 /** The only way the screens write profiles (3.2.0): every write goes through [TemplateStore.edit]. */
 @Singleton
 class ProfileActions @Inject constructor(private val store: TemplateStore) {
-    suspend fun create(name: String, copyActive: Boolean) = store.edit { Profiles.create(it, name, copyActive) }
+    suspend fun create(name: String, copyActive: Boolean) =
+        store.edit { Profiles.create(it, name, copyActive) }.also { if (it is ProfileEdit.Ok) store.markProfileChosen() }
     suspend fun rename(id: String, name: String) = store.edit { Profiles.rename(it, id, name) }
     suspend fun delete(id: String) = store.edit { Profiles.delete(it, id) }
-    suspend fun switchTo(id: String) = store.edit { Profiles.switchTo(it, id) }
+    suspend fun switchTo(id: String) =
+        store.edit { Profiles.switchTo(it, id) }.also { if (it is ProfileEdit.Ok) store.markProfileChosen() }
     suspend fun addTemplate(profileId: String, id: TemplateId) = store.edit { Profiles.addTemplate(it, profileId, id) }
     suspend fun removeTemplate(profileId: String, id: TemplateId) = store.edit { Profiles.removeTemplate(it, profileId, id) }
     suspend fun setDay(profileId: String, iso: Int, id: TemplateId?) = store.edit { Profiles.setDay(it, profileId, iso, id) }

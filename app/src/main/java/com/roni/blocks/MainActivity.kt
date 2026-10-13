@@ -26,6 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.logging.AppLogger
+import com.roni.blocks.core.storage.TemplateStore
 import com.roni.blocks.designsystem.BlocksTheme
 import com.roni.blocks.navigation.AppRoot
 import com.roni.blocks.navigation.StartDestination
@@ -46,6 +47,7 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var orchestrator: DayOrchestrator
     @Inject lateinit var logger: AppLogger
+    @Inject lateinit var templates: TemplateStore
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splash = installSplashScreen()
@@ -75,11 +77,11 @@ class MainActivity : ComponentActivity() {
                     if (withTimeoutOrNull(SPLASH_CAP_MS) { orchestrator.isRestored.first { it } } == null) {
                         logger.error("Restore took over 3 s; opening with the current state")
                     }
-                    start = resolveStartDestination(orchestrator.state.value)
+                    start = resolveStartDestination(orchestrator.state.value, templates.profileChosen())
                 }
                 LaunchedEffect(state) {
-                    if (start == StartDestination.TEMPLATE_PICKER &&
-                        resolveStartDestination(state) == StartDestination.HOME
+                    if (start != StartDestination.HOME &&
+                        resolveStartDestination(state, templates.profileChosen()) == StartDestination.HOME
                     ) {
                         start = StartDestination.HOME
                     }

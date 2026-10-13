@@ -14,6 +14,7 @@ import com.roni.blocks.feature.history.HistoryDetailRoute
 import com.roni.blocks.feature.history.HistoryRoute
 import com.roni.blocks.feature.home.HomeRoute
 import com.roni.blocks.feature.insights.InsightsRoute
+import com.roni.blocks.feature.mainmenu.MainMenuRoute
 import com.roni.blocks.feature.profiles.CategoriesRoute
 import com.roni.blocks.feature.profiles.FirstVisit
 import com.roni.blocks.feature.profiles.ProfileRoute
@@ -25,6 +26,7 @@ import com.roni.blocks.feature.weekly.WeeklyRoute
 import kotlinx.serialization.Serializable
 
 @Serializable data object TemplatePickerKey : NavKey
+@Serializable data object MainMenuKey : NavKey
 @Serializable data object HomeKey : NavKey
 @Serializable data object WeeklyKey : NavKey
 @Serializable data object InsightsKey : NavKey
@@ -36,11 +38,11 @@ import kotlinx.serialization.Serializable
 @Serializable data class HistoryDayKey(val date: String) : NavKey
 @Serializable data class TemplateEditorKey(val key: String) : NavKey
 
-enum class StartDestination { TEMPLATE_PICKER, HOME }
+enum class StartDestination { MAIN_MENU, TEMPLATE_PICKER, HOME }
 
-/** The picker is only ever the start when today has not been started; everything else opens Home. */
-fun resolveStartDestination(state: DayState): StartDestination = when (state) {
-    DayState.NotStarted -> StartDestination.TEMPLATE_PICKER
+/** The first-run menu is the start until a profile is chosen; then the picker or Home (3.3.0). */
+fun resolveStartDestination(state: DayState, profileChosen: Boolean): StartDestination = when (state) {
+    DayState.NotStarted -> if (profileChosen) StartDestination.TEMPLATE_PICKER else StartDestination.MAIN_MENU
     is DayState.Running,
     is DayState.Paused,
     DayState.KidTime,
@@ -52,6 +54,7 @@ fun resolveStartDestination(state: DayState): StartDestination = when (state) {
 
 private val StartDestination.key: NavKey
     get() = when (this) {
+        StartDestination.MAIN_MENU -> MainMenuKey
         StartDestination.TEMPLATE_PICKER -> TemplatePickerKey
         StartDestination.HOME -> HomeKey
     }
@@ -73,6 +76,14 @@ fun AppRoot(start: StartDestination, modifier: Modifier = Modifier) {
         entryProvider = entryProvider {
             entry<TemplatePickerKey> {
                 TemplatePickerRoute(onStarted = { openTab(HomeKey) })
+            }
+            entry<MainMenuKey> {
+                FirstVisit(ExplainerKey.PROFILES) {
+                    MainMenuRoute(
+                        onOpenPicker = { openTab(TemplatePickerKey) },
+                        onOpenCategories = { backStack.add(CategoriesKey) },
+                    )
+                }
             }
             entry<HomeKey> {
                 HomeRoute(
@@ -118,6 +129,7 @@ fun AppRoot(start: StartDestination, modifier: Modifier = Modifier) {
                     onBack = { backStack.removeAt(backStack.lastIndex) },
                     onResetToday = { openTab(TemplatePickerKey) },
                     onOpenHome = { openTab(HomeKey) },
+                    onShowMainMenu = { backStack.add(MainMenuKey) },
                 )
             }
         },

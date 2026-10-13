@@ -48,6 +48,7 @@ class TemplateStore @Inject constructor(
     private val seed: List<StoredTemplate> = parseSeed()
 
     @Volatile private var stored: List<StoredTemplate> = seed
+    @Volatile private var chosen = false
     @Volatile private var book: ProfileBook = Profiles.repair(
         listOf(UNEMPLOYED_PROFILE), UNEMPLOYED_PROFILE.id, seed.associate { it.id to it.weekdays }, UNEMPLOYED_PROFILE,
     )
@@ -98,6 +99,15 @@ class TemplateStore @Inject constructor(
     /** The active profile's id. */
     fun activeProfileId(): String = book.activeId
 
+    /** Whether a profile was ever chosen (3.3.0): false only on a fresh install, until one is picked or made. */
+    fun profileChosen(): Boolean = chosen
+
+    /** Remembers that a profile was chosen (3.3.0); the first-run menu is only for fresh installs. */
+    suspend fun markProfileChosen() {
+        chosen = true
+        prefs.write(PrefsFile.SETTINGS, KEY_CHOSEN, true, Boolean.serializer())
+    }
+
     suspend fun load() {
         val templates = prefs.read(PrefsFile.SETTINGS, KEY_TEMPLATES, ListSerializer(StoredTemplate.serializer()))
         val profiles = prefs.read(PrefsFile.SETTINGS, KEY_PROFILES, ListSerializer(Profile.serializer()))
@@ -106,6 +116,10 @@ class TemplateStore @Inject constructor(
             saveSeed()
             return
         }
+        // The stored templates were read, not seeded now: this install has chosen before (3.3.0).
+        val chosenFlag = prefs.read(PrefsFile.SETTINGS, KEY_CHOSEN, Boolean.serializer())
+        chosen = chosenFlag ?: true
+        if (chosenFlag == null) prefs.write(PrefsFile.SETTINGS, KEY_CHOSEN, true, Boolean.serializer())
         stored = templates.map { validated(it) }
         val repaired = Profiles.repair(profiles, activeId, stored.associate { it.id to it.weekdays }, UNEMPLOYED_PROFILE)
         book = repaired
@@ -251,6 +265,7 @@ class TemplateStore @Inject constructor(
         private const val KEY_TEMPLATES = "templates"
         private const val KEY_PROFILES = "profiles"
         private const val KEY_ACTIVE = "active_profile"
+        private const val KEY_CHOSEN = "profile_chosen"
 
         private val JSON = Json { ignoreUnknownKeys = true }
     }

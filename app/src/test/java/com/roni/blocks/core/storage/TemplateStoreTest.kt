@@ -280,6 +280,28 @@ class TemplateStoreTest {
         assertTrue("archived templates never list in the profile", store.all().none { it.id == mine.id })
     }
 
+    // 3.3.0: an existing install has already chosen a profile; a fresh seed has not.
+
+    @Test
+    fun existingInstall_countsAsChosen() = runBlocking {
+        val seeded = store()
+        seeded.load()
+        assertFalse("the seeding load itself stays unchosen", seeded.profileChosen())
+
+        val restarted = store()
+        restarted.load()
+
+        assertTrue("templates were read, not seeded now", restarted.profileChosen())
+    }
+
+    @Test
+    fun freshInstall_isNotChosen() = runBlocking {
+        val store = store()
+        store.load()
+
+        assertFalse(store.profileChosen())
+    }
+
     private suspend fun writeStored(templates: List<StoredTemplate>) {
         val prefs = storage()
         prefs.write(PrefsFile.SETTINGS, "templates", templates, ListSerializer(StoredTemplate.serializer()))
