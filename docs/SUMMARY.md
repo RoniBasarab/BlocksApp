@@ -1,6 +1,6 @@
 # Blocks: Project Summary (handoff)
 
-Last updated: Sunday 11 October 2026. Written so an agent with no prior context can take over: the **planning agent** (the next Claude chat working with Roni) or the **working agent** (a coding agent in the repo). Read it fully before anything else.
+Last updated: Tuesday 13 October 2026. Written so an agent with no prior context can take over: the **planning agent** (the next Claude chat working with Roni) or the **working agent** (a coding agent in the repo). Read it fully before anything else.
 
 ---
 
@@ -13,7 +13,7 @@ Why it exists: Roni is job-hunting and his unstructured days were drifting (even
 - Code: `C:\Blocks App` on Roni's Windows machine. A git repo; `master` holds released work, tagged `vX.Y.Z`. Remote `origin` = `github.com/RoniBasarab/BlocksApp`. Keep it private (§17).
 - All spec and task files live in the repo root (committed from Task-6 on).
 - Timezone Asia/Jerusalem. The work week is Sunday–Thursday; the weekend is Friday–Saturday.
-- Released: **2.5.0** (Task-12: walk fixes, steps, the evening). In progress: **2.6.0** (Task-13): a walk that works, a calendar that never overlaps, Next to the very next block.
+- Released: **2.6.2** (Task-15). In progress: **2.7.0** (Task-17: days that wait for their first block; steps as an estimate). Next: **3.0 → 3.2**, profiles and your own templates (§10).
 - All docs live in `docs/` (from Task-8 on); the root holds only the build files, `README.md` and `CHANGELOG.md`.
 
 ## 2. People and roles
@@ -49,7 +49,11 @@ Roni starts fresh sessions for both agents at handoffs, so everything they need 
 - **Looks matter:** "make sure it looks nice" (7 Oct, about dragging blocks).
 - **Less testing (4 Oct):** he felt the tasks had become test-heavy. Policy in §15.
 - **Every iteration is versioned** (§14); he leaves major/minor/patch to the planning agent.
-- **Battery:** no vibration anywhere; sound only in the daytime segment; silence after the day ends.
+- **Battery:** no vibration anywhere (walk rings are the one exception); sound only in the daytime segment; silence after the day ends.
+- **Anything that could vary, ask (13 Oct):** whenever a feature has a value that could reasonably differ (per day, per template, per profile, on vacation), run a short questionnaire on how dynamic it should be before writing the task. Day start was the trigger: it was a constant and he wanted it per template.
+- **Small tasks (13 Oct):** split big work into tasks small enough that the working agent never needs a huge context: one version per task, about 3–5 slices.
+- **Parallel agents (13 Oct):** when two pieces of work touch disjoint files, say so and give them as separate tracks, each in its own git worktree (`git worktree add "../Blocks App B" -b <branch>`), merged one after the other. Never two agents in the same folder.
+- **Agent sessions don't start in the repo:** `AGENT.md` step 0 is `cd "C:/Blocks App"`.
 - He writes fast and casually, sometimes by voice dictation, so expect typos. Interpret the intent.
 - He installs with Android Studio's Run button. His daily app must be the **release** variant (`com.roni.blocks`). `debug` installs a separate test copy (`com.roni.blocks.debug`) with demo data and the debug clock. Every installed copy fires the 9:00 prompt, so test copies should be uninstalled after use.
 - **Family context that shapes the schedule:** a young child in kindergarten; drop-off before 08:00, pickup at 16:20 on Sun/Tue/Wed; grandparents take the child Mon/Thu until about 19:00; his wife usually runs the bedtime ritual, sometimes with Roni.
@@ -60,7 +64,7 @@ Roni starts fresh sessions for both agents at handoffs, so everything they need 
 |---|---|---|
 | `SUMMARY.md` | This file: the handoff | Current |
 | `AGENT.md` | The working agent's standing instructions; Roni's prompt is just "Read docs/AGENT.md and do what it says." | Updated by the planning agent for each task |
-| `Task-13.md` | The current task (2.6.0), with a slice map of line ranges | Ready to hand over |
+| `Task-17.md` | The current task (2.7.0), with a slice map of line ranges | Ready to hand over |
 | `schedule-spec.md`, `architecture.md`, `visuals.md` | Behavior, code, look | Describe 2.1.0; 2.2.0 changes are in Task-9 and §10 here |
 | `CODEMAP.md` | One row per source file | The real file map; task files use its names |
 | `NOTES.md` | The working agent's decision log | Must not contradict the code |
@@ -178,20 +182,24 @@ Coding uses Pomodoro 50/10, counted from the block's actual start. Phase switche
 - Task-7's first sessions were far slower than earlier 12-slice tasks and ran out of quota. The logs show why: it read the whole doc set up front (~150k characters, re-sent on every call), ran `git log` seven times between edits, kept retrying `&&` in PowerShell 5.1, and used Python one-liners to search files. Each needless call re-sends the whole context. The prompt in §18 now covers each of these.
 - When a task hands over pure logic, the planning agent compiles and tests it first and marks it *verified* (§17). Task-7's `PlanEditor` was checked against every named test plus 40,000 random edit sequences.
 
-## 9. Current state (12 Oct 2026, evening)
+## 9. Current state (13 Oct 2026)
 
-**Released, 2.5.0:** tag `v2.5.0`. Roni found it broken in use (12 Oct). In Task-13:
-- The walk timer mixed epoch seconds with seconds of the day (`29862554:24`), and "heading home" was never true. `WalkClock` (*verified*) is now the only walk time math.
-- The top-bar walk icon was dead: `publish()` cleared the sheet outside day blocks.
-- Calendar text overlapped: short blocks always tried to fit a title, and walk labels drew over block titles. `CalendarLayout` (*verified*) turns blocks under ~13 min into slivers with label pills, lays out pill rows without overlap, and moves block text out of their way.
-- Next skipping free time (Task-10's design) is reverted: Next goes to the very next block.
-- The step permission card is gone: permissions are asked at launch.
+**Released, 2.6.2:** tag `v2.6.2`. Since 2.5.0:
+- the walk works (`WalkClock`);
+- the calendar never overlaps or clips (`CalendarLayout` with measured text heights; slivers and pills);
+- Next goes to the very next block;
+- permissions are asked at launch;
+- the status line counts done/missed after the day;
+- the doubled top padding is gone from every screen;
+- steps and walks sit at the top of a History day.
 
-**Lesson for the planning agent:** anything with arithmetic or geometry (times, layouts, plans) goes into the task as verified pure code with tests. Every 2.3–2.5 regression Roni hit was in logic the working agent wrote from prose.
+Roni walks in the evenings now and likes the subtle steps counter.
+
+**Next, 2.7.0 (Task-17, ready):** a template picked before its first block waits ("Day starts at 09:00 · in 1h 20m", Start now / Change day), and steps read "about 2,050 steps" (the sensor counts car bumps). Task-16 was folded into it and never run.
 
 **The repo is public** (Roni opened it so the planning agent could read it). The docs describe his family's routine; he was told he can switch it back to private.
 
-**Waiting on Roni:** extract the Task-13 files into the repo and start the working agent with "Read docs/AGENT.md and do what it says." Before installing release, a keystore (`keystore.properties` in the root) and a backup of it.
+**Waiting on Roni:** extract the Task-17 files into the repo and start the working agent with "Read docs/AGENT.md and do what it says." Before installing release, a keystore (`keystore.properties` in the root) and a backup of it.
 
 **Deviation to remember:** Roni once asked for "minutes left, updated once a minute" in the notification. It uses the system chronometer instead (it shows negative time while running over). He hasn't objected.
 
@@ -254,6 +262,23 @@ Coding uses Pomodoro 50/10, counted from the block's actual start. Phase switche
 - Next before the next block's start: the next block that isn't free time starts now with its own length; free time in between is skipped; the rest becomes free time. Next into kid time starts kid time. Pure `PlanEditor.startEarly` / `nextStop` (*verified*).
 - Walks: a Walk button on the NowCard; a start sheet (30 min, ±5, 10–60); the walk is inserted at now and the current block resumes after it (a longer walk eats the next blocks' starts; kid time is a wall). It rings like a timer at half time ("Turn back now") and at the end: alarm sound even on silent, repeating until Stop or a minute, with vibration (the one exception to the no-vibration rule). "Turn back now" ends the way out early; the way home takes as long. Home shows a WalkCard with a two-colour ring (out cool, home warm). Pure `insertWalk` / `shortenWalk` / `walkEnd` and `AlertPlanner.walkAlerts` (*verified*).
 
+**3.x: profiles and your own templates (decided with Roni, 13 Oct; one task per version):**
+- **Why:** he's job hunting, and once employed whole days change shape (an office block 09:00–17:00). The app should hold more than his four fixed days, and maybe one day serve other people. Play-store issues (exact alarms etc.) come later.
+- **Profiles:** a profile holds its own templates plus which template is suggested on each weekday. Switch by hand in Settings; History keeps which profile each day used. Start: "Unemployed" (today's four templates).
+- **Templates:** made in a **new Templates area with a visual editor** (Settings → Templates → list → an editor that looks like Home's calendar). New screens, built by reference to Home's look and behaviour, without touching Home's tested code.
+- **Categories:** your own block kinds, each with a name, a colour, "counts as work" and Pomodoro on/off. CV, Coding, Gym and Free become the first four; Office, Commute and so on are added by him.
+- **Kid time and the evening routine:** always on, for every template, as today.
+- **Day start:** comes from each template's first block (2.7.0); templates can be picked from midnight. Day end stays 22:30 for now.
+- **Major bump, 3.0.0:** the stored data model changes and can't go back to 2.x.
+- **Order:**
+  - **3.0.0:** the model underneath, with no visible change. Categories and stored templates replace the fixed lists, everything is seeded from today's four templates, and old history keeps decoding.
+  - **3.1.0:** the Templates area and the editor. Possibly two parallel tracks (categories screen and template editor) if their files don't overlap.
+  - **3.2.0:** profiles and switching.
+- **Technical plan for 3.0 (planning agent's, not yet a task):**
+  - Keep `BlockType`'s built-ins and add `BlockType.Custom(id, name, colorArgb, work, pomodoro)`. Each block carries its category's flags, so an old record still says what it was after the category is edited, and old JSON needs no migration.
+  - `TemplateId` (enum) becomes a String-backed `TemplateKey`. Enum values serialize as their names, so "MON_THU" in stored state and history still decodes.
+  - The template validation rules and the seed conversion are delivered as verified pure code.
+
 **Later, not agreed (don't build without asking):**
 - A foreground service, if alerts still come late in deep Doze (or `setAlarmClock` for alerts).
 - Saving today's edits as the template, or a template editor screen.
@@ -263,9 +288,9 @@ Coding uses Pomodoro 50/10, counted from the block's actual start. Phase switche
 
 ## 11. Next steps
 
-1. **Roni:** run Task-10 with the working agent ("Read docs/AGENT.md and do what it says.").
-2. **Roni:** the 2.3.0 phone checklist, especially a real walk with the phone on silent in a pocket.
-3. **Planning agent:** review Task-10's work in the repo against its slices and named tests.
+1. **Roni:** run Task-17 (2.7.0) with the working agent.
+2. **Planning agent:** write Task-18 (3.0.0, the invisible model change) with its verified pieces. Before writing, ask Roni anything left open that could vary (e.g. weekday suggestions per profile, category colours).
+3. Then Task-19 (3.1.0, the editor; check whether it splits into parallel tracks), then Task-20 (3.2.0, profiles).
 
 ## 12. Decisions log (settled; don't reopen without a reason)
 
@@ -302,6 +327,8 @@ Coding uses Pomodoro 50/10, counted from the block's actual start. Phase switche
 | Alerts: 5-minute warning, end, then every 5 minutes until a reaction; Pomodoro breaks (11 Oct) | Roni: the app was too quiet to notice |
 | Alerts sound even with the app open; edits stay silent (11 Oct) | A screen that's on isn't a screen that's watched |
 | Tap any block of today: past blocks corrected live, the running block's end and type editable (11 Oct) | Roni: "changing the blocks themselves is impossible" |
+| Day waits for its first block; start per template; pick from midnight (13 Oct) | Picking at 00:30 started a 9-hour countdown |
+| Profiles, own templates and categories are 3.x, one version per task (13 Oct) | Generalizing beyond Roni's four days; data model changes, hence 3.0.0 |
 | No foreground service yet (11 Oct) | The silent alarms were the cause; revisit only if alerts come late |
 | Next before the next block's time starts it now, keeping its length; free time in between is skipped (11 Oct) | Planned times on an early block gave a 327-minute countdown |
 | Walks ring like a timer, with vibration (11 Oct) | The phone is in a pocket on a walk; the only exception to the no-vibration rule |

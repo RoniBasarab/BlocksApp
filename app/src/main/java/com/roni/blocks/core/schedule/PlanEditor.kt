@@ -276,6 +276,24 @@ object PlanEditor {
         return endCurrent(blocks, cur, start)
     }
 
+    /**
+     * "Start now" before the day's first block (2.7.0): the first block starts now. A work or free block keeps its length
+     * and the time it leaves behind becomes free time; kid time just starts now. Null when the first block is already due.
+     */
+    fun startFirstNow(plan: List<PlanBlock>, nowMin: Int): List<PlanBlock>? {
+        val blocks = plan.sortedBy { it.startMin }.toMutableList()
+        val first = blocks.firstOrNull() ?: return null
+        if (first.startMin <= nowMin) return null
+        if (!first.type.isEditable()) {
+            blocks[0] = first.copy(startMin = nowMin)
+            return blocks
+        }
+        val end = nowMin + first.length
+        blocks[0] = first.copy(startMin = nowMin, endMin = end)
+        freeAfter(blocks, 0, end, first.endMin)
+        return blocks
+    }
+
     /** The block Next lands on from [currentId]: simply the next one. */
     fun nextStop(plan: List<PlanBlock>, currentId: String): PlanBlock? {
         val blocks = plan.sortedBy { it.startMin }
