@@ -45,6 +45,17 @@ and the system DND state), so Roni runs them by hand.
 8. Fresh state for explainers (Developer tools → Reset explainers): Profiles, a profile, a weekday, the template editor, Categories each show their card once; tapping outside does nothing.
 9. Profile page: Off day doesn't open anything; "Sunday / Tuesday / Wednesday" shows "Built-in" on one line.
 
+**Check on the phone (3.4.0).** Use the debug app for steps that move the clock (Settings → Developer tools).
+
+1. Fresh install: the welcome screen has no card. ≡ → Profiles: a "What's a profile?" card at the top; the screen is usable around it; "Got it" collapses it, and it never comes back.
+2. A profile's page: the templates card on top, the days card above the weekdays; tapping a weekday opens its sheet at once.
+3. The template editor and Categories each show their card once.
+4. Weekly: "Walks: 3 walks · 1h 20m" and, if the walks had steps, "Steps from walks".
+5. Insights (with two weeks of data): Walks, Walk time, Steps and Evening walks with arrows.
+6. Settings → Your data → Back up my data: a JSON file in Downloads; Restore from a backup on Blocks Debug: the app restarts with that data.
+7. Upgrade rehearsal (Roni, see the report): 2.6.2 debug → 3.4.0 debug installed over it → today, History, walks and steps are all there; no welcome screen.
+8. Developer tools → Simulate a drive: History shows "· about 150 while driving"; Weekly has the "While driving" tile. On a real drive (phone in the car): the same after you get out, a few minutes late at most.
+
 **Check on the phone (3.0.0).** Install over 2.7.1, don't uninstall.
 
 1. Today's day continues exactly where it was (same block, same timer).

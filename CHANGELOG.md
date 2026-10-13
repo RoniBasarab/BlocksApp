@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.4.0
+- First-time explanations are now a small card at the top of the screen with "Got it", instead of a popup.
+- Weekly shows your walks (how many, how long) and how many of your steps came from walks.
+- Insights compares walks, walk time and average steps with last week, and counts evening walks.
+- Your data: back up everything to a file, and restore it (also into Blocks Debug, to try a version on real data).
+- Upgrading from 2.x keeps every day, walk and step, and skips the welcome screen.
+- Steps while driving: the phone notices drives and shows how many steps were counted in the car (History, Weekly, Insights). Your total isn't changed.
+
 ## 3.3.0
 - Home shows the real day: a block running over grows with a red tail and the next block shrinks; after Next the overrun stays and late starts show. Pauses and missed blocks are drawn too.
 - One edit sheet for today and for templates: category, start, length, Add after, Delete.
