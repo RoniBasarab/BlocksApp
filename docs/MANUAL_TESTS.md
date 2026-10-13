@@ -22,6 +22,17 @@ and the system DND state), so Roni runs them by hand.
 8. Pick Office day before its first block, edit it in Templates: Home's "Day starts at" follows.
 9. Delete Office day: History of a day that used it still shows its name.
 
+**Check on the phone (3.2.0).**
+
+1. After installing over 3.1.1: ≡ → Profiles shows Unemployed, active, and its days match what 3.1 suggested (Monday = In-Office if you set it).
+2. The hint shows; ? opens the 5 cards; after closing, the hint is gone for good.
+3. New profile "Employed", Start empty → only Off day. + New template "Office day", add blocks; + Add existing → Gym day; Days: Sunday–Thursday → Office day.
+4. Use this profile → today's day keeps going unchanged; tomorrow's picker shows "Employed ▾" and suggests Office day.
+5. The picker's switcher flips between the two; the cards follow.
+6. Remove a template from Employed: it stays in Unemployed. Delete a template in the editor: it leaves both.
+7. Delete Employed while it's active: not offered. Switch back, then delete it.
+8. History: today's day says "Unemployed" under its template.
+
 **Check on the phone (3.0.0).** Install over 2.7.1, don't uninstall.
 
 1. Today's day continues exactly where it was (same block, same timer).

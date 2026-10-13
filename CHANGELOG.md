@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.2.0
+- Profiles: sets of templates with their own weekday suggestions (Unemployed, Employed…). Menu → Profiles.
+- Templates are one library: a profile picks the ones it uses; + New template or + Add existing.
+- Switch profiles from the top of the picker. Today keeps going; the new profile starts with your next pick.
+- How to use: a short tour from the ? button.
+- History shows which profile each day ran under.
+- The Templates tab is gone: everything lives under Profiles.
+
 ## 3.1.1
 - The template picker scrolls: any number of templates fits, nothing overlaps.
 - The Templates list updates as soon as you come back from the editor.

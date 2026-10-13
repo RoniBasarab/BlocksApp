@@ -198,8 +198,8 @@ Receivers (`AlarmReceiver`, `NotificationActionReceiver`, `SystemEventsReceiver`
 
 | Prefs file | Keys |
 |---|---|
-| `day` | `day_state` (current `DayState`), `today_plan` (`TodayPlan`, 2.0.0), `today_segments` (actual segments so far), `today_date` |
-| `settings` | user settings |
+| `day` | `day_state` (current `DayState`), `today_plan` (`TodayPlan`, 2.0.0), `today_segments` (actual segments so far), `today_date`, `profile_name` (the profile the Off day started under, 3.2.0) |
+| `settings` | user settings; 3.2.0 also `profiles` (the `ProfileBook`'s profiles), `active_profile`, `how_to_seen` |
 | `history` | `record_YYYY-MM-DD` (one `DayRecord` per day), `agg_week_YYYY-MM-DD` (week start date). Old `debt_*` keys are ignored (Time Debt removed in 2.0.0). |
 
 **Why history is its own file:** SharedPreferences loads a whole file into memory on first access. Keeping a year of history out of `day` means the hot path (alarm fires → read state → post) never pays for history. The history file is touched only at flush and when history screens open.
@@ -246,6 +246,13 @@ class PrefsStorage {
 
 @Serializable data class Template(val id: TemplateId, val name: String, val blocks: List<BlockSpec>)
 
+@Serializable data class Profile(           // 3.2.0: one profile is a name, the library templates it uses, and which one each weekday suggests
+    val id: String,
+    val name: String,
+    val templateIds: List<TemplateId>,      // picker order, Off always last
+    val days: Map<Int, TemplateId>? = null, // ISO day (Mon = 1 … Sun = 7) → the template; null in 3.1 data until Profiles.repair
+)
+
 @Serializable data class Segment(       // what actually happened
     val type: BlockType,
     val kind: SegmentKind,              // PLANNED, SYNTHETIC_FREE, PAUSE, INTERRUPTION, CONSUMED
@@ -259,9 +266,10 @@ class PrefsStorage {
     val templateId: TemplateId,
     val blocks: List<BlockSpec>,        // sorted, ids unique; past blocks stay
     val edited: Boolean = false,
+    val profileName: String? = null,    // 3.2.0: the profile the day started under
 )
 
-@Serializable data class DayRecord(val date: LocalDate, val template: TemplateId?, val segments: List<Segment>, val flags: Set<DayFlag>, val plannedBlocks: List<BlockSpec>? = null, val demo: Boolean = false)
+@Serializable data class DayRecord(val date: LocalDate, val template: TemplateId?, val segments: List<Segment>, val flags: Set<DayFlag>, val plannedBlocks: List<BlockSpec>? = null, val demo: Boolean = false, val profileName: String? = null)
 // DayFlag: OFF_DAY, EVENING_SKIPPED, GYM_MISSED, AUTO_ENDED, EMERGENCY_STOP, TEMPLATE_SWAPPED, PLAN_EDITED. `demo` marks debug-generated records (Task-5).
 // plannedBlocks = the day's final plan. `planStartsAt` (Task-6) is retired in 2.0.0; a restore migrates it into `today_plan`.
 ```
@@ -380,7 +388,7 @@ Hour height: 80dp (2.0.0, room for break labels and handles). Current block: ele
 - Navigation 3: the back stack is a Compose-owned list of `@Serializable` `NavKey`s rendered by `NavDisplay`, with ViewModels scoped per entry.
 - Launch flow: the start screen is chosen once, after the saved state is restored (the splash stays up until then). `NotStarted` → **Template picker** (full screen); any other state → **Home**. After `StartDay` / `TakeOffDay` the stack is replaced with **Home**. A started day never reopens the picker; only the swap button and Settings → Reset today go back to it.
 - **Bottom bar (3):** Home · Weekly · Insights.
-- **Top-right menu:** History · Settings (pushed onto the stack). Time Debt was removed in 2.0.0.
+- **Top-right menu:** History · Profiles · Settings (pushed onto the stack). Profiles lists the profiles and reaches one profile (its templates and days) and the shared Categories. Time Debt was removed in 2.0.0.
 - Swap template: icon on Home → (a confirm dialog if the day has ended; refused after 22:30) → template picker → `SwapTemplate`, then the picker is replaced with Home.
 - **Structure and insets:** the tab screens share one `Scaffold` with the bottom bar; menu screens are their own entries outside it. Every `Scaffold` uses `contentWindowInsets = WindowInsets(0, 0, 0, 0)`. The status bar inset is applied only by each screen's top bar; the navigation bar inset only by `NavigationBar` (tabs) or the scrolling content's bottom padding (menu screens); the template picker pads with `safeDrawing` once.
 - **Transitions:** pushing, popping, the predictive back gesture and switching tabs all use one 250 ms crossfade token.
