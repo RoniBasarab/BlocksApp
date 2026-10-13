@@ -42,7 +42,7 @@ com.roni.blocks
 ├── MainActivity.kt                single activity, hosts NavDisplay
 ├── core/
 │   ├── daystate/                  DayState, DayEvent, DayStateMachine, DayOrchestrator
-│   ├── schedule/                  ScheduleEngine (pure time math), SegmentBook, TimelineQueries, PlanEditor
+│   ├── schedule/                  ScheduleEngine (pure time math), SegmentBook, TimelineQueries, PlanEditor, DayTimeline, TodayEditor
 │   ├── model/                     BlockType, Template, BlockSpec, Segment, DayRecord
 │   ├── time/                      Clock + TimeZone providers, Ticker
 │   ├── storage/                   PrefsStorage, TemplateManager, HistoryManager
@@ -54,6 +54,7 @@ com.roni.blocks
 ├── navigation/                    NavKeys, AppNavDisplay, top-right menu
 └── feature/
     ├── templatepicker/
+    ├── mainmenu/                  the first-run main menu (3.3.0)
     ├── home/                      HomeRoute, HomeScreen, HomeState, HomeAction, HomeEffect, HomeViewModel, components/
     ├── weekly/
     ├── insights/
@@ -291,7 +292,8 @@ All rules from the schedule spec live in `ScheduleEngine` as pure functions:
 - `SYNTHETIC_FREE` auto-ends and never leaks; `INTERRUPTION` now only means device-off downtime.
 - **Identity:** blocks are identified by id and type, never by position or template id; segments carry their block's id (2.0.0). Day records store the final plan.
 - **Swap template** (`DayEvent.SwapTemplate`, from any started state, refused after 22:30): recorded segments stay and the open one closes at now. Today's plan keeps its blocks up to now (up to the end, if the day had ended), the last one cut there, then takes the new template's blocks from now: the one containing now starts now, earlier ones are left out (not missed). A new block whose id is already kept (a swap to the same template) gets `<id>@<startMin>`. Flag `TEMPLATE_SWAPPED`.
-- **Editing** (`PlanEditor`, pure, 2.0.0): `editMode()` says what a block offers (`FULL`, `END_ONLY`, `TYPE_ONLY`, `NONE`) and `apply()` returns the new plan or null. Work blocks keep their length when pushed; free time and gaps absorb; kid time is a fixed point; nothing before the current block changes; the current block's end only, never into the next 5 minutes; 5-minute steps, 10-minute minimum; new free blocks get deterministic ids (`edit-1`, `edit-2`, …).
+- **Editing** (`PlanEditor`, pure, 2.0.0): `editMode()` says what a block offers (`FULL`, `END_ONLY`, `TYPE_ONLY`, `NONE`) and `apply()` returns the new plan or null. Work blocks keep their length when pushed; free time and gaps absorb; kid time is a fixed point; nothing before the current block changes; the current block's end only, never into the next 5 minutes; 5-minute steps, 10-minute minimum; new free blocks get deterministic ids (`edit-1`, `edit-2`, …). On today (`TodayEditor`, pure, 3.3.0) the same push rule applies with three extras: nothing up to the running block moves, nothing starts in the next 5 minutes, and kid time and walks are walls (no room before one → the sheet says why, Save off); Delete is `PlanEdit.Retype(id, Free)`.
+- **Home's real day** (`DayTimeline`, pure, 3.3.0): the calendar draws what happened, not only the plan — past blocks at their recorded times, pauses as grey stripes, a never-started block MISSED, the running block growing live with its overrun as a red tail (`overrunFromMin`) and the next block shrinking from the top; after Next the tail stays and the next block shows its `lateMin`. Blocks ahead are still the plan and edit as before.
 
 These are the unit-tested core (§16).
 
@@ -315,6 +317,7 @@ API: `setExactAndAllowWhileIdle`. Note that in deep Doze Android throttles allow
 |---|---|---|---|---|
 | `day` | Default | Yes (on transitions only) | No | 9:00 prompt, current block, block ended, Pomodoro break/focus |
 | `evening` | Low | No | No | 20:00 **Kid asleep / End day**, dishes, evening choice |
+| `dishes` | Default | No | Yes (pattern `0,400,200,400`) | Dishes' planned end and a 5-minute reminder while it runs over (3.3.0) |
 
 - Exactly one notification ID. At most one notification is ever visible; it is updated in place.
 - The countdown is the system chronometer (`setUsesChronometer` + `setChronometerCountDown`, `when` = effective end). Android draws it; the app never wakes up to update it. Past the end it shows negative time (the leak).
@@ -323,6 +326,7 @@ API: `setExactAndAllowWhileIdle`. Note that in deep Doze Android throttles allow
 - Tapping the notification opens the app like the launcher icon does: it resumes the existing task exactly as it was, and does nothing if the app is already in front.
 - Action buttons go through `NotificationActionReceiver` → `DayOrchestrator.send(...)` and carry the block id they were created for; stale actions are ignored. The app never opens from an action.
 - Old channels `status` and `day_alerts` are deleted on startup. Channel sound/importance is locked by Android once created; behavior changes need a new channel ID.
+- **Dishes never ends by itself (3.3.0).** It runs until *Done dishes* or Next; at its planned end and every 5 minutes after, the `dishes` reminder (`AlertPlanner.next(dishesStart, dishesEnd, …, warn = false)`) vibrates only — no sound, no 5-minute warning. The picked activity starts when the user finishes. History shows "Dishes 20:30–20:57 · 27 min (+7)" in red; Insights has a Dishes row.
 
 ---
 
@@ -386,7 +390,8 @@ Hour height: 80dp (2.0.0, room for break labels and handles). Current block: ele
 ## 13. Navigation
 
 - Navigation 3: the back stack is a Compose-owned list of `@Serializable` `NavKey`s rendered by `NavDisplay`, with ViewModels scoped per entry.
-- Launch flow: the start screen is chosen once, after the saved state is restored (the splash stays up until then). `NotStarted` → **Template picker** (full screen); any other state → **Home**. After `StartDay` / `TakeOffDay` the stack is replaced with **Home**. A started day never reopens the picker; only the swap button and Settings → Reset today go back to it.
+- Launch flow: the start screen is chosen once, after the saved state is restored (the splash stays up until then). `NotStarted` → **Main menu** when no profile was ever chosen, otherwise **Template picker** (full screen); any other state → **Home**. After `StartDay` / `TakeOffDay` the stack is replaced with **Home**. A started day never reopens the picker; only the swap button and Settings → Reset today go back to it.
+- **First-run main menu (3.3.0):** shown only until a profile was chosen once (`TemplateStore.profileChosen()`); big profile cards, + New profile, Categories explained, "Use this profile" → the picker. Existing installs count as chosen; Developer tools → Show main menu brings it back.
 - **Bottom bar (3):** Home · Weekly · Insights.
 - **Top-right menu:** History · Profiles · Settings (pushed onto the stack). Profiles lists the profiles and reaches one profile (its templates and days) and the shared Categories. Time Debt was removed in 2.0.0.
 - Swap template: icon on Home → (a confirm dialog if the day has ended; refused after 22:30) → template picker → `SwapTemplate`, then the picker is replaced with Home.

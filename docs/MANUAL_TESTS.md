@@ -33,6 +33,18 @@ and the system DND state), so Roni runs them by hand.
 7. Delete Employed while it's active: not offered. Switch back, then delete it.
 8. History: today's day says "Unemployed" under its template.
 
+**Check on the phone (3.3.0).** Use the debug app for steps that move the clock (Settings → Developer tools).
+
+1. Let a block run over (debug clock): it grows with a red striped tail and "+N min"; the next block shrinks from the top.
+2. Next: the tail stays; the next block reads "HH:MM–HH:MM · 20 min late".
+3. A pause shows as grey stripes in its block; a skipped block is faded with "Missed".
+4. Tap Coding ahead: the sheet; Add after → Gym 30 min right after it, later blocks move; make it run into kid time → "No room before kid time at 16:20", Save off. Delete a block → free time.
+5. Tap the running block: category and length only.
+6. Evening: pick an activity during Dishes; at Dishes' end it keeps running, the phone vibrates (no sound), again 5 minutes later; Done dishes starts the activity. History: Dishes "+N" in red.
+7. Developer tools → Show main menu: big profile cards; Use this profile → picker.
+8. Fresh state for explainers (Developer tools → Reset explainers): Profiles, a profile, a weekday, the template editor, Categories each show their card once; tapping outside does nothing.
+9. Profile page: Off day doesn't open anything; "Sunday / Tuesday / Wednesday" shows "Built-in" on one line.
+
 **Check on the phone (3.0.0).** Install over 2.7.1, don't uninstall.
 
 1. Today's day continues exactly where it was (same block, same timer).

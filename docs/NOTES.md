@@ -128,3 +128,7 @@ Still-live rules first (decisions a future agent needs), then one section per ve
 - Slice 3: `TemplateStore.profileChosen()` is a cached flag set by `load()` (when the stored templates were read, not seeded now) and by `markProfileChosen()`; `ProfileActions.switchTo`/`create` mark it on `ProfileEdit.Ok`. New `StartDestination.MAIN_MENU` is the start when `NotStarted` and not chosen.
 - Slice 3: the main menu's "+ New profile" uses the same dialog as the Profiles list; on `Create` Ok it emits `OpenPicker` (the menu has no profile page), and `UseProfile` switches, marks chosen, then opens the picker.
 - Slice 3: tests changed for the new signature: `StartDestinationTest` (new `profileChosen` arg + `MAIN_MENU` case) and `DayOrchestratorRestoreTest.startDestination_isOnlyCorrectOnceRestoreHasRun` (pre-restore now `MAIN_MENU`).
+
+## 3.3.0 release (Finish)
+- Finish: merged master (ff), Track A (`--no-ff`) then Track B (`--no-ff`); the only conflict was `docs/NOTES.md` (kept both Track A and Track B sections). Full suite green after the merge.
+- Finish: real names — Home's today editor is `core/schedule/TodayEditor.kt` (today's sheet; `PlanEditor` still handles the running block); the first-run menu is `feature/mainmenu/MainMenuScreen.kt`; explainers are `designsystem/Explainer.kt` + `feature/profiles/FirstVisit.kt` + `core/storage/ExplainerStore.kt`; Home's edit sheet is the generic `feature/templates/BlockSheet.kt`.

@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.3.0
+- Home shows the real day: a block running over grows with a red tail and the next block shrinks; after Next the overrun stays and late starts show. Pauses and missed blocks are drawn too.
+- One edit sheet for today and for templates: category, start, length, Add after, Delete.
+- Dishes runs until you finish it, with a quiet vibration at its end and every 5 minutes; History and Insights show when it ran over.
+- New installs start with a main menu of profiles; first visits explain each place once.
+- Profiles: + New profile on top, Categories explained.
+- Fixed: opening Off day from a profile crashed; "Built-in" wrapped onto two lines.
+
 ## 3.2.0
 - Profiles: sets of templates with their own weekday suggestions (Unemployed, Employed…). Menu → Profiles.
 - Templates are one library: a profile picks the ones it uses; + New template or + Add existing.
