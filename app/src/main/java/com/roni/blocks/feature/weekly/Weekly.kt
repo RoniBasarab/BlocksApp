@@ -46,6 +46,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.navigation3.runtime.NavKey
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.DayFlag
+import com.roni.blocks.core.model.DriveLog
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.WalkLog
 import com.roni.blocks.core.model.isWork
@@ -74,6 +75,7 @@ import com.roni.blocks.navigation.SettingsKey
 import com.roni.blocks.navigation.WeeklyKey
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlin.math.roundToInt
 import kotlin.time.Clock
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -181,6 +183,7 @@ class WeeklyViewModel @Inject constructor(
                 days,
                 days.mapNotNull { history.steps(it.date) },
                 history.walksBetween(selected, selected.plus(6, DateTimeUnit.DAY)),
+                history.drivesBetween(selected, selected.plus(6, DateTimeUnit.DAY)),
             ),
         )
     }
@@ -296,6 +299,7 @@ class WeeklyViewModel @Inject constructor(
         days: List<com.roni.blocks.core.model.DayRecord>,
         stepTotals: List<Long>,
         walks: Map<LocalDate, List<WalkLog>>,
+        drives: Map<LocalDate, List<DriveLog>>,
     ): List<WeeklyStat> {
         val leak = days.sumOf { debtMinutes(it.segments) }
         val gymPlanned = days.sumOf { day -> day.segments.count { it.type == BlockType.Gym && it.kind == SegmentKind.PLANNED && it.plannedStart != null } }
@@ -330,10 +334,22 @@ class WeeklyViewModel @Inject constructor(
         } else {
             null
         }
+        val driveSteps = drives.values.flatten().mapNotNull { it.steps }.sum()
+        val driving = if (stepTotals.isNotEmpty() && driveSteps > 0) {
+            val percent = (driveSteps * 100.0 / total).roundToInt()
+            WeeklyStat(
+                "While driving",
+                "≈ ${formatStepsApprox(driveSteps)}",
+                "Steps counted in the car ($percent% of your steps)",
+            )
+        } else {
+            null
+        }
         return listOfNotNull(
             steps,
             walksTile,
             fromWalks,
+            driving,
             WeeklyStat("Ran over", formatHm(leak), "Time past block ends"),
             WeeklyStat("Gym sessions", "${gymDone.coerceAtLeast(0)} / $gymPlanned", "Done of planned"),
             WeeklyStat("Off days", days.count { DayFlag.OFF_DAY in it.flags }.toString(), "Days with no schedule"),

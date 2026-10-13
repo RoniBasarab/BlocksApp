@@ -4,6 +4,7 @@ import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.CheckIn
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
+import com.roni.blocks.core.model.DriveLog
 import com.roni.blocks.core.model.LocalDateSerializer
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
@@ -85,6 +86,27 @@ class HistoryManager @Inject constructor(
         var cursor = from
         while (cursor <= toInclusive) {
             result[cursor] = walks(cursor)
+            cursor = cursor.plus(1, DateTimeUnit.DAY)
+        }
+        return result
+    }
+
+    /** Appends a drive Android noticed (3.4.0) to [date]'s own list, under its own key. */
+    suspend fun addDrive(date: LocalDate, log: DriveLog) {
+        prefs.write(PrefsFile.HISTORY, driveKey(date), drives(date) + log, ListSerializer(DriveLog.serializer()))
+        version.value++
+    }
+
+    /** The drives logged on [date], oldest first. */
+    suspend fun drives(date: LocalDate): List<DriveLog> =
+        prefs.read(PrefsFile.HISTORY, driveKey(date), ListSerializer(DriveLog.serializer())) ?: emptyList()
+
+    /** Every date in [from]..[toInclusive] with its drives, so a week can sum them in one read. */
+    suspend fun drivesBetween(from: LocalDate, toInclusive: LocalDate): Map<LocalDate, List<DriveLog>> {
+        val result = linkedMapOf<LocalDate, List<DriveLog>>()
+        var cursor = from
+        while (cursor <= toInclusive) {
+            result[cursor] = drives(cursor)
             cursor = cursor.plus(1, DateTimeUnit.DAY)
         }
         return result
@@ -215,6 +237,7 @@ class HistoryManager @Inject constructor(
     private fun dayKey(date: LocalDate) = "record_$date"
     private fun weekKey(date: LocalDate) = "agg_week_$date"
     private fun walkKey(date: LocalDate) = "walks_$date"
+    private fun driveKey(date: LocalDate) = "drives_$date"
     private fun stepsKey(date: LocalDate) = "steps_$date"
 }
 

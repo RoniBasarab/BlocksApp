@@ -342,7 +342,11 @@ class HistoryDetailViewModel @Inject constructor(
                             recap = DayRecapMapper.map(it, timeFormatter.use24.value, checkInTitle = "How was this day?"),
                             use24 = timeFormatter.use24.value,
                             walks = logs.map(::walkLine),
-                            steps = steps?.let { value -> "About ${formatStepsApprox(value)} steps" },
+                            steps = steps?.let { value ->
+                                val driveSteps = history.drives(date).mapNotNull { it.steps }.sum()
+                                "About ${formatStepsApprox(value)} steps" +
+                                    if (driveSteps > 0) " · about ${formatStepsApprox(driveSteps)} while driving" else ""
+                            },
                         )
                     }
                 }

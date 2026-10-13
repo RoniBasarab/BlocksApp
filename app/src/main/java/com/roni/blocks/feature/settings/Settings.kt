@@ -162,6 +162,8 @@ sealed interface SettingsAction {
     data object DebugClockRealTime : SettingsAction
     data object DebugKidAsleep : SettingsAction
     data object DebugSkipDishes : SettingsAction
+    /** Debug (3.4.0): logs a fake drive so History shows "about 150 while driving". */
+    data object SimulateDrive : SettingsAction
     data object ResetExplainers : SettingsAction
     data object ShowMainMenu : SettingsAction
 }
@@ -381,6 +383,14 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             explainers.resetAll()
             showMessage("Explainers reset")
+        }
+    }
+
+    /** Debug (3.4.0): logs a fake drive so History shows "about 150 while driving" without a car. */
+    fun simulateDrive() {
+        viewModelScope.launch {
+            orchestrator.simulateDrive()
+            showMessage("Drive simulated")
         }
     }
 
@@ -707,6 +717,9 @@ private fun DeveloperToolsDialog(
                     DebugButton(DebugButtonUi("Load demo data (4 weeks)", null, SettingsAction.LoadDemoData, enabled = !state.demoBusy), onAction, Modifier.fillMaxWidth())
                     DebugButton(DebugButtonUi("Clear demo data", null, SettingsAction.ClearDemoData, enabled = !state.demoBusy), onAction, Modifier.fillMaxWidth())
                 }
+                DebugSection("Steps") {
+                    DebugButton(DebugButtonUi("Simulate a drive", null, SettingsAction.SimulateDrive), onAction, Modifier.fillMaxWidth())
+                }
                 DebugSection("Explainers") {
                     DebugButton(DebugButtonUi("Reset explainers", null, SettingsAction.ResetExplainers), onAction, Modifier.fillMaxWidth())
                     DebugButton(DebugButtonUi("Show main menu", null, SettingsAction.ShowMainMenu), onAction, Modifier.fillMaxWidth())
@@ -897,6 +910,7 @@ fun SettingsRoute(
             SettingsAction.DebugClockRealTime -> viewModel.debugClockRealTime()
             SettingsAction.DebugKidAsleep -> viewModel.debugKidAsleep()
             SettingsAction.DebugSkipDishes -> viewModel.debugSkipDishes()
+            SettingsAction.SimulateDrive -> viewModel.simulateDrive()
             SettingsAction.ResetExplainers -> viewModel.resetExplainers()
             SettingsAction.ShowMainMenu -> {
                 devToolsOpen = false
