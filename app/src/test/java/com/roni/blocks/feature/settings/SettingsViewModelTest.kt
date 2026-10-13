@@ -107,6 +107,7 @@ class SettingsViewModelTest {
     }
 
     private fun newViewModel(demoData: DemoDataGenerator) = SettingsViewModel(
+        context = context,
         logger = logger,
         history = history,
         timeFormatter = timeFormatter,

@@ -59,6 +59,23 @@ class PrefsStorage @Inject constructor(
 
     fun keys(file: PrefsFile): Set<String> = files.getValue(file).all.keys
 
+    /** Every key of every file as raw strings (3.4.0), for a backup. */
+    suspend fun exportAll(): Map<String, Map<String, String>> =
+        PrefsFile.entries.associate { file ->
+            file.name to files.getValue(file).all.mapValues { (_, value) -> value as? String ?: "" }
+        }
+
+    /** Replaces every file's contents with [backup] (3.4.0): clear each file, write every entry, commit. */
+    suspend fun replaceAll(backup: Map<String, Map<String, String>>) {
+        withContext(io) {
+            PrefsFile.entries.forEach { file ->
+                val editor = files.getValue(file).edit().clear()
+                backup[file.name].orEmpty().forEach { (key, value) -> editor.putString(key, value) }
+                check(editor.commit())
+            }
+        }
+    }
+
     private fun <T> decode(prefs: SharedPreferences, key: String, serializer: KSerializer<T>): T? {
         val raw = prefs.getString(key, null) ?: return null
         return json.decodeFromString(serializer, raw)

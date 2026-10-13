@@ -302,6 +302,22 @@ class TemplateStoreTest {
         assertFalse(store.profileChosen())
     }
 
+    @Test
+    fun upgradeFrom262_countsAsChosen() = runBlocking {
+        // 2.6.2 stored no templates; its DAY date and one history day prove the app isn't new (3.4.0).
+        context.getSharedPreferences(PrefsFile.DAY.name.lowercase(), 0).edit()
+            .putString("today_date", "\"2026-09-27\"")
+            .putString("record_2026-09-21", "{}")
+            .commit()
+
+        val store = store()
+        store.load()
+
+        assertTrue("an upgrade must not open the welcome screen", store.profileChosen())
+        assertEquals("Unemployed", store.activeProfileName())
+        assertEquals(TemplateId.MON_THU, store.suggestedFor(DayOfWeek.MONDAY))
+    }
+
     private suspend fun writeStored(templates: List<StoredTemplate>) {
         val prefs = storage()
         prefs.write(PrefsFile.SETTINGS, "templates", templates, ListSerializer(StoredTemplate.serializer()))

@@ -1,7 +1,9 @@
 package com.roni.blocks.feature.settings
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -39,7 +41,9 @@ import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Restaurant
+import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -79,6 +83,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.roni.blocks.BuildConfig
+import com.roni.blocks.MainActivity
 import com.roni.blocks.core.demo.DemoDataGenerator
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.daystate.DayState
@@ -86,6 +91,8 @@ import com.roni.blocks.core.daystate.isDishesSlot
 import com.roni.blocks.core.logging.AppLogger
 import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.notifications.NotificationPort
+import com.roni.blocks.core.storage.Backup
+import com.roni.blocks.core.storage.BackupFile
 import com.roni.blocks.core.storage.ExplainerStore
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
@@ -106,6 +113,7 @@ import com.roni.blocks.designsystem.SectionHeader
 import com.roni.blocks.designsystem.SettingsRow
 import com.roni.blocks.designsystem.Spacing
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlin.math.abs
 import kotlin.time.Clock
@@ -140,6 +148,8 @@ data class SettingsUiState(
     val clockShifted: Boolean = false,
     val inKidTime: Boolean = false,
     val inDishes: Boolean = false,
+    /** The backup date label while a restore waits for confirmation (3.4.0); null hides the dialog. */
+    val restoreConfirm: String? = null,
 )
 
 sealed interface SettingsAction {
@@ -166,12 +176,21 @@ sealed interface SettingsAction {
     data object SimulateDrive : SettingsAction
     data object ResetExplainers : SettingsAction
     data object ShowMainMenu : SettingsAction
+    /** Your data (3.4.0): the Route opens the system pickers, then hands the uri back. */
+    data object StartBackup : SettingsAction
+    data object StartRestore : SettingsAction
+    data class BackupTo(val uri: Uri) : SettingsAction
+    data class RestoreFrom(val uri: Uri) : SettingsAction
+    data object ConfirmRestore : SettingsAction
+    data object DismissRestore : SettingsAction
 }
 
 /** One-shot outcomes the screen surfaces in its snackbar. */
 sealed interface SettingsEffect {
     data class ShowMessage(val text: String) : SettingsEffect
     data object StartedTestDay : SettingsEffect
+    /** The data was replaced (3.4.0): the app restarts so every store loads fresh. */
+    data object Restart : SettingsEffect
 }
 
 private data class DebugClockUi(
@@ -180,6 +199,9 @@ private data class DebugClockUi(
     val inKidTime: Boolean,
     val inDishes: Boolean,
 )
+
+/** A backup read from a file, waiting for the confirm dialog (3.4.0). */
+private data class PendingRestore(val label: String, val file: BackupFile)
 
 private fun formatShift(minutes: Int): String {
     val sign = if (minutes < 0) "−" else "+"
@@ -190,6 +212,9 @@ private fun formatShift(minutes: Int): String {
 }
 
 private enum class ConfirmDialogSpec { RESET_TODAY, CLEAR_HISTORY }
+
+/** Month names for the restore dialog's date label (3.4.0). */
+private val BACKUP_MONTHS = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 @HiltViewModel
 /**
@@ -202,6 +227,7 @@ private enum class ConfirmDialogSpec { RESET_TODAY, CLEAR_HISTORY }
  * [NotificationPort], [DebugTimeController].
  */
 class SettingsViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val logger: AppLogger,
     private val history: HistoryManager,
     private val timeFormatter: TimeFormatter,
@@ -224,6 +250,9 @@ class SettingsViewModel @Inject constructor(
     private val _effects = Channel<SettingsEffect>(Channel.BUFFERED)
 
     val effects: Flow<SettingsEffect> = _effects.receiveAsFlow()
+
+    /** A decoded backup waiting for "Replace everything?" (3.4.0). */
+    private val _restorePending = MutableStateFlow<PendingRestore?>(null)
 
     init {
         viewModelScope.launch {
@@ -263,6 +292,7 @@ class SettingsViewModel @Inject constructor(
             inDishes = clockUi.inDishes,
         )
     }.combine(_stepsPermission) { s, steps -> s.copy(steps = steps) }
+        .combine(_restorePending) { s, pending -> s.copy(restoreConfirm = pending?.label) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
     fun refresh() {
@@ -392,6 +422,65 @@ class SettingsViewModel @Inject constructor(
             orchestrator.simulateDrive()
             showMessage("Drive simulated")
         }
+    }
+
+    // Your data (3.4.0): a full backup to a file, and a restore that restarts the app.
+
+    /** Builds the backup and writes it to [uri] (the Route's "Save as" result). */
+    fun backupTo(uri: Uri) {
+        viewModelScope.launch {
+            try {
+                val files = prefs.exportAll()
+                val json = Backup.encode(BuildConfig.VERSION_CODE, clock.now(), files)
+                val stream = context.contentResolver.openOutputStream(uri) ?: throw IllegalStateException("no output stream")
+                stream.use { it.write(json.toByteArray()) }
+                val days = history.days()
+                val walks = days.sumOf { history.walks(it.date).size }
+                showMessage("Saved: ${days.size} days, $walks walks")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logger.error("Backup failed", e)
+                showMessage("Couldn't save the backup")
+            }
+        }
+    }
+
+    /** Reads [uri] and, when it is a Blocks backup this app can take, asks to confirm the restore. */
+    fun restoreFrom(uri: Uri) {
+        viewModelScope.launch {
+            val text = try {
+                context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
+            } catch (e: Exception) {
+                logger.error("Reading the backup failed", e)
+                null
+            }
+            val backup = text?.let { Backup.decode(it) }
+            when {
+                backup == null -> showMessage("That file isn't a Blocks backup.")
+                !Backup.canRestore(backup, BuildConfig.VERSION_CODE) -> showMessage("That backup is from a newer version of Blocks.")
+                else -> _restorePending.value = PendingRestore(backupDateLabel(backup), backup)
+            }
+        }
+    }
+
+    /** Replaces every store with the pending backup, then asks the app to restart (3.4.0). */
+    fun confirmRestore() {
+        val pending = _restorePending.value ?: return
+        viewModelScope.launch {
+            prefs.replaceAll(pending.file.files)
+            _restorePending.value = null
+            _effects.trySend(SettingsEffect.Restart)
+        }
+    }
+
+    fun dismissRestore() {
+        _restorePending.value = null
+    }
+
+    private fun backupDateLabel(backup: BackupFile): String {
+        val date = backup.createdAt.toLocalDateTime(zone).date
+        return "${date.dayOfMonth} ${BACKUP_MONTHS[date.monthNumber - 1]} ${date.year}"
     }
 
     fun startTestDay(template: TemplateId, hhmm: String) {
@@ -555,6 +644,25 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
                     titleColor = Leak,
                     trailing = { Chevron() },
                     onClick = { onAction(SettingsAction.ClearHistory) },
+                )
+            }
+
+            SectionHeader("Your data")
+            SectionCard {
+                SettingsRow(
+                    icon = Icons.Outlined.Upload,
+                    title = "Back up my data",
+                    subtitle = "Save every day, walk and step to a file",
+                    trailing = { Chevron() },
+                    onClick = { onAction(SettingsAction.StartBackup) },
+                )
+                CardDivider()
+                SettingsRow(
+                    icon = Icons.Outlined.Restore,
+                    title = "Restore from a backup",
+                    subtitle = "Replace everything in this app",
+                    trailing = { Chevron() },
+                    onClick = { onAction(SettingsAction.StartRestore) },
                 )
             }
 
@@ -858,6 +966,12 @@ fun SettingsRoute(
     val stepPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         viewModel.refresh()
     }
+    val backupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri?.let { viewModel.backupTo(it) }
+    }
+    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { viewModel.restoreFrom(it) }
+    }
     var pending by remember { mutableStateOf<ConfirmDialogSpec?>(null) }
     var devToolsOpen by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -867,6 +981,7 @@ fun SettingsRoute(
             when (effect) {
                 is SettingsEffect.ShowMessage -> snackbarHostState.showSnackbar(effect.text)
                 SettingsEffect.StartedTestDay -> onOpenHome()
+                SettingsEffect.Restart -> restartApp(context)
             }
         }
     }
@@ -912,6 +1027,12 @@ fun SettingsRoute(
             SettingsAction.DebugSkipDishes -> viewModel.debugSkipDishes()
             SettingsAction.SimulateDrive -> viewModel.simulateDrive()
             SettingsAction.ResetExplainers -> viewModel.resetExplainers()
+            SettingsAction.StartBackup -> backupLauncher.launch("blocks-backup-${java.time.LocalDate.now()}.json")
+            SettingsAction.StartRestore -> restoreLauncher.launch(arrayOf("application/json"))
+            is SettingsAction.BackupTo -> viewModel.backupTo(action.uri)
+            is SettingsAction.RestoreFrom -> viewModel.restoreFrom(action.uri)
+            SettingsAction.ConfirmRestore -> viewModel.confirmRestore()
+            SettingsAction.DismissRestore -> viewModel.dismissRestore()
             SettingsAction.ShowMainMenu -> {
                 devToolsOpen = false
                 onShowMainMenu()
@@ -960,7 +1081,35 @@ fun SettingsRoute(
                 onDismiss = { devToolsOpen = false },
             )
         }
+        state.restoreConfirm?.let { label ->
+            RestoreConfirmDialog(
+                label = label,
+                onConfirm = { viewModel.confirmRestore() },
+                onDismiss = { viewModel.dismissRestore() },
+            )
+        }
     }
+}
+
+/** Restarts the app after a restore (3.4.0): a fresh MainActivity, then this process exits. */
+private fun restartApp(context: Context) {
+    context.startActivity(
+        Intent(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
+    )
+    Runtime.getRuntime().exit(0)
+}
+
+@Composable
+private fun RestoreConfirmDialog(label: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Restore from a backup?", style = MaterialTheme.typography.titleLarge) },
+        text = { Text("Replace everything in this app with the backup from $label? Today's day restarts from it.") },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Restore") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        modifier = Modifier.testTag("restore_confirm"),
+    )
 }
 
 /** Set once the step permission dialog has been shown (2.5.0), so a later denial reads as Blocked. */

@@ -6,6 +6,7 @@ import com.roni.blocks.core.model.BlockSpec
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.CategoryInfo
 import com.roni.blocks.core.model.Choice
+import com.roni.blocks.core.model.LocalDateSerializer
 import com.roni.blocks.core.model.Pomodoro
 import com.roni.blocks.core.model.Profile
 import com.roni.blocks.core.model.StoredTemplate
@@ -21,6 +22,7 @@ import com.roni.blocks.core.schedule.TemplateEditor
 import com.roni.blocks.core.schedule.TemplateRules
 import com.roni.blocks.core.schedule.toBlockSpecs
 import com.roni.blocks.core.schedule.toPlanBlocks
+import com.roni.blocks.core.steps.StepStateSerializer
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -113,7 +115,12 @@ class TemplateStore @Inject constructor(
         val profiles = prefs.read(PrefsFile.SETTINGS, KEY_PROFILES, ListSerializer(Profile.serializer()))
         val activeId = prefs.read(PrefsFile.SETTINGS, KEY_ACTIVE, String.serializer())
         if (templates == null || profiles == null || activeId == null) {
+            // 2.6.2 stored no templates at all. If the app already holds a day, a history record or a
+            // step state it isn't a fresh install: seed the profile silently and skip the welcome
+            // screen (3.4.0). Only a truly empty app is left unchosen.
+            val existing = templates != null || hasExistingData()
             saveSeed()
+            if (existing) markProfileChosen()
             return
         }
         // The stored templates were read, not seeded now: this install has chosen before (3.3.0).
@@ -227,6 +234,12 @@ class TemplateStore @Inject constructor(
         _templates.value = all()
     }
 
+    /** True when the app already holds a day, a history record or a step state (3.4.0). */
+    private suspend fun hasExistingData(): Boolean =
+        prefs.read(PrefsFile.DAY, DAY_DATE, LocalDateSerializer) != null ||
+            prefs.read(PrefsFile.DAY, STEP_STATE, StepStateSerializer) != null ||
+            prefs.keys(PrefsFile.HISTORY).any { it.startsWith(RECORD_PREFIX) }
+
     private suspend fun saveSeed() {
         stored = seed
         book = Profiles.repair(
@@ -266,6 +279,11 @@ class TemplateStore @Inject constructor(
         private const val KEY_PROFILES = "profiles"
         private const val KEY_ACTIVE = "active_profile"
         private const val KEY_CHOSEN = "profile_chosen"
+        // The orchestrator's own DAY keys and HistoryManager's day prefix (3.4.0), read only to tell
+        // an upgrade from 2.6.2 apart from a fresh install.
+        private const val DAY_DATE = "today_date"
+        private const val STEP_STATE = "step_state"
+        private const val RECORD_PREFIX = "record_"
 
         private val JSON = Json { ignoreUnknownKeys = true }
     }
