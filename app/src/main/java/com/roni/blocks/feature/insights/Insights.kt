@@ -40,6 +40,7 @@ import androidx.navigation3.runtime.NavKey
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.SegmentKind
+import com.roni.blocks.core.model.WalkLog
 import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.debtMinutes
@@ -58,6 +59,7 @@ import com.roni.blocks.designsystem.SectionCard
 import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.WhatTheseMeanDialog
 import com.roni.blocks.designsystem.blockColors
+import com.roni.blocks.designsystem.formatStepsApprox
 import com.roni.blocks.feature.weekly.formatHm
 import com.roni.blocks.feature.weekly.tabKey
 import com.roni.blocks.navigation.HistoryKey
@@ -72,6 +74,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.minus
 import kotlinx.datetime.plus
@@ -141,8 +144,16 @@ class InsightsViewModel @Inject constructor(
             _state.value = InsightsUiState(hasData = false, daysLogged = previousDays.size)
             return
         }
-        val nowMetrics = metricsOf(subjectDays)
-        val prevMetrics = metricsOf(previousDays)
+        val nowMetrics = metricsOf(
+            subjectDays,
+            history.walksBetween(lastCompleteWeek, lastCompleteWeek.plus(6, DateTimeUnit.DAY)),
+            subjectDays.mapNotNull { history.steps(it.date) },
+        )
+        val prevMetrics = metricsOf(
+            previousDays,
+            history.walksBetween(previous, previous.plus(6, DateTimeUnit.DAY)),
+            previousDays.mapNotNull { history.steps(it.date) },
+        )
         val worst = worstOverruns(nowMetrics)
         val headline = headline(nowMetrics, prevMetrics, worst)
 
@@ -176,10 +187,19 @@ internal data class WeekMetrics(
     val dishesEvenings: Int = 0,
     val dishesOver20: Int = 0,
     val dishesOverSum: Int = 0,
+    /** Walks and steps (3.4.0): how many walks, their minutes, average daily steps, evening walks. */
+    val walks: Int = 0,
+    val walkMinutes: Int = 0,
+    val avgSteps: Int = 0,
+    val eveningWalks: Int = 0,
     val overruns: List<OverrunStat> = emptyList(),
 )
 
-internal fun metricsOf(days: List<com.roni.blocks.core.model.DayRecord>): WeekMetrics {
+internal fun metricsOf(
+    days: List<com.roni.blocks.core.model.DayRecord>,
+    walks: Map<LocalDate, List<WalkLog>> = emptyMap(),
+    stepTotals: List<Long> = emptyList(),
+): WeekMetrics {
     var leakMinutes = 0
     var codingWorked = 0
     var codingPlanned = 0
@@ -261,6 +281,8 @@ internal fun metricsOf(days: List<com.roni.blocks.core.model.DayRecord>): WeekMe
         }
     }
     val gymPlanned = gymPlannedDays.getValue("Gym")
+    val allWalks = walks.values.flatten()
+    val avgSteps = if (stepTotals.isEmpty()) 0 else (stepTotals.sum().toDouble() / stepTotals.size).roundToInt()
     val overruns = over.map { (label, t) ->
         OverrunStat(
             label = label,
@@ -286,8 +308,36 @@ internal fun metricsOf(days: List<com.roni.blocks.core.model.DayRecord>): WeekMe
         dishesEvenings = dishesEvenings,
         dishesOver20 = dishesOver20,
         dishesOverSum = dishesOverSum,
+        walks = allWalks.size,
+        walkMinutes = allWalks.sumOf { (it.end - it.start).inWholeMinutes.toInt() },
+        avgSteps = avgSteps,
+        eveningWalks = eveningWalks(days, walks),
         overruns = overruns,
     )
+}
+
+/**
+ * An evening walk (3.4.0) starts at or after the day's evening begins (the earliest Dishes or
+ * EveningChoice segment) or after the day closed (its last segment ended). A day with no segments
+ * has no evening, so no evening walks.
+ */
+private fun eveningWalks(days: List<com.roni.blocks.core.model.DayRecord>, walks: Map<LocalDate, List<WalkLog>>): Int {
+    val byDate = days.associateBy { it.date }
+    var count = 0
+    walks.forEach { (date, logs) ->
+        val day = byDate[date] ?: return@forEach
+        val eveningStart = day.segments
+            .filter { it.type == BlockType.Dishes || it.type is BlockType.EveningChoice }
+            .mapNotNull { it.actualStart }
+            .minOrNull()
+        val dayClose = day.segments.mapNotNull { it.actualEnd }.maxOrNull()
+        logs.forEach { walk ->
+            val afterEvening = eveningStart != null && walk.start >= eveningStart
+            val afterClose = dayClose != null && walk.start >= dayClose
+            if (afterEvening || afterClose) count++
+        }
+    }
+    return count
 }
 
 private fun segmentTypeLabel(type: com.roni.blocks.core.model.BlockType): String = when (type) {
@@ -378,6 +428,10 @@ internal fun scorecardRows(now: WeekMetrics, prev: WeekMetrics): List<InsightRow
         add(row("Evenings skipped", "${now.eveningsSkipped}", "Kid asleep never tapped", now.eveningsSkipped, prev.eveningsSkipped, Direction.LOWER))
         add(row("Chill evenings", "${now.chillPercent}%", "Share of evenings spent on Chill", now.chillPercent, prev.chillPercent, Direction.LOWER))
         add(row("Pause time", formatHm(now.pauseMinutes), "Breaks taken during blocks", now.pauseMinutes, prev.pauseMinutes, Direction.LOWER))
+        add(row("Walks", "${now.walks}", "Walks this week", now.walks, prev.walks, Direction.HIGHER))
+        add(row("Walk time", formatHm(now.walkMinutes), "Time spent walking", now.walkMinutes, prev.walkMinutes, Direction.HIGHER))
+        add(row("Steps", "≈ ${formatStepsApprox(now.avgSteps.toLong())} a day", "Average over days with steps", now.avgSteps, prev.avgSteps, Direction.HIGHER))
+        add(row("Evening walks", "${now.eveningWalks}", "Walks after kid time", now.eveningWalks, prev.eveningWalks, Direction.HIGHER))
         // Dishes (3.3.0): only for a week that had evenings with Dishes.
         if (now.dishesEvenings > 0) {
             val over = if (now.dishesOver20 == 0) 0 else (now.dishesOverSum.toDouble() / now.dishesOver20).roundToInt()
@@ -422,7 +476,7 @@ private fun row(
         else -> TrendTone.LEAK
     }
     val text = when (label) {
-        "Ran over", "Pause time" -> "${Math.abs(delta)}m"
+        "Ran over", "Pause time", "Walk time" -> "${Math.abs(delta)}m"
         "Chill evenings" -> "${Math.abs(delta)}%"
         else -> "${Math.abs(delta)}"
     }

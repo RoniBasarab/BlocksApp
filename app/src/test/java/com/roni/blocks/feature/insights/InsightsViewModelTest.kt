@@ -7,6 +7,7 @@ import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.DayRecord
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
+import com.roni.blocks.core.model.WalkLog
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.time.at
@@ -220,7 +221,7 @@ class InsightsViewModelTest {
     }
 
     @Test
-    fun scorecard_eightRowsWithTrends() = runBlocking {
+    fun scorecard_rowsWithTrends() = runBlocking {
         seedStubWeek(previousStart)
         seedStubWeek(subjectStart)
         seedCvOverrun(previousStart.plus(2, DateTimeUnit.DAY), 100)
@@ -229,7 +230,7 @@ class InsightsViewModelTest {
         val viewModel = build()
 
         val rows = viewModel.state.value.rows
-        assertEquals(8, rows.size)
+        assertEquals(12, rows.size)
         val leak = rows.first { it.label == "Ran over" }
         assertEquals("Time past block ends", leak.hint)
         assertEquals("40m", leak.value)
@@ -258,6 +259,61 @@ class InsightsViewModelTest {
         assertEquals("Coding", worst[1].label)
         assertEquals(25, worst[1].avgMinutes)
         assertEquals(25f / 45f, worst[1].fraction, 0.005f)
+    }
+
+    private suspend fun walk(date: LocalDate, startMinutes: Int, durationMinutes: Int, steps: Long? = null) {
+        val start = LocalTime(startMinutes / 60, startMinutes % 60).at(date, zone)
+        history.addWalk(date, WalkLog(start = start, end = start + durationMinutes.minutes, steps = steps))
+    }
+
+    @Test
+    fun walkRows_comparedWithLastWeek() = runBlocking {
+        seedStubWeek(previousStart)
+        seedStubWeek(subjectStart)
+        walk(subjectStart, 9 * 60, 30)
+        walk(subjectStart.plus(1, DateTimeUnit.DAY), 9 * 60, 20)
+        walk(previousStart, 9 * 60, 20)
+
+        val rows = build().state.value.rows
+
+        val walks = rows.first { it.label == "Walks" }
+        assertEquals("2", walks.value)
+        assertEquals(TrendArrow.UP, walks.trend?.arrow)
+        assertEquals("1", walks.trend?.delta)
+
+        val time = rows.first { it.label == "Walk time" }
+        assertEquals("50m", time.value)
+        assertEquals(TrendArrow.UP, time.trend?.arrow)
+        assertEquals("30m", time.trend?.delta)
+    }
+
+    @Test
+    fun eveningWalk_isAfterTheEveningStarts() = runBlocking {
+        seedStubWeek(previousStart)
+        seedStubWeek(subjectStart)
+        val day = subjectStart.plus(2, DateTimeUnit.DAY)
+        val dishesStart = LocalTime(20, 30).at(day, zone)
+        history.writeDay(
+            DayRecord(
+                date = day,
+                template = null,
+                segments = listOf(
+                    Segment(
+                        type = BlockType.Dishes,
+                        kind = SegmentKind.PLANNED,
+                        plannedStart = LocalTime(20, 0).at(day, zone),
+                        plannedEnd = LocalTime(20, 20).at(day, zone),
+                        actualStart = dishesStart,
+                        actualEnd = dishesStart + 20.minutes,
+                    ),
+                ),
+            ),
+        )
+        walk(day, 21 * 60 + 10, 20)
+        walk(day, 17 * 60, 30)
+
+        val row = build().state.value.rows.first { it.label == "Evening walks" }
+        assertEquals("1", row.value)
     }
 
     /** An evening whose Dishes block lasted [minutes] minutes (planned 20). */
