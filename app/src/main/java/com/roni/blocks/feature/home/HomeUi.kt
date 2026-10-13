@@ -8,6 +8,7 @@ import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.schedule.BlockEdit
 import com.roni.blocks.core.schedule.Edge
 import com.roni.blocks.core.schedule.PomodoroSlot
+import com.roni.blocks.core.schedule.TimelinePhase
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
@@ -22,6 +23,14 @@ data class CalendarBlockUi(
     val subtitle: String?,
     val phases: ImmutableList<PomodoroSlot> = persistentListOf(),
     val edit: BlockEdit = BlockEdit.NONE,
+    /** Where the block really is (3.3.0): the real-day [DayTimeline] phase, not the plan. */
+    val phase: TimelinePhase = TimelinePhase.AHEAD,
+    /** The part from there to [endMin] ran over (the red tail); null when it didn't. */
+    val overrunFromMin: Int? = null,
+    /** It started this many minutes after its plan (3.3.0). */
+    val lateMin: Int = 0,
+    /** Pauses inside the block (3.3.0), in minutes of the day. */
+    val pauses: ImmutableList<IntRange> = persistentListOf(),
 )
 
 enum class ChipTone { NEUTRAL, BREAK, LEAK }
@@ -92,7 +101,6 @@ data class HomeState(
     val hourLabels: ImmutableList<String> = persistentListOf(),
     val blocks: ImmutableList<CalendarBlockUi> = persistentListOf(),
     val currentBlockId: String? = null,
-    val leakFromMin: Int? = null,
     val recap: DayRecapUi? = null,
     val nowCard: NowCardUi? = null,
     val walkCard: WalkCardUi? = null,

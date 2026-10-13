@@ -290,7 +290,7 @@ class HomeViewModelTest {
 
         val blocks = viewModel.state.value.blocks
         val kid = requireNotNull(blocks.firstOrNull { it.id == "sun_tue_wed.kid_time" })
-        assertEquals("kid time starts when the plan had it", 16 * 60 + 20, kid.startMin)
+        assertEquals("kid time really started when the day started it", 20 * 60 + 12, kid.startMin)
         assertEquals("kid time ends at the tap", 20 * 60 + 12, kid.endMin)
 
         val dishes = requireNotNull(blocks.firstOrNull { it.id == EVENING_DISHES_ID })
@@ -450,6 +450,63 @@ class HomeViewModelTest {
         assertEquals("Start now", nowCard.buttons.first { it.id == NowButtonId.START_NOW }.label)
         assertEquals("Change day", nowCard.buttons.first { it.id == NowButtonId.CHANGE_DAY }.label)
         assertEquals("in 1h 20m", nowCard.subtitle)
+    }
+
+    // ── 3.3.0: the real day on the calendar (Task-22a slice 1) ───────────────────────────────────
+
+    @Test
+    fun runningOver_growsAndEatsTheNextBlock() = runBlocking {
+        clock.now = LocalTime(11, 30).at(date, zone)
+        orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        withTimeout(5_000) { viewModel.state.first { it.currentBlockId == "sun_tue_wed.free_midday" } }
+
+        clock.now = LocalTime(14, 12).at(date, zone)
+        val state = withTimeout(5_000) {
+            viewModel.state.first { s ->
+                s.blocks.firstOrNull { it.id == "sun_tue_wed.free_midday" }?.endMin == 14 * 60 + 12
+            }
+        }
+
+        val free = requireNotNull(state.blocks.firstOrNull { it.id == "sun_tue_wed.free_midday" })
+        assertEquals(11 * 60 + 30, free.startMin)
+        assertEquals(14 * 60 + 12, free.endMin)
+        assertEquals(14 * 60, free.overrunFromMin)
+        val pm = requireNotNull(state.blocks.firstOrNull { it.id == "sun_tue_wed.coding_pm" })
+        assertEquals(14 * 60 + 12, pm.startMin)
+    }
+
+    @Test
+    fun afterNext_theOverrunStays() = runBlocking {
+        clock.now = LocalTime(11, 30).at(date, zone)
+        orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        withTimeout(5_000) { viewModel.state.first { it.currentBlockId == "sun_tue_wed.free_midday" } }
+
+        clock.now = LocalTime(14, 20).at(date, zone)
+        viewModel.onAction(HomeAction.Next)
+
+        val state = withTimeout(5_000) { viewModel.state.first { it.currentBlockId == "sun_tue_wed.coding_pm" } }
+        val free = requireNotNull(state.blocks.firstOrNull { it.id == "sun_tue_wed.free_midday" })
+        assertEquals(11 * 60 + 30, free.startMin)
+        assertEquals(14 * 60 + 20, free.endMin)
+        assertEquals(14 * 60, free.overrunFromMin)
+        val pm = requireNotNull(state.blocks.firstOrNull { it.id == "sun_tue_wed.coding_pm" })
+        assertEquals("14:20–15:30", pm.timeLabel)
+        assertTrue(pm.subtitle?.contains("20 min late") == true)
+    }
+
+    @Test
+    fun eatenWhole_isAMissedPill() = runBlocking {
+        clock.now = LocalTime(11, 30).at(date, zone)
+        orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        withTimeout(5_000) { viewModel.state.first { it.currentBlockId == "sun_tue_wed.free_midday" } }
+
+        clock.now = LocalTime(15, 40).at(date, zone)
+        val state = withTimeout(5_000) {
+            viewModel.state.first { it.pillLabels["sun_tue_wed.coding_pm"] == "Coding · missed" }
+        }
+        val pm = requireNotNull(state.blocks.firstOrNull { it.id == "sun_tue_wed.coding_pm" })
+        assertEquals(15 * 60 + 40, pm.startMin)
+        assertEquals(15 * 60 + 40, pm.endMin)
     }
 
     private suspend fun startDayInsideCoding() {

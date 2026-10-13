@@ -77,11 +77,14 @@ import androidx.navigation3.runtime.NavKey
 import com.roni.blocks.BuildConfig
 import com.roni.blocks.core.daystate.DayEvent
 import com.roni.blocks.core.schedule.BlockEdit
+import com.roni.blocks.core.schedule.DayTimeline
 import com.roni.blocks.core.schedule.Edge
 import com.roni.blocks.core.schedule.PlanBlock
 import com.roni.blocks.core.schedule.PlanEdit
 import com.roni.blocks.core.schedule.PlanEditor
 import com.roni.blocks.core.schedule.RecordEdit
+import com.roni.blocks.core.schedule.SegmentSpan
+import com.roni.blocks.core.schedule.TimelinePhase
 import com.roni.blocks.core.schedule.isEditable
 import com.roni.blocks.core.schedule.toBlockSpecs
 import com.roni.blocks.core.schedule.toPlanBlocks
@@ -271,8 +274,8 @@ private val day: DayOrchestrator,
                 publish(day.state.value)
             }
         }
-        // Leaking is a boundary, not a per-minute value: only re-publish when it flips.
-        viewModelScope.launch { minuteOfDay.collect { publishLeakIfChanged() } }
+        // The real day (3.3.0) moves with the minute: every tick re-publishes so the tail grows.
+        viewModelScope.launch { minuteOfDay.collect { publish(day.state.value) } }
         viewModelScope.launch { timeFormatter.use24.collect { publish(day.state.value) } }
         if (BuildConfig.DEBUG) {
             viewModelScope.launch { debugTime.offsetMinutes.collect { publish(day.state.value) } }
@@ -582,32 +585,45 @@ private val day: DayOrchestrator,
                 actualStartMin = if (doneEarly) null else open?.actualStart?.minuteOfDay(zone),
             )
         } ?: persistentListOf()
-        val blocks = if (todayPlan != null) {
-            val planBlocks = preview ?: todayPlan.blocks.toPlanBlocks()
-            val currentForEdit = day.currentForEditing()
-            val currentBlockIndex = index.takeIf { it >= 0 }
-            val liveRows = DayRecapMapper.map(day.liveRecord(), timeFormatter.use24.value).rows
-            mapped.mapIndexed { i, b ->
-                val isCurrentAndDoneEarly = doneEarly && currentBlockIndex != null && i == currentBlockIndex
-                val phaseSubtitle = if (isCurrentAndDoneEarly) {
-                    "Done early · free until ${timeFormatter.label(openAny!!.plannedEnd!!.minuteOfDay(zone))}"
-                } else b.subtitle
-                val phasesForUi = if (isCurrentAndDoneEarly) persistentListOf() else b.phases
-                // Past blocks (i < currentIndex) show what happened: "Done HH:MM–HH:MM" or "Missed".
-                val pastSubtitle = if (currentBlockIndex != null && i < currentBlockIndex) {
-                    val row = liveRows.firstOrNull { it.id == "${b.id}@${b.startMin}" }
-                    row?.let { pastSubtitleFor(it, timeFormatter.use24.value) }
-                } else null
-                b.copy(
-                    edit = if (b.id == EVENING_DISHES_ID) BlockEdit.END_ONLY
-                    else PlanEditor.editMode(planBlocks, b.id, minute, currentForEdit),
-                    subtitle = pastSubtitle ?: phaseSubtitle,
-                    phases = phasesForUi,
-                )
-            }.toPersistentList()
-        } else {
-            mapped
-        }
+        // 3.3.0: Home draws the real day. The plan (with the evening) and today's segments feed the
+        // verified DayTimeline; every block's geometry, phase and tail come from it, not from the plan.
+        val planBlocks = daySpecs?.map {
+            PlanBlock(it.id, it.type, it.start.hour * 60 + it.start.minute, it.end.hour * 60 + it.end.minute)
+        } ?: emptyList()
+        val spans = segmentSpans(segments)
+        val timelineCurrentId = spans.lastOrNull { it.kind == SegmentKind.PLANNED && it.endMin == null }?.blockId
+        val timelineById = DayTimeline.build(planBlocks, spans, timelineCurrentId, minute).associateBy { it.id }
+        val doneEarlyEndLabel = openAny?.plannedEnd?.let { timeFormatter.label(it.minuteOfDay(zone)) }
+        val planForEdit = preview ?: todayPlan?.blocks?.toPlanBlocks()
+        val currentForEdit = day.currentForEditing()
+        val blocks = mapped.mapIndexed { i, b ->
+            val tl = timelineById[b.id]
+            val isCurrentAndDoneEarly = doneEarly && index >= 0 && i == index
+            val subtitle = when {
+                isCurrentAndDoneEarly ->
+                    "Done early · free until $doneEarlyEndLabel" + lateSuffix(tl?.lateMin ?: 0)
+                tl == null -> b.subtitle
+                tl.phase == TimelinePhase.MISSED -> "Missed"
+                tl.phase == TimelinePhase.DONE && tl.overrunFromMin != null -> "+${tl.endMin - tl.overrunFromMin} min"
+                tl.phase == TimelinePhase.DONE && tl.lateMin > 0 -> "${tl.lateMin} min late"
+                tl.phase == TimelinePhase.DONE -> null
+                else -> if (tl.lateMin > 0) listOfNotNull(b.subtitle, "${tl.lateMin} min late").joinToString(" · ") else b.subtitle
+            }
+            b.copy(
+                startMin = tl?.startMin ?: b.startMin,
+                endMin = tl?.endMin ?: b.endMin,
+                timeLabel = tl?.let { "${label(it.startMin, timeFormatter.use24.value)}–${label(it.endMin, timeFormatter.use24.value)}" } ?: b.timeLabel,
+                subtitle = subtitle,
+                phases = if (isCurrentAndDoneEarly) persistentListOf() else b.phases,
+                edit = if (todayPlan == null) b.edit
+                else if (b.id == EVENING_DISHES_ID) BlockEdit.END_ONLY
+                else PlanEditor.editMode(planForEdit ?: emptyList(), b.id, minute, currentForEdit),
+                phase = tl?.phase ?: b.phase,
+                overrunFromMin = tl?.overrunFromMin,
+                lateMin = tl?.lateMin ?: 0,
+                pauses = tl?.pauses?.toPersistentList() ?: persistentListOf(),
+            )
+        }.toPersistentList()
         val current = blocks.getOrNull(index)
         val effectiveEndMin = openAny?.plannedEnd?.let { it.minuteOfDay(zone) }
         val leaking = current != null && effectiveEndMin != null && minute > effectiveEndMin
@@ -673,7 +689,9 @@ private val day: DayOrchestrator,
         val blockById = blocks.associateBy { it.id }
         val pillLabels = buildMap {
             calendarFit.blocks.filter { it.sliver }.forEach { bf ->
-                blockById[bf.id]?.let { put(bf.id, "${it.title} · ${it.endMin - it.startMin} min") }
+                blockById[bf.id]?.let {
+                    put(bf.id, if (it.phase == TimelinePhase.MISSED) "${it.title} · missed" else "${it.title} · ${it.endMin - it.startMin} min")
+                }
             }
             walkMarkers.forEach { put(it.id, it.label) }
         }
@@ -714,7 +732,6 @@ private val day: DayOrchestrator,
             hourLabels = CalendarMapper.hourLabels(calendarStartMin, DAY_END_MIN, timeFormatter.use24.value).toPersistentList(),
             blocks = blocks,
             currentBlockId = current?.id,
-            leakFromMin = if (leaking) effectiveEndMin else null,
             recap = recap,
             nowCard = if (walkCard != null) null else nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel, doneEarly, startsAtMin),
             walkCard = walkCard,
@@ -736,12 +753,23 @@ private val day: DayOrchestrator,
     private fun debugClockLabel(minute: Int): String? =
         if (debugTime.offsetMinutes.value == 0) null else "Debug clock ${TimeFormatter.label(minute, timeFormatter.use24.value)}"
 
-    private fun publishLeakIfChanged() {
-        val before = _state.value.leakFromMin
-        publish(day.state.value)
-        if (_state.value.leakFromMin != before) return
-        // Undo cosmetic churn when only the flag is unchanged.
-        if (before == null) _state.value = _state.value.copy(leakFromMin = null)
+    /**
+     * Today's segments as the [DayTimeline] sees them: minutes of the day, with the id [withEvening]
+     * gives the evening's blocks. A closed SYNTHETIC_FREE ("done early" leftover) is skipped: it isn't
+     * a block, just free time that has been absorbed.
+     */
+    private fun segmentSpans(segments: List<Segment>): List<SegmentSpan> = buildList {
+        for (seg in segments) {
+            if (seg.kind == SegmentKind.SYNTHETIC_FREE && seg.actualEnd != null) continue
+            val startMin = seg.actualStart.minuteOfDay(zone)
+            val endMin = seg.actualEnd?.minuteOfDay(zone)
+            val id = when {
+                seg.type == BlockType.Dishes -> EVENING_DISHES_ID
+                seg.type is BlockType.EveningChoice -> if (seg.actualEnd == null) EVENING_CHOICE_ID else "evening.choice@$startMin"
+                else -> seg.blockId
+            }
+            add(SegmentSpan(id, seg.kind, startMin, endMin))
+        }
     }
 
     /**
@@ -1062,15 +1090,8 @@ private fun waitingLeft(minutes: Int): String {
     return if (m >= 60) "${m / 60}h ${m % 60}m" else "$m min"
 }
 
-/** "Done HH:MM–HH:MM" or "Missed" for the calendar subtitle of a past block. */
-private fun pastSubtitleFor(row: RecapRow, use24: Boolean): String? {
-    val range = row.range
-    return when {
-        row.missed -> "Missed"
-        range.isNotEmpty() -> "Done $range"
-        else -> null
-    }
-}
+/** " · N min late" for a block that started late; empty otherwise. */
+private fun lateSuffix(lateMin: Int): String = if (lateMin > 0) " · $lateMin min late" else ""
 
 @Composable
 fun HomeRoute(
@@ -1242,7 +1263,6 @@ fun HomeScreen(
                     walkMarkers = state.walkMarkers,
                     dayStartMin = state.calendarStartMin,
                     currentBlockId = state.currentBlockId,
-                    leakFromMin = state.leakFromMin,
                     hourLabels = state.hourLabels,
                     minuteOfDay = minuteOfDay,
                     scrollState = scroll,
