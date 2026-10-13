@@ -22,6 +22,9 @@ import com.roni.blocks.core.schedule.toPlanBlocks
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.isoDayNumber
 import kotlinx.serialization.Serializable
@@ -44,6 +47,11 @@ class TemplateStore @Inject constructor(
 
     @Volatile private var stored: List<StoredTemplate> = seed
     @Volatile private var profile: Profile = UNEMPLOYED_PROFILE
+
+    private val _templates = MutableStateFlow(all())
+
+    /** The active profile's templates, in its order (3.1.1). Every write and every load publishes. */
+    val templates: StateFlow<List<StoredTemplate>> = _templates.asStateFlow()
 
     init {
         instance = this
@@ -73,6 +81,7 @@ class TemplateStore @Inject constructor(
         }
         stored = templates.map { validated(it) }
         profile = profiles.firstOrNull { it.id == activeId } ?: profiles.firstOrNull() ?: UNEMPLOYED_PROFILE
+        _templates.value = all()
     }
 
     /**
@@ -116,6 +125,7 @@ class TemplateStore @Inject constructor(
         profile = profile.copy(templateIds = ids)
         prefs.write(PrefsFile.SETTINGS, KEY_TEMPLATES, stored, ListSerializer(StoredTemplate.serializer()))
         prefs.write(PrefsFile.SETTINGS, KEY_PROFILES, listOf(profile), ListSerializer(Profile.serializer()))
+        _templates.value = all()
         return created
     }
 
@@ -126,6 +136,7 @@ class TemplateStore @Inject constructor(
         val saved = template.copy(subtitle = subtitleFor(template.blocks), accentArgb = accentFor(template.blocks))
         stored = stored.map { if (it.id == saved.id) saved else it }
         prefs.write(PrefsFile.SETTINGS, KEY_TEMPLATES, stored, ListSerializer(StoredTemplate.serializer()))
+        _templates.value = all()
         return true
     }
 
@@ -138,6 +149,7 @@ class TemplateStore @Inject constructor(
             prefs.write(PrefsFile.SETTINGS, KEY_PROFILES, listOf(profile), ListSerializer(Profile.serializer()))
         }
         prefs.write(PrefsFile.SETTINGS, KEY_TEMPLATES, stored, ListSerializer(StoredTemplate.serializer()))
+        _templates.value = all()
         return true
     }
 
@@ -159,6 +171,7 @@ class TemplateStore @Inject constructor(
             }
         }
         if (changed) prefs.write(PrefsFile.SETTINGS, KEY_TEMPLATES, stored, ListSerializer(StoredTemplate.serializer()))
+        _templates.value = all()
     }
 
     /**
@@ -178,6 +191,7 @@ class TemplateStore @Inject constructor(
             else t.copy(blocks = TemplateRules.normalize(replaced.toPlanBlocks()).toBlockSpecs(originals))
         }
         prefs.write(PrefsFile.SETTINGS, KEY_TEMPLATES, stored, ListSerializer(StoredTemplate.serializer()))
+        _templates.value = all()
     }
 
     private suspend fun saveSeed() {
@@ -186,6 +200,7 @@ class TemplateStore @Inject constructor(
         prefs.write(PrefsFile.SETTINGS, KEY_TEMPLATES, seed, ListSerializer(StoredTemplate.serializer()))
         prefs.write(PrefsFile.SETTINGS, KEY_PROFILES, listOf(UNEMPLOYED_PROFILE), ListSerializer(Profile.serializer()))
         prefs.write(PrefsFile.SETTINGS, KEY_ACTIVE, UNEMPLOYED_PROFILE.id, String.serializer())
+        _templates.value = all()
     }
 
     private fun parseSeed(): List<StoredTemplate> {

@@ -39,12 +39,12 @@ class TemplatesScreenTest {
 
     @Test
     fun templatesTab_listsTheFourTemplatesAndTheFourCategories() {
-        val (_, categories) = testActions(context)
+        val rig = testActions(context)
         compose.setContent {
             BlocksTheme {
                 Column {
-                    TemplateSection(onOpenTemplate = {}, onNewTemplate = {})
-                    CategorySection(viewModel = CategoryListViewModel(categories))
+                    TemplateSection(onOpenTemplate = {}, viewModel = TemplateListViewModel(rig.store, rig.templates))
+                    CategorySection(viewModel = CategoryListViewModel(rig.categories))
                 }
             }
         }

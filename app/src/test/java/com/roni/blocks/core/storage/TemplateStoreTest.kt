@@ -132,6 +132,25 @@ class TemplateStoreTest {
     }
 
     @Test
+    fun templatesFlow_followsEveryWrite() = runBlocking {
+        val store = store()
+        store.load()
+
+        store.create("Office day")
+        assertEquals(
+            listOf("MON_THU", "SUN_TUE_WED", "FRI_SAT", "user_1", "OFF"),
+            store.templates.value.map { it.id.key },
+        )
+
+        val renamed = requireNotNull(store.find(TemplateId("user_1"))).copy(title = "Desk day")
+        assertTrue(store.save(renamed))
+        assertEquals("Desk day", store.templates.value.first { it.id == TemplateId("user_1") }.title)
+
+        assertTrue(store.delete(TemplateId("user_1")))
+        assertTrue("a deleted template leaves the flow", store.templates.value.none { it.id == TemplateId("user_1") })
+    }
+
+    @Test
     fun delete_hidesIt_butHistoryStillFindsIt() = runBlocking {
         val store = store()
         val created = store.create("Office day")

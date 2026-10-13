@@ -82,7 +82,6 @@ fun AppRoot(start: StartDestination, modifier: Modifier = Modifier) {
                     onTab = ::openTab,
                     onMenu = { backStack.add(it) },
                     onOpenTemplate = { backStack.add(TemplateEditorKey(it.key)) },
-                    onNewTemplate = {},
                 )
             }
             entry<TemplateEditorKey> { key ->

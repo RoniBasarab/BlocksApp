@@ -32,7 +32,6 @@ fun TemplatesRoute(
     onTab: (NavKey) -> Unit,
     onMenu: (NavKey) -> Unit,
     onOpenTemplate: (TemplateId) -> Unit,
-    onNewTemplate: () -> Unit,
 ) {
     ScreenScaffold(
         topBar = {
@@ -48,7 +47,7 @@ fun TemplatesRoute(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(Spacing.m),
         ) {
-            item(key = "templates") { TemplateSection(onOpenTemplate = onOpenTemplate, onNewTemplate = onNewTemplate) }
+            item(key = "templates") { TemplateSection(onOpenTemplate = onOpenTemplate) }
             item(key = "categories") {
                 Spacer(Modifier.height(Spacing.l))
                 CategorySection()
