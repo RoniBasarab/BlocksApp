@@ -352,7 +352,7 @@ class NotificationModelMapperTest {
         assertEquals(at(10, 30), model?.countdownTo)
     }
 
-    private fun engine_timeline_with_synthetic_free(tl: com.roni.blocks.core.schedule.DayTimeline) =
+    private fun engine_timeline_with_synthetic_free(tl: com.roni.blocks.core.schedule.EngineTimeline) =
         tl.copy(
             open = Segment(
                 type = BlockType.Free,

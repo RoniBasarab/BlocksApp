@@ -13,7 +13,7 @@ import kotlinx.datetime.TimeZone
  * the persisted segments and `now`, so nothing here is `@Serializable` — only segments and
  * day records are written to disk.
  */
-data class DayTimeline(
+data class EngineTimeline(
     /** The template's blocks, resolved to real instants for the day. */
     val blocks: List<ResolvedBlock> = emptyList(),
     /** The segment that is still open (the one currently running), if any. */
@@ -41,11 +41,11 @@ fun ScheduleEngine.timelineAt(
     zone: TimeZone,
     segments: List<Segment>,
     now: Instant,
-): DayTimeline {
+): EngineTimeline {
     if (template == null) {
-        return DayTimeline(open = openSegment(segments), pausedMinutes = pausedMinutes(segments, now))
+        return EngineTimeline(open = openSegment(segments), pausedMinutes = pausedMinutes(segments, now))
     }
-    return DayTimeline(
+    return EngineTimeline(
         blocks = planned(template, date),
         open = openSegment(segments),
         pausedMinutes = pausedMinutes(segments, now),
@@ -64,7 +64,7 @@ fun landingBlockForStartNext(blocks: List<ResolvedBlock>, now: Instant): Resolve
     blocks.firstOrNull { now < it.plannedEnd } ?: blocks.lastOrNull()
 
 /** The current block's end. A pause never moves it: the pause shortens the block instead. */
-fun effectiveEnd(timeline: DayTimeline, now: Instant): Instant? = timeline.open?.plannedEnd
+fun effectiveEnd(timeline: EngineTimeline, now: Instant): Instant? = timeline.open?.plannedEnd
 
 /** Null when the block has no Pomodoro configured. */
 fun ScheduleEngine.pomodoroStatus(

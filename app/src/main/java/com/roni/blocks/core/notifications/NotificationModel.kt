@@ -5,7 +5,7 @@ import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.Categories
 import com.roni.blocks.core.model.isWork
-import com.roni.blocks.core.schedule.DayTimeline
+import com.roni.blocks.core.schedule.EngineTimeline
 import com.roni.blocks.core.schedule.PlanEditor
 import com.roni.blocks.core.schedule.ResolvedBlock
 import com.roni.blocks.core.schedule.ScheduleEngine
@@ -67,7 +67,7 @@ class NotificationModelMapper @Inject constructor(
 ) {
     fun from(
         state: DayState,
-        timeline: DayTimeline?,
+        timeline: EngineTimeline?,
         now: Instant,
         templateName: String? = null,
     ): NotificationModel? {
@@ -132,7 +132,7 @@ class NotificationModelMapper @Inject constructor(
     private fun running(
         state: DayState.Running,
         blocks: List<ResolvedBlock>,
-        timeline: DayTimeline?,
+        timeline: EngineTimeline?,
         now: Instant,
         templateName: String?,
     ): NotificationModel? {
@@ -305,7 +305,7 @@ class NotificationModelMapper @Inject constructor(
     private fun paused(
         state: DayState.Paused,
         blocks: List<ResolvedBlock>,
-        timeline: DayTimeline?,
+        timeline: EngineTimeline?,
     ): NotificationModel? {
         val index = state.running.blockIndex
         val block = blocks.getOrNull(index) ?: return null
@@ -337,7 +337,7 @@ class NotificationModelMapper @Inject constructor(
         )
     }
 
-    private fun evening(state: DayState.Evening, timeline: DayTimeline?, now: Instant): NotificationModel {
+    private fun evening(state: DayState.Evening, timeline: EngineTimeline?, now: Instant): NotificationModel {
         val open = timeline?.open
         val endDay = listOf(NotificationActionModel("End day", ActionEvent.END_DAY, null))
         val eveningType = open?.type

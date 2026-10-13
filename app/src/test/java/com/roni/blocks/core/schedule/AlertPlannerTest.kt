@@ -71,4 +71,14 @@ class AlertPlannerTest {
         assertEquals(Alert(t(10, 15, 30), AlertKind.TURN_BACK), AlertPlanner.dueWalk(start, end, nowSec = t(10, 16, 0)))
         assertNull(AlertPlanner.dueWalk(start, end, nowSec = t(10, 20, 0)))
     }
+
+    @Test
+    fun dishes_noWarning_endThenNags() {
+        val start = 72_000L
+        val end = start + 20 * 60
+        assertEquals(Alert(end, AlertKind.ENDED), AlertPlanner.next(start, end, emptyList(), null, start, warn = false))
+        assertEquals(Alert(end + 300, AlertKind.NAG), AlertPlanner.next(start, end, emptyList(), null, end, warn = false))
+        assertEquals(Alert(end + 600, AlertKind.NAG), AlertPlanner.next(start, end, emptyList(), null, end + 300, warn = false))
+        assertEquals(null, AlertPlanner.due(start, end, emptyList(), null, end - 300, warn = false))
+    }
 }

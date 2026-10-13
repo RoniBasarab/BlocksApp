@@ -21,11 +21,11 @@ object AlertPlanner {
     /**
      * The first alert after [afterSec] for a block that started at [startSec] and ends at [endSec].
      * [boundaries] are the block's Pomodoro phase changes (BREAK or FOCUS). Nags stop once
-     * [reactedSec] is at or after the end.
+     * [reactedSec] is at or after the end. [warn] false skips the 5-minute warning (Dishes, 3.3.0).
      */
-    fun next(startSec: Long, endSec: Long, boundaries: List<Alert>, reactedSec: Long?, afterSec: Long): Alert? {
+    fun next(startSec: Long, endSec: Long, boundaries: List<Alert>, reactedSec: Long?, afterSec: Long, warn: Boolean = true): Alert? {
         val candidates = buildList {
-            if (endSec - startSec >= MIN_WARNED_SEC) add(Alert(endSec - WARNING_SEC, AlertKind.WARNING))
+            if (warn && endSec - startSec >= MIN_WARNED_SEC) add(Alert(endSec - WARNING_SEC, AlertKind.WARNING))
             boundaries.filter { it.atSec > startSec && it.atSec < endSec - 60 }.forEach { add(it) }
             add(Alert(endSec, AlertKind.ENDED))
         }
@@ -36,12 +36,12 @@ object AlertPlanner {
     }
 
     /** The alert that is due at [nowSec]: the latest one in the last [graceSec] seconds (alarms can be late), or null. */
-    fun due(startSec: Long, endSec: Long, boundaries: List<Alert>, reactedSec: Long?, nowSec: Long, graceSec: Long = 90): Alert? {
+    fun due(startSec: Long, endSec: Long, boundaries: List<Alert>, reactedSec: Long?, nowSec: Long, graceSec: Long = 90, warn: Boolean = true): Alert? {
         var last: Alert? = null
-        var a = next(startSec, endSec, boundaries, reactedSec, nowSec - graceSec)
+        var a = next(startSec, endSec, boundaries, reactedSec, nowSec - graceSec, warn)
         while (a != null && a.atSec <= nowSec) {
             last = a
-            a = next(startSec, endSec, boundaries, reactedSec, a.atSec)
+            a = next(startSec, endSec, boundaries, reactedSec, a.atSec, warn)
         }
         return last
     }
