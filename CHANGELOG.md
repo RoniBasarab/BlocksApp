@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.4.1
+- Forgot to end a walk? "Fix the time" when it ends, or fix any walk later from History.
+
 ## 3.4.0
 - First-time explanations are now a small card at the top of the screen with "Got it", instead of a popup.
 - Weekly shows your walks (how many, how long) and how many of your steps came from walks.

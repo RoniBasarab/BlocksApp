@@ -56,6 +56,11 @@ and the system DND state), so Roni runs them by hand.
 7. Upgrade rehearsal (Roni, see the report): 2.6.2 debug → 3.4.0 debug installed over it → today, History, walks and steps are all there; no welcome screen.
 8. Developer tools → Simulate a drive: History shows "· about 150 while driving"; Weekly has the "While driving" tile. On a real drive (phone in the car): the same after you get out, a few minutes late at most.
 
+**Check on the phone (3.4.1).** Use the debug app for steps that move the clock (Settings → Developer tools).
+
+1. Start a 30-min walk; don't end it. At its end: the ring says "Walk done" with "Fix the time"; tapping it opens Home with the walk card; move the end back 10 min → History shows the shorter walk.
+2. History → any day → tap a walk → fix it; a time that overlaps another walk is refused with the reason.
+
 **Check on the phone (3.0.0).** Install over 2.7.1, don't uninstall.
 
 1. Today's day continues exactly where it was (same block, same timer).
