@@ -77,11 +77,18 @@ import androidx.navigation3.runtime.NavKey
 import com.roni.blocks.BuildConfig
 import com.roni.blocks.core.daystate.DayEvent
 import com.roni.blocks.core.schedule.BlockEdit
+import com.roni.blocks.core.schedule.CurrentBlock
+import com.roni.blocks.core.schedule.DayTimeline
 import com.roni.blocks.core.schedule.Edge
 import com.roni.blocks.core.schedule.PlanBlock
 import com.roni.blocks.core.schedule.PlanEdit
 import com.roni.blocks.core.schedule.PlanEditor
 import com.roni.blocks.core.schedule.RecordEdit
+import com.roni.blocks.core.schedule.SegmentSpan
+import com.roni.blocks.core.schedule.TimelinePhase
+import com.roni.blocks.core.schedule.TodayEdit
+import com.roni.blocks.core.schedule.TodayEditor
+import com.roni.blocks.core.schedule.TodayRefusal
 import com.roni.blocks.core.schedule.isEditable
 import com.roni.blocks.core.schedule.toBlockSpecs
 import com.roni.blocks.core.schedule.toPlanBlocks
@@ -95,6 +102,7 @@ import com.roni.blocks.core.debug.RecompositionCounter
 import com.roni.blocks.core.model.BlockSpec
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.CheckIn
+import com.roni.blocks.core.model.Categories
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
 import com.roni.blocks.core.model.isWork
@@ -129,6 +137,10 @@ import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.formatStepsApprox
 import com.roni.blocks.designsystem.templateDisplay
+import com.roni.blocks.feature.templates.BlockSheet
+import com.roni.blocks.feature.templates.BlockSheetAction
+import com.roni.blocks.feature.templates.BlockSheetUi
+import com.roni.blocks.feature.templates.typeForCategory
 import com.roni.blocks.feature.weekly.tabKey
 import com.roni.blocks.navigation.HistoryKey
 import com.roni.blocks.navigation.ProfilesKey
@@ -197,6 +209,15 @@ private val day: DayOrchestrator,
 
     /** The block a just-finished insert should select, so its handles show. */
     private var insertedBlockId: String? = null
+
+    /** The shared block sheet's state (3.3.0); null when it's closed. */
+    private var sheet: BlockSheetUi? = null
+    /** The block the sheet edits; null for a new (Add after) block. */
+    private var sheetId: String? = null
+    /** Which edit the sheet is doing: the block ahead, or the running block. */
+    private var sheetMode: BlockEdit = BlockEdit.NONE
+    /** The sheet's block start in the committed plan, for the running block's Resize. */
+    private var sheetPlanStart: Int = 0
 
     /** The calendar's real text heights (2.6.1); [HomeAction.TextMeasured] replaces it and re-publishes. */
     private var textMetrics = TextMetrics()
@@ -271,8 +292,8 @@ private val day: DayOrchestrator,
                 publish(day.state.value)
             }
         }
-        // Leaking is a boundary, not a per-minute value: only re-publish when it flips.
-        viewModelScope.launch { minuteOfDay.collect { publishLeakIfChanged() } }
+        // The real day (3.3.0) moves with the minute: every tick re-publishes so the tail grows.
+        viewModelScope.launch { minuteOfDay.collect { publish(day.state.value) } }
         viewModelScope.launch { timeFormatter.use24.collect { publish(day.state.value) } }
         if (BuildConfig.DEBUG) {
             viewModelScope.launch { debugTime.offsetMinutes.collect { publish(day.state.value) } }
@@ -369,8 +390,8 @@ private val day: DayOrchestrator,
             }
             is HomeAction.StepEdge -> if (action.id == EVENING_DISHES_ID) stepDishes(action.byMin)
                 else stepEdge(action.id, action.edge, action.byMin)
-            is HomeAction.Retype -> commitEdit(PlanEdit.Retype(action.id, action.type))
-            is HomeAction.Insert -> insertBlock(action.id, action.type)
+            is HomeAction.OpenBlock -> openBlockSheet(action.id)
+            is HomeAction.Sheet -> onSheet(action.action)
             is HomeAction.LockedBlockTapped -> {
                 val block = _state.value.blocks.firstOrNull { it.id == action.id }
                 val row = block?.let { recapRowForBlock(it) }
@@ -434,18 +455,224 @@ private val day: DayOrchestrator,
         resizeDishes(endMin + byMin)
     }
 
-    private fun insertBlock(id: String, type: BlockType) {
-        val free = day.todayPlan.value?.blocks?.firstOrNull { it.id == id } ?: return
+    // ── The shared block sheet (3.3.0) ──────────────────────────────────────────────────────────
+
+    /** Opens the sheet for an editable block; the running block and blocks ahead edit differently. */
+    private fun openBlockSheet(id: String) {
+        val plan = day.todayPlan.value?.blocks?.toPlanBlocks() ?: return
+        val block = plan.firstOrNull { it.id == id } ?: return
         val nowMin = clock.now().minuteOfDay(zone)
-        val start = maxOf(free.start.hour * 60 + free.start.minute, snapUp(nowMin + PlanEditor.SNAP))
+        val current = day.currentForEditing()
+        val mode = PlanEditor.editMode(plan, id, nowMin, current)
+        if (mode == BlockEdit.NONE) return
+        sheetId = id
+        sheetMode = mode
+        sheetPlanStart = block.startMin
+        insertedBlockId = id
+        sheet = if (mode == BlockEdit.END_AND_TYPE || mode == BlockEdit.END_ONLY) {
+            runningSheet(plan, block, mode, nowMin, current)
+        } else {
+            aheadSheet(plan, block, mode, nowMin, current)
+        }
+    }
+
+    /** A block ahead of the day: category, start, length, Add after and (unless free) Delete. */
+    private fun aheadSheet(plan: List<PlanBlock>, block: PlanBlock, mode: BlockEdit, nowMin: Int, current: CurrentBlock?): BlockSheetUi {
+        val (line, error) = aheadLine(plan, block.id, block.type, block.startMin, block.length, nowMin, current)
+        return BlockSheetUi(
+            title = blockTitle(block.type),
+            type = block.type,
+            categories = homeCategories(),
+            startMin = block.startMin,
+            lengthMin = block.length,
+            line = line,
+            lineIsError = error,
+            canSave = !error,
+            canDelete = block.type != BlockType.Free,
+            canAddAfter = true,
+        )
+    }
+
+    /** The running block: category (only while it can be retyped), length (its end), Add after; no Delete/Start. */
+    private fun runningSheet(plan: List<PlanBlock>, block: PlanBlock, mode: BlockEdit, nowMin: Int, current: CurrentBlock?): BlockSheetUi {
+        val (line, error) = runningLine(plan, block.id, block.type, block.length, nowMin, current)
+        return BlockSheetUi(
+            title = blockTitle(block.type),
+            type = block.type,
+            categories = if (mode == BlockEdit.END_AND_TYPE) workCategories().toPersistentList() else persistentListOf(),
+            startMin = null,
+            lengthMin = block.length,
+            line = line,
+            lineIsError = error,
+            canSave = true,
+            canDelete = false,
+            canAddAfter = true,
+        )
+    }
+
+    private fun onSheet(action: BlockSheetAction) {
+        val ui = sheet ?: return
+        when (action) {
+            is BlockSheetAction.Type -> editSheet(type = action.type)
+            is BlockSheetAction.StartBy -> editSheet(startMin = (ui.startMin ?: sheetPlanStart) + action.minutes)
+            is BlockSheetAction.StartAt -> editSheet(startMin = action.minute)
+            is BlockSheetAction.LengthBy -> editSheet(lengthMin = (ui.lengthMin ?: 0) + action.minutes)
+            BlockSheetAction.AddAfter -> addAfter()
+            BlockSheetAction.Delete -> deleteSheetBlock()
+            BlockSheetAction.Save -> saveSheet()
+            BlockSheetAction.Dismiss -> dismissSheet()
+        }
+    }
+
+    /** Recomputes the sheet's live line after one change; nothing is committed until Save. */
+    private fun editSheet(type: BlockType? = null, startMin: Int? = null, lengthMin: Int? = null) {
+        val ui = sheet ?: return
+        val id = sheetId ?: return
+        val plan = day.todayPlan.value?.blocks?.toPlanBlocks() ?: return
+        val nowMin = clock.now().minuteOfDay(zone)
+        val current = day.currentForEditing()
+        val newType = type ?: ui.type
+        if (sheetMode == BlockEdit.END_AND_TYPE || sheetMode == BlockEdit.END_ONLY) {
+            val length = (lengthMin ?: ui.lengthMin ?: PlanEditor.MIN_WORK).coerceAtLeast(PlanEditor.MIN_WORK)
+            val (line, error) = runningLine(plan, id, newType, length, nowMin, current)
+            sheet = ui.copy(type = newType, lengthMin = length, line = line, lineIsError = error)
+        } else {
+            val start = startMin ?: ui.startMin ?: sheetPlanStart
+            val length = lengthMin ?: ui.lengthMin ?: PlanEditor.MIN_WORK
+            val (line, error) = aheadLine(plan, id, newType, start, length, nowMin, current)
+            sheet = ui.copy(
+                type = newType,
+                startMin = start,
+                lengthMin = length,
+                line = line,
+                lineIsError = error,
+                canSave = !error,
+                canDelete = newType != BlockType.Free,
+            )
+        }
+    }
+
+    /** "Add after": a new block right after the sheet's block; the sheet switches to it, uncommitted. */
+    private fun addAfter() {
+        val id = sheetId ?: return
+        val plan = day.todayPlan.value?.blocks?.toPlanBlocks() ?: return
+        val nowMin = clock.now().minuteOfDay(zone)
+        val current = day.currentForEditing()
+        val type = workCategories().firstOrNull() ?: BlockType.Cv
+        val result = TodayEditor.addAfter(plan, id, type, nowMin, current) as? TodayEdit.Ok ?: return
+        val newId = TodayEditor.newId(plan)
+        val added = result.blocks.firstOrNull { it.id == newId } ?: return
+        sheetId = null
+        sheetMode = BlockEdit.FULL
+        sheetPlanStart = added.startMin
+        insertedBlockId = null
+        sheet = BlockSheetUi(
+            title = blockTitle(added.type),
+            type = added.type,
+            categories = homeCategories(),
+            startMin = added.startMin,
+            lengthMin = added.length,
+            line = movedLine(plan, result.blocks, added.id),
+            lineIsError = false,
+            canSave = true,
+            canDelete = added.type != BlockType.Free,
+            canAddAfter = true,
+        )
+    }
+
+    private fun saveSheet() {
+        val ui = sheet ?: return
+        val id = sheetId
+        if (sheetMode == BlockEdit.END_AND_TYPE || sheetMode == BlockEdit.END_ONLY) {
+            val plan = day.todayPlan.value?.blocks?.toPlanBlocks() ?: return
+            val original = plan.firstOrNull { it.id == id } ?: return
+            val type = ui.type
+            val length = ui.lengthMin ?: original.length
+            dismissSheet()
+            viewModelScope.launch {
+                if (type != original.type) day.editPlan(PlanEdit.Retype(original.id, type))
+                if (length != original.length) day.editPlan(PlanEdit.Resize(original.id, Edge.BOTTOM, original.startMin + length))
+                publish(day.state.value)
+            }
+            return
+        }
+        val start = ui.startMin ?: return
+        val length = ui.lengthMin ?: return
+        val type = ui.type
+        dismissSheet()
         viewModelScope.launch {
-            if (!day.editPlan(PlanEdit.Insert(id, type))) return@launch
-            insertedBlockId = day.todayPlan.value?.blocks?.firstOrNull {
-                it.type == type && it.start.hour * 60 + it.start.minute == start
-            }?.id
-            preview = null
-            draggingId = null
+            day.placeBlock(id, type, start, length)
             publish(day.state.value)
+        }
+    }
+
+    private fun deleteSheetBlock() {
+        val id = sheetId ?: return
+        dismissSheet()
+        viewModelScope.launch {
+            day.editPlan(PlanEdit.Retype(id, BlockType.Free))
+            publish(day.state.value)
+        }
+    }
+
+    private fun dismissSheet() {
+        sheet = null
+        sheetId = null
+        sheetMode = BlockEdit.NONE
+    }
+
+    /** The work categories in use plus Free, for a block ahead (3.3.0). */
+    private fun homeCategories() = (workCategories() + BlockType.Free).toPersistentList()
+
+    private fun workCategories(): List<BlockType> = buildList {
+        Categories.current.builtIns.filter { it.work }.forEach { add(typeForCategory(it)) }
+        Categories.current.customs.filter { it.work }.forEach { add(typeForCategory(it)) }
+    }
+
+    /** The live line for a block ahead: what moves, or why TodayEditor refused (3.3.0). */
+    private fun aheadLine(plan: List<PlanBlock>, id: String, type: BlockType, start: Int, length: Int, nowMin: Int, current: CurrentBlock?): Pair<String?, Boolean> =
+        when (val result = TodayEditor.place(plan, id, type, start, length, nowMin, current)) {
+            is TodayEdit.Ok -> movedLine(plan, result.blocks, id) to false
+            is TodayEdit.Refused -> todayRefusalLine(plan, result.why) to true
+        }
+
+    /** The live line for the running block: PlanEditor (Retype, then Resize BOTTOM), as EditCard did. */
+    private fun runningLine(plan: List<PlanBlock>, id: String, type: BlockType, length: Int, nowMin: Int, current: CurrentBlock?): Pair<String?, Boolean> {
+        val original = plan.firstOrNull { it.id == id } ?: return null to false
+        var blocks = plan
+        if (type != original.type) {
+            blocks = PlanEditor.apply(blocks, PlanEdit.Retype(id, type), nowMin, current) ?: plan
+        }
+        val start = blocks.firstOrNull { it.id == id }?.startMin ?: original.startMin
+        val resized = PlanEditor.apply(blocks, PlanEdit.Resize(id, Edge.BOTTOM, start + length), nowMin, current) ?: blocks
+        return movedLine(plan, resized, id) to false
+    }
+
+    /** "Moves later: Coding, Gym": non-free blocks other than the edited one whose start changed. */
+    private fun movedLine(before: List<PlanBlock>, after: List<PlanBlock>, editId: String): String? {
+        val original = before.associateBy { it.id }
+        val moved = after.sortedBy { it.startMin }.filter {
+            it.id != editId && it.type != BlockType.Free &&
+                original[it.id] != null && original.getValue(it.id).startMin != it.startMin
+        }
+        return if (moved.isEmpty()) null else "Moves later: " + moved.joinToString(", ") { blockTitle(it.type) }
+    }
+
+    private fun todayRefusalLine(plan: List<PlanBlock>, why: TodayRefusal): String {
+        val use24 = timeFormatter.use24.value
+        return when (why) {
+            TodayRefusal.Locked -> "This block can't be changed now."
+            is TodayRefusal.TooSoon -> "Starts at ${label(why.floorMin, use24)} at the earliest."
+            TodayRefusal.TooShort -> "A block is at least 10 minutes."
+            is TodayRefusal.StartsInside -> {
+                val at = label(why.endMin, use24)
+                "${plan.firstOrNull { it.id == why.id }?.let { blockTitle(it.type) } ?: "A block"} runs until $at. Start at $at or later."
+            }
+            is TodayRefusal.NoRoom -> when {
+                why.id == null -> "No room before ${label(PlanEditor.DAY_END, use24)}."
+                plan.firstOrNull { it.id == why.id }?.type == BlockType.KidTime -> "No room before kid time at ${label(why.atMin, use24)}."
+                else -> "No room before your walk at ${label(why.atMin, use24)}."
+            }
         }
     }
 
@@ -582,32 +809,45 @@ private val day: DayOrchestrator,
                 actualStartMin = if (doneEarly) null else open?.actualStart?.minuteOfDay(zone),
             )
         } ?: persistentListOf()
-        val blocks = if (todayPlan != null) {
-            val planBlocks = preview ?: todayPlan.blocks.toPlanBlocks()
-            val currentForEdit = day.currentForEditing()
-            val currentBlockIndex = index.takeIf { it >= 0 }
-            val liveRows = DayRecapMapper.map(day.liveRecord(), timeFormatter.use24.value).rows
-            mapped.mapIndexed { i, b ->
-                val isCurrentAndDoneEarly = doneEarly && currentBlockIndex != null && i == currentBlockIndex
-                val phaseSubtitle = if (isCurrentAndDoneEarly) {
-                    "Done early · free until ${timeFormatter.label(openAny!!.plannedEnd!!.minuteOfDay(zone))}"
-                } else b.subtitle
-                val phasesForUi = if (isCurrentAndDoneEarly) persistentListOf() else b.phases
-                // Past blocks (i < currentIndex) show what happened: "Done HH:MM–HH:MM" or "Missed".
-                val pastSubtitle = if (currentBlockIndex != null && i < currentBlockIndex) {
-                    val row = liveRows.firstOrNull { it.id == "${b.id}@${b.startMin}" }
-                    row?.let { pastSubtitleFor(it, timeFormatter.use24.value) }
-                } else null
-                b.copy(
-                    edit = if (b.id == EVENING_DISHES_ID) BlockEdit.END_ONLY
-                    else PlanEditor.editMode(planBlocks, b.id, minute, currentForEdit),
-                    subtitle = pastSubtitle ?: phaseSubtitle,
-                    phases = phasesForUi,
-                )
-            }.toPersistentList()
-        } else {
-            mapped
-        }
+        // 3.3.0: Home draws the real day. The plan (with the evening) and today's segments feed the
+        // verified DayTimeline; every block's geometry, phase and tail come from it, not from the plan.
+        val planBlocks = daySpecs?.map {
+            PlanBlock(it.id, it.type, it.start.hour * 60 + it.start.minute, it.end.hour * 60 + it.end.minute)
+        } ?: emptyList()
+        val spans = segmentSpans(segments)
+        val timelineCurrentId = spans.lastOrNull { it.kind == SegmentKind.PLANNED && it.endMin == null }?.blockId
+        val timelineById = DayTimeline.build(planBlocks, spans, timelineCurrentId, minute).associateBy { it.id }
+        val doneEarlyEndLabel = openAny?.plannedEnd?.let { timeFormatter.label(it.minuteOfDay(zone)) }
+        val planForEdit = preview ?: todayPlan?.blocks?.toPlanBlocks()
+        val currentForEdit = day.currentForEditing()
+        val blocks = mapped.mapIndexed { i, b ->
+            val tl = timelineById[b.id]
+            val isCurrentAndDoneEarly = doneEarly && index >= 0 && i == index
+            val subtitle = when {
+                isCurrentAndDoneEarly ->
+                    "Done early · free until $doneEarlyEndLabel" + lateSuffix(tl?.lateMin ?: 0)
+                tl == null -> b.subtitle
+                tl.phase == TimelinePhase.MISSED -> "Missed"
+                tl.phase == TimelinePhase.DONE && tl.overrunFromMin != null -> "+${tl.endMin - tl.overrunFromMin} min"
+                tl.phase == TimelinePhase.DONE && tl.lateMin > 0 -> "${tl.lateMin} min late"
+                tl.phase == TimelinePhase.DONE -> null
+                else -> if (tl.lateMin > 0) listOfNotNull(b.subtitle, "${tl.lateMin} min late").joinToString(" · ") else b.subtitle
+            }
+            b.copy(
+                startMin = tl?.startMin ?: b.startMin,
+                endMin = tl?.endMin ?: b.endMin,
+                timeLabel = tl?.let { "${label(it.startMin, timeFormatter.use24.value)}–${label(it.endMin, timeFormatter.use24.value)}" } ?: b.timeLabel,
+                subtitle = subtitle,
+                phases = if (isCurrentAndDoneEarly) persistentListOf() else b.phases,
+                edit = if (todayPlan == null) b.edit
+                else if (b.id == EVENING_DISHES_ID) BlockEdit.END_ONLY
+                else PlanEditor.editMode(planForEdit ?: emptyList(), b.id, minute, currentForEdit),
+                phase = tl?.phase ?: b.phase,
+                overrunFromMin = tl?.overrunFromMin,
+                lateMin = tl?.lateMin ?: 0,
+                pauses = tl?.pauses?.toPersistentList() ?: persistentListOf(),
+            )
+        }.toPersistentList()
         val current = blocks.getOrNull(index)
         val effectiveEndMin = openAny?.plannedEnd?.let { it.minuteOfDay(zone) }
         val leaking = current != null && effectiveEndMin != null && minute > effectiveEndMin
@@ -673,7 +913,9 @@ private val day: DayOrchestrator,
         val blockById = blocks.associateBy { it.id }
         val pillLabels = buildMap {
             calendarFit.blocks.filter { it.sliver }.forEach { bf ->
-                blockById[bf.id]?.let { put(bf.id, "${it.title} · ${it.endMin - it.startMin} min") }
+                blockById[bf.id]?.let {
+                    put(bf.id, if (it.phase == TimelinePhase.MISSED) "${it.title} · missed" else "${it.title} · ${it.endMin - it.startMin} min")
+                }
             }
             walkMarkers.forEach { put(it.id, it.label) }
         }
@@ -681,6 +923,9 @@ private val day: DayOrchestrator,
         if (dayState is DayState.Ended || dayState is DayState.Off || dayState is DayState.NotStarted) {
             preview = null
             draggingId = null
+            sheet = null
+            sheetId = null
+            sheetMode = BlockEdit.NONE
         }
         // The evening sheet opens once when Dishes starts (2.5.0); dismissing it is fine, and the
         // card's "Choose evening" reopens it. Outside the evening it is always closed.
@@ -714,7 +959,6 @@ private val day: DayOrchestrator,
             hourLabels = CalendarMapper.hourLabels(calendarStartMin, DAY_END_MIN, timeFormatter.use24.value).toPersistentList(),
             blocks = blocks,
             currentBlockId = current?.id,
-            leakFromMin = if (leaking) effectiveEndMin else null,
             recap = recap,
             nowCard = if (walkCard != null) null else nowCard(dayState, current, index, blocks.size, leaking, effectiveEndMin, minute, nextLabel, doneEarly, startsAtMin),
             walkCard = walkCard,
@@ -728,6 +972,8 @@ private val day: DayOrchestrator,
             eveningSheetOpen = eveningSheetOpen,
             draggingId = draggingId,
             selectId = insertedBlockId,
+            sheet = sheet,
+            sheetId = sheetId,
             use24 = timeFormatter.use24.value,
             calendarStartMin = calendarStartMin,
         )
@@ -736,12 +982,23 @@ private val day: DayOrchestrator,
     private fun debugClockLabel(minute: Int): String? =
         if (debugTime.offsetMinutes.value == 0) null else "Debug clock ${TimeFormatter.label(minute, timeFormatter.use24.value)}"
 
-    private fun publishLeakIfChanged() {
-        val before = _state.value.leakFromMin
-        publish(day.state.value)
-        if (_state.value.leakFromMin != before) return
-        // Undo cosmetic churn when only the flag is unchanged.
-        if (before == null) _state.value = _state.value.copy(leakFromMin = null)
+    /**
+     * Today's segments as the [DayTimeline] sees them: minutes of the day, with the id [withEvening]
+     * gives the evening's blocks. A closed SYNTHETIC_FREE ("done early" leftover) is skipped: it isn't
+     * a block, just free time that has been absorbed.
+     */
+    private fun segmentSpans(segments: List<Segment>): List<SegmentSpan> = buildList {
+        for (seg in segments) {
+            if (seg.kind == SegmentKind.SYNTHETIC_FREE && seg.actualEnd != null) continue
+            val startMin = seg.actualStart.minuteOfDay(zone)
+            val endMin = seg.actualEnd?.minuteOfDay(zone)
+            val id = when {
+                seg.type == BlockType.Dishes -> EVENING_DISHES_ID
+                seg.type is BlockType.EveningChoice -> if (seg.actualEnd == null) EVENING_CHOICE_ID else "evening.choice@$startMin"
+                else -> seg.blockId
+            }
+            add(SegmentSpan(id, seg.kind, startMin, endMin))
+        }
     }
 
     /**
@@ -982,7 +1239,7 @@ private val day: DayOrchestrator,
                     showProgress = false,
                     buttons = persistentListOf(
                         NowButton(NowButtonId.CHOOSE_EVENING, if (pick != null) "Change evening" else "Choose evening", NowButtonStyle.PRIMARY),
-                        NowButton(NowButtonId.SKIP_DISHES, "Skip dishes", NowButtonStyle.SECONDARY),
+                        NowButton(NowButtonId.SKIP_DISHES, "Done dishes", NowButtonStyle.SECONDARY),
                         NowButton(NowButtonId.END_DAY, "End day", NowButtonStyle.SECONDARY),
                     ),
                 )
@@ -1062,15 +1319,8 @@ private fun waitingLeft(minutes: Int): String {
     return if (m >= 60) "${m / 60}h ${m % 60}m" else "$m min"
 }
 
-/** "Done HH:MM–HH:MM" or "Missed" for the calendar subtitle of a past block. */
-private fun pastSubtitleFor(row: RecapRow, use24: Boolean): String? {
-    val range = row.range
-    return when {
-        row.missed -> "Missed"
-        range.isNotEmpty() -> "Done $range"
-        else -> null
-    }
-}
+/** " · N min late" for a block that started late; empty otherwise. */
+private fun lateSuffix(lateMin: Int): String = if (lateMin > 0) " · $lateMin min late" else ""
 
 @Composable
 fun HomeRoute(
@@ -1182,13 +1432,7 @@ fun HomeScreen(
     LaunchedEffect(textMetrics) {
         onAction(HomeAction.TextMeasured(textMetrics))
     }
-    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
-    val selected = state.blocks.firstOrNull { it.id == selectedId }?.takeIf { it.edit != BlockEdit.NONE }
     var correcting by remember { mutableStateOf<RecapRow?>(null) }
-
-    LaunchedEffect(state.selectId) {
-        state.selectId?.let { selectedId = it }
-    }
 
     LaunchedEffect(state.currentBlockId) {
         val start = state.blocks.firstOrNull { it.id == state.currentBlockId }?.startMin
@@ -1199,7 +1443,7 @@ fun HomeScreen(
         scroll.animateScrollTo(target.toInt().coerceAtLeast(0))
     }
 
-    BackHandler(enabled = selected != null) { selectedId = null }
+    BackHandler(enabled = state.sheet != null) { onAction(HomeAction.Sheet(BlockSheetAction.Dismiss)) }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -1242,7 +1486,6 @@ fun HomeScreen(
                     walkMarkers = state.walkMarkers,
                     dayStartMin = state.calendarStartMin,
                     currentBlockId = state.currentBlockId,
-                    leakFromMin = state.leakFromMin,
                     hourLabels = state.hourLabels,
                     minuteOfDay = minuteOfDay,
                     scrollState = scroll,
@@ -1252,10 +1495,10 @@ fun HomeScreen(
                         if (block != null && block.edit == BlockEdit.NONE) {
                             onAction(HomeAction.LockedBlockTapped(clicked))
                         } else {
-                            selectedId = if (selectedId == clicked) null else clicked
+                            onAction(HomeAction.OpenBlock(clicked))
                         }
                     },
-                    selectedBlockId = selected?.id,
+                    selectedBlockId = state.sheetId ?: state.selectId,
                     draggingId = state.draggingId,
                     onAction = onAction,
                     modifier = Modifier.weight(1f).testTag("home_calendar"),
@@ -1263,16 +1506,7 @@ fun HomeScreen(
             }
         }
         if (state.recap == null) {
-            if (selected != null) {
-                EditCard(
-                    block = selected,
-                    onDone = { selectedId = null },
-                    onAction = onAction,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(horizontal = Spacing.l, vertical = Spacing.s),
-                )
-            } else state.walkCard?.let { ui ->
+            state.walkCard?.let { ui ->
                 WalkCard(
                     ui = ui,
                     view = walkView,
@@ -1302,6 +1536,13 @@ fun HomeScreen(
         EveningChoiceSheet(
             onPick = { onAction(HomeAction.PickEvening(it)) },
             onDismiss = { onAction(HomeAction.DismissEveningSheet) },
+        )
+    }
+    state.sheet?.let { ui ->
+        BlockSheet(
+            ui = ui,
+            use24 = state.use24,
+            onAction = { onAction(HomeAction.Sheet(it)) },
         )
     }
     state.walkSheet?.let { sheet ->

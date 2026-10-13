@@ -992,6 +992,8 @@ class DayOrchestratorTest {
         orchestrator.handle(DayEvent.KidAsleep)
         clock.now = LocalTime(20, 50).at(date, zone)
         orchestrator.handle(DayEvent.EveningChoice(Choice.CHILL))
+        // 3.3.0: Dishes runs over; the pick starts the evening only when "Done dishes" is tapped.
+        assertTrue(orchestrator.skipDishes())
         val segmentsBefore = orchestrator.segments.value
         clock.now = LocalTime(21, 0).at(date, zone)
 
@@ -1175,37 +1177,15 @@ class DayOrchestratorTest {
     }
 
     @Test
-    fun dishesEnd_startsThePickedActivity() = runBlocking {
-        clock.now = LocalTime(20, 12).at(date, zone)
-        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
-        assertEquals(DayState.KidTime, orchestrator.state.value)
-        orchestrator.handle(DayEvent.KidAsleep)
-        assertEquals(DayState.Evening(0), orchestrator.state.value)
-
-        clock.now = LocalTime(20, 13).at(date, zone)
-        orchestrator.handle(DayEvent.EveningChoice(Choice.READ))
-        assertEquals("Dishes must not end when the pick is made", DayState.Evening(0), orchestrator.state.value)
-        assertEquals(Choice.READ, orchestrator.pendingEvening.value)
-
-        clock.now = LocalTime(20, 32, 5).at(date, zone)
-        orchestrator.onAlarm()
-
-        assertEquals(DayState.Evening(1), orchestrator.state.value)
-        val open = orchestrator.segments.value.last { it.actualEnd == null }
-        assertEquals(BlockType.EveningChoice(Choice.READ), open.type)
-        assertEquals(LocalTime(20, 32).at(date, zone), open.actualStart)
-        assertEquals(LocalTime(22, 30).at(date, zone), open.plannedEnd)
-    }
-
-    @Test
     fun switchEvening_closesReadingAndStartsGame() = runBlocking {
         clock.now = LocalTime(20, 12).at(date, zone)
         orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
         orchestrator.handle(DayEvent.KidAsleep)
         clock.now = LocalTime(20, 13).at(date, zone)
         orchestrator.handle(DayEvent.EveningChoice(Choice.READ))
+        // 3.3.0: Dishes runs over until "Done dishes"; the pick only starts it then.
         clock.now = LocalTime(20, 32, 5).at(date, zone)
-        orchestrator.onAlarm()
+        assertTrue(orchestrator.skipDishes())
 
         clock.now = LocalTime(21, 32).at(date, zone)
         assertTrue(orchestrator.switchEvening(Choice.GAME))
@@ -1218,6 +1198,55 @@ class DayOrchestratorTest {
         assertEquals(BlockType.EveningChoice(Choice.GAME), game.type)
         assertEquals(LocalTime(21, 32).at(date, zone), game.actualStart)
         assertEquals(LocalTime(22, 30).at(date, zone), game.plannedEnd)
+    }
+
+    @Test
+    fun dishes_runsOverUntilDone() = runBlocking {
+        clock.now = LocalTime(20, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        assertEquals(DayState.KidTime, orchestrator.state.value)
+        orchestrator.handle(DayEvent.KidAsleep)
+        assertEquals(DayState.Evening(0), orchestrator.state.value)
+
+        clock.now = LocalTime(20, 5).at(date, zone)
+        orchestrator.handle(DayEvent.EveningChoice(Choice.GAME))
+        assertEquals("a pick during Dishes is only remembered", DayState.Evening(0), orchestrator.state.value)
+
+        alerts.clear()
+        clock.now = LocalTime(20, 20, 5).at(date, zone)
+        orchestrator.onAlarm()
+        assertEquals("Dishes still runs over", DayState.Evening(0), orchestrator.state.value)
+        assertTrue("its end alert must fire", alerts.last())
+        assertEquals("dishes:done", rendered.last()?.key)
+
+        clock.now = LocalTime(20, 25, 5).at(date, zone)
+        orchestrator.onAlarm()
+        assertTrue("the 5-minute nag must fire", alerts.last())
+
+        clock.now = LocalTime(20, 27).at(date, zone)
+        assertTrue(orchestrator.skipDishes())
+
+        assertEquals(DayState.Evening(1), orchestrator.state.value)
+        val dishes = orchestrator.segments.value.first { it.type == BlockType.Dishes }
+        assertEquals(LocalTime(20, 0).at(date, zone), dishes.actualStart)
+        assertEquals(LocalTime(20, 27).at(date, zone), dishes.actualEnd)
+        val game = orchestrator.segments.value.last { it.actualEnd == null }
+        assertEquals(BlockType.EveningChoice(Choice.GAME), game.type)
+        assertEquals(LocalTime(20, 27).at(date, zone), game.actualStart)
+    }
+
+    @Test
+    fun dishes_noWarningBeforeItsEnd() = runBlocking {
+        clock.now = LocalTime(20, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        orchestrator.handle(DayEvent.KidAsleep)
+        assertEquals(DayState.Evening(0), orchestrator.state.value)
+
+        alerts.clear()
+        clock.now = LocalTime(20, 15).at(date, zone)
+        orchestrator.onAlarm()
+
+        assertEquals("no 5-minute warning before Dishes ends", false, alerts.last())
     }
 
     private suspend fun awaitBlockIndex(expected: Int) {

@@ -46,14 +46,17 @@ class NotificationRendererTest {
     private fun actionLabels(notification: Notification) = notification.actions.map { it.title }
 
     @Test
-    fun exactlyTwoChannels_silentEveningAndVibrationlessDay() {
+    fun channels_quietDayAndEvening_aVibratingDishesReminder() {
         renderer.ensureChannels()
         val day = nm.getNotificationChannel("day")
         val evening = nm.getNotificationChannel("evening")
+        val dishes = nm.getNotificationChannel("dishes")
         assertNotNull(day)
         assertNotNull(evening)
+        assertNotNull(dishes)
         assertEquals(NotificationManager.IMPORTANCE_LOW, evening!!.importance)
         assertTrue("the day channel must not vibrate", !day!!.shouldVibrate())
+        assertTrue("Dishes reminders vibrate (3.3.0)", dishes!!.shouldVibrate())
         assertNull(nm.getNotificationChannel("status"))
         assertNull(nm.getNotificationChannel("day_alerts"))
     }

@@ -172,6 +172,10 @@ internal data class WeekMetrics(
     val choiceEvenings: Int = 0,
     val pauseMinutes: Int = 0,
     val offDays: Int = 0,
+    /** Dishes evenings (3.3.0): how many, how many went over 20 minutes, and the total overage. */
+    val dishesEvenings: Int = 0,
+    val dishesOver20: Int = 0,
+    val dishesOverSum: Int = 0,
     val overruns: List<OverrunStat> = emptyList(),
 )
 
@@ -188,6 +192,9 @@ internal fun metricsOf(days: List<com.roni.blocks.core.model.DayRecord>): WeekMe
     var chillCount = 0
     var pauseMinutes = 0
     var offDays = 0
+    var dishesEvenings = 0
+    var dishesOver20 = 0
+    var dishesOverSum = 0
     val over = mutableMapOf<String, Triple<Int, Int, Int>>() // label -> (overBlocks, totalOver, plannedBlocks)
 
     days.forEach { day ->
@@ -201,6 +208,14 @@ internal fun metricsOf(days: List<com.roni.blocks.core.model.DayRecord>): WeekMe
         day.segments.forEach { segment ->
             when (segment.kind) {
                 SegmentKind.PLANNED -> {
+                    if (segment.type == BlockType.Dishes && segment.actualEnd != null) {
+                        val minutes = ((segment.actualEnd!! - segment.actualStart).inWholeMinutes).toInt()
+                        dishesEvenings++
+                        if (minutes > 20) {
+                            dishesOver20++
+                            dishesOverSum += minutes - 20
+                        }
+                    }
                     if (segment.type.isWork && segment.plannedEnd != null) {
                         val typeKey = segmentTypeLabel(segment.type)
                         val entry = over.getOrPut(typeKey) { Triple(0, 0, 0) }
@@ -268,6 +283,9 @@ internal fun metricsOf(days: List<com.roni.blocks.core.model.DayRecord>): WeekMe
         choiceEvenings = choiceTotal,
         pauseMinutes = pauseMinutes,
         offDays = offDays,
+        dishesEvenings = dishesEvenings,
+        dishesOver20 = dishesOver20,
+        dishesOverSum = dishesOverSum,
         overruns = overruns,
     )
 }
@@ -352,29 +370,36 @@ internal fun headline(now: WeekMetrics, prev: WeekMetrics, worst: List<OverrunSt
 
 internal fun scorecardRows(now: WeekMetrics, prev: WeekMetrics): List<InsightRow> {
     val offDelta = now.offDays - prev.offDays
-    return listOf(
-        row("Ran over", formatHm(now.leakMinutes), "Time past block ends", now.leakMinutes, prev.leakMinutes, Direction.LOWER),
-        row("Coding time", "${formatHm(now.codingWorked)} / ${formatHm(now.codingPlanned)}", "Done of planned", now.codingWorked, prev.codingWorked, Direction.HIGHER),
-        row("Gym sessions", "${now.gymDone} / ${now.gymPlanned}", "Done of planned", now.gymDone, prev.gymDone, Direction.HIGHER),
-        row("Job-search days", "${now.cvWorkedDays} / ${now.cvPlannedDays}", "Days the CV block happened", now.cvWorkedDays, prev.cvWorkedDays, Direction.HIGHER),
-        row("Evenings skipped", "${now.eveningsSkipped}", "Kid asleep never tapped", now.eveningsSkipped, prev.eveningsSkipped, Direction.LOWER),
-        row("Chill evenings", "${now.chillPercent}%", "Share of evenings spent on Chill", now.chillPercent, prev.chillPercent, Direction.LOWER),
-        row("Pause time", formatHm(now.pauseMinutes), "Breaks taken during blocks", now.pauseMinutes, prev.pauseMinutes, Direction.LOWER),
-        InsightRow(
-            label = "Off days",
-            value = "${now.offDays}",
-            hint = "Days with no schedule",
-            trend = InsightTrend(
-                arrow = when {
-                    offDelta < 0 -> TrendArrow.DOWN
-                    offDelta > 0 -> TrendArrow.UP
-                    else -> TrendArrow.FLAT
-                },
-                delta = "${Math.abs(offDelta)}",
-                tone = TrendTone.NEUTRAL,
+    return buildList {
+        add(row("Ran over", formatHm(now.leakMinutes), "Time past block ends", now.leakMinutes, prev.leakMinutes, Direction.LOWER))
+        add(row("Coding time", "${formatHm(now.codingWorked)} / ${formatHm(now.codingPlanned)}", "Done of planned", now.codingWorked, prev.codingWorked, Direction.HIGHER))
+        add(row("Gym sessions", "${now.gymDone} / ${now.gymPlanned}", "Done of planned", now.gymDone, prev.gymDone, Direction.HIGHER))
+        add(row("Job-search days", "${now.cvWorkedDays} / ${now.cvPlannedDays}", "Days the CV block happened", now.cvWorkedDays, prev.cvWorkedDays, Direction.HIGHER))
+        add(row("Evenings skipped", "${now.eveningsSkipped}", "Kid asleep never tapped", now.eveningsSkipped, prev.eveningsSkipped, Direction.LOWER))
+        add(row("Chill evenings", "${now.chillPercent}%", "Share of evenings spent on Chill", now.chillPercent, prev.chillPercent, Direction.LOWER))
+        add(row("Pause time", formatHm(now.pauseMinutes), "Breaks taken during blocks", now.pauseMinutes, prev.pauseMinutes, Direction.LOWER))
+        // Dishes (3.3.0): only for a week that had evenings with Dishes.
+        if (now.dishesEvenings > 0) {
+            val over = if (now.dishesOver20 == 0) 0 else (now.dishesOverSum.toDouble() / now.dishesOver20).roundToInt()
+            add(InsightRow("Dishes", "${now.dishesOver20} of ${now.dishesEvenings} evenings over 20 min", "+$over min on average"))
+        }
+        add(
+            InsightRow(
+                label = "Off days",
+                value = "${now.offDays}",
+                hint = "Days with no schedule",
+                trend = InsightTrend(
+                    arrow = when {
+                        offDelta < 0 -> TrendArrow.DOWN
+                        offDelta > 0 -> TrendArrow.UP
+                        else -> TrendArrow.FLAT
+                    },
+                    delta = "${Math.abs(offDelta)}",
+                    tone = TrendTone.NEUTRAL,
+                ),
             ),
-        ),
-    )
+        )
+    }
 }
 
 private fun row(

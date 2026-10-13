@@ -31,9 +31,12 @@ import com.roni.blocks.core.widget.WidgetPort
 import com.roni.blocks.core.schedule.CurrentBlock
 import com.roni.blocks.core.schedule.DayBook
 import com.roni.blocks.core.schedule.PlanEdit
+import com.roni.blocks.core.schedule.PlanBlock
 import com.roni.blocks.core.schedule.PlanEditor
 import com.roni.blocks.core.schedule.ScheduleEngine
 import com.roni.blocks.core.schedule.SegmentBook
+import com.roni.blocks.core.schedule.TodayEdit
+import com.roni.blocks.core.schedule.TodayEditor
 import com.roni.blocks.core.schedule.timelineAt
 import com.roni.blocks.core.schedule.toBlockSpecs
 import com.roni.blocks.core.schedule.toPlanBlocks
@@ -267,8 +270,45 @@ class DayOrchestrator @Inject constructor(
             logger.info("refusing plan edit $edit: not allowed or it changes nothing")
             return false
         }
+        commitPlan(edited)
+        logger.info("edited plan with $edit")
+        return true
+    }
+
+    /**
+     * Places block [id] (an existing block ahead, or a new one when [id] is null — the sheet's Add after)
+     * at [startMin] for [lengthMin] minutes (3.3.0), with [TodayEditor]'s rules and the orchestrator's own
+     * clock, then commits it. False when the edit isn't allowed or changes nothing.
+     */
+    suspend fun placeBlock(id: String?, type: BlockType, startMin: Int, lengthMin: Int): Boolean {
+        ensureRestored()
+        val state = _state.value
+        if (state !is DayState.Running && state !is DayState.Paused) return false
+        val plan = _todayPlan.value ?: return false
+        val current = currentForEditing() ?: return false
+        val nowMin = clock.now().toLocalDateTime(zone).time.let { it.hour * 60 + it.minute }
+        val planBlocks = plan.blocks.toPlanBlocks()
+        val edit = if (id == null) {
+            TodayEditor.place(planBlocks, TodayEditor.newId(planBlocks), type, startMin, lengthMin, nowMin, current)
+        } else {
+            TodayEditor.place(planBlocks, id, type, startMin, lengthMin, nowMin, current)
+        }
+        val placed = edit as? TodayEdit.Ok ?: return false
+        commitPlan(placed.blocks)
+        logger.info("placed block $id as $type at $startMin for $lengthMin min")
+        return true
+    }
+
+    /**
+     * Commits an edited plan (3.3.0): converts it back to specs, keeps the day on its block, follows the
+     * open segment with the new plan, and persists. Shared by [editPlan] and [placeBlock].
+     */
+    private suspend fun commitPlan(edited: List<PlanBlock>) {
+        val plan = _todayPlan.value ?: return
+        val state = _state.value
+        val current = currentForEditing()
         val blocks = edited.toBlockSpecs(plan.blocks)
-        val index = blocks.indexOfFirst { it.id == current.id }.coerceAtLeast(0)
+        val index = (current?.let { c -> blocks.indexOfFirst { it.id == c.id } } ?: -1).coerceAtLeast(0)
         _todayPlan.value = plan.copy(blocks = blocks, edited = true)
         _state.value = when (state) {
             is DayState.Running -> state.copy(blockIndex = index)
@@ -278,14 +318,15 @@ class DayOrchestrator @Inject constructor(
         // Ran over is measured against the edited plan, so the current block's open segment follows
         // the new plan: a planned segment takes its new end (and new type when retyped); a
         // synthetic-free segment from "Done early" takes the current block's new end (2.2.0).
-        val currentBlockSpec = blocks.firstOrNull { it.id == current.id }
+        val currentId = current?.id
+        val currentBlockSpec = currentId?.let { id -> blocks.firstOrNull { it.id == id } }
         val currentEnd = currentBlockSpec?.end?.at(today(), zone)
         val currentType = currentBlockSpec?.type
         book = book.copy(
             segments = book.segments.map { segment ->
                 if (segment.actualEnd == null) {
                     when {
-                        segment.blockId == current.id && segment.kind == SegmentKind.PLANNED ->
+                        segment.blockId == currentId && segment.kind == SegmentKind.PLANNED ->
                             segment.copy(
                                 plannedEnd = currentEnd ?: segment.plannedEnd,
                                 type = currentType ?: segment.type,
@@ -304,8 +345,6 @@ class DayOrchestrator @Inject constructor(
         reactedAt = clock.now()
         persist()
         sideEffects()
-        logger.info("edited plan with $edit")
-        return true
     }
 
     /**
@@ -565,9 +604,9 @@ class DayOrchestrator @Inject constructor(
         book.segments.lastOrNull { it.actualEnd == null && it.kind == SegmentKind.PLANNED && it.type == BlockType.Dishes }
 
     /**
-     * The evening choice (2.5.0). During Dishes the pick is only remembered ([pendingEvening]); Dishes
-     * runs to its planned end as usual. Once Dishes is over, or while the activity is running, the
-     * pick starts/switches the activity at [now].
+     * The evening choice (2.5.0; 3.3.0: Dishes never ends by itself). During Dishes the pick is only
+     * remembered ([pendingEvening]) and Dishes runs over until "Done dishes" or Next. Once Dishes is
+     * over, or while the activity is running, the pick starts/switches the activity at [now].
      */
     private suspend fun applyEveningChoice(choice: Choice, now: Instant) {
         val state = _state.value
@@ -575,8 +614,7 @@ class DayOrchestrator @Inject constructor(
             logger.info("ignoring evening choice $choice from $state")
             return
         }
-        val dishes = openDishes()
-        if (state.blockIndex == 0 && dishes?.plannedEnd != null && now < dishes.plannedEnd!!) {
+        if (state.blockIndex == 0 && openDishes() != null) {
             pendingChoice = choice
             persist()
             sideEffects()
@@ -731,9 +769,18 @@ class DayOrchestrator @Inject constructor(
                 nowSec = now.epochSeconds,
             )
         } else null
-        // Nothing picked by the time Dishes ends (2.5.0): alert "Dishes done · pick your evening".
-        val dishesDue = _state.value.isDishesSlot &&
-            openDishes()?.plannedEnd?.let { now >= it } == true
+        // Dishes (3.3.0): its end, then a nag every 5 minutes, no 5-minute warning; vibrates only.
+        val dishes = openDishes()
+        val dishesDue = if (_state.value.isDishesSlot && dishes?.plannedEnd != null) {
+            com.roni.blocks.core.schedule.AlertPlanner.due(
+                startSec = dishes.actualStart.epochSeconds,
+                endSec = dishes.plannedEnd!!.epochSeconds,
+                boundaries = emptyList(),
+                reactedSec = reactedAt?.epochSeconds,
+                nowSec = now.epochSeconds,
+                warn = false,
+            ) != null
+        } else false
         sideEffects(alert = due != null || dishesDue)
     }
 
@@ -1041,9 +1088,15 @@ class DayOrchestrator @Inject constructor(
         // the end, and those alarms must survive Doze (clock = true).
         val walk = openWalk()
         val session = standaloneWalk
-        // Dishes ends at its planned end (2.5.0), so that end needs its own alarm even though the
-        // evening state has no Pomodoro boundaries of its own.
-        val dishesEnd = if (_state.value.isDishesSlot) openDishes()?.plannedEnd?.takeIf { it > now } else null
+        // Dishes never ends by itself any more (3.3.0): while it is open the alert is its planned end,
+        // then a nag every 5 minutes, with no 5-minute warning. It vibrates only (the DISHES channel).
+        val dishesAlert = if (_state.value.isDishesSlot) openDishes()?.let { d ->
+            d.plannedEnd?.let { end ->
+                com.roni.blocks.core.schedule.AlertPlanner
+                    .next(d.actualStart.epochSeconds, end.epochSeconds, emptyList(), reactedAt?.epochSeconds, now.epochSeconds, warn = false)
+                    ?.let { Instant.fromEpochSeconds(it.atSec) }
+            }
+        } else null
         val nextAlert = when {
             walk?.plannedEnd != null -> com.roni.blocks.core.schedule.AlertPlanner
                 .nextWalk(walk.actualStart.epochSeconds, walk.plannedEnd!!.epochSeconds, now.epochSeconds)
@@ -1051,7 +1104,7 @@ class DayOrchestrator @Inject constructor(
             session != null -> com.roni.blocks.core.schedule.AlertPlanner
                 .nextWalk(session.start.epochSeconds, session.end.epochSeconds, now.epochSeconds)
                 ?.let { Instant.fromEpochSeconds(it.atSec) }
-            dishesEnd != null -> dishesEnd
+            dishesAlert != null -> dishesAlert
             else -> nextAlertTime(now, template, index, anchor)
         }
         val alarmAt = listOfNotNull(wake, nextAlert, waitingStart(now, today)).minOrNull()
@@ -1336,16 +1389,8 @@ class DayOrchestrator @Inject constructor(
                 return true
             }
         }
-        // Dishes ends by itself at its planned end (2.5.0): with a pick waiting, the activity starts
-        // there, to the second. With nothing picked, Dishes runs over until the pick (onAlarm alerts).
-        if (_state.value.isDishesSlot) {
-            val dishes = openDishes()
-            val end = dishes?.plannedEnd
-            if (end != null && now >= end && pendingChoice != null) {
-                startEvening(pendingChoice!!, end)
-                return true
-            }
-        }
+        // Dishes never ends by itself any more (3.3.0): it runs over until "Done dishes" or Next. The
+        // alert nags (vibration only) from its planned end every 5 minutes; see [sideEffects]/[onAlarm].
         return endDayIfDue()
     }
 

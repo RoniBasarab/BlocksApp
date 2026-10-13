@@ -8,7 +8,6 @@ import kotlinx.collections.immutable.toPersistentList
 object FakeHomeStates {
     fun runningCoding(): HomeState = base(
         currentBlockId = "b1",
-        leakFromMin = null,
         nowCard = NowCardUi(
             title = "Coding",
             type = BlockType.Coding,
@@ -26,7 +25,6 @@ object FakeHomeStates {
 
     fun leakingCv(): HomeState = base(
         currentBlockId = "b0",
-        leakFromMin = 570,
         nowCard = NowCardUi(
             title = "CV",
             type = BlockType.Cv,
@@ -44,7 +42,6 @@ object FakeHomeStates {
 
     fun freeBreak(): HomeState = base(
         currentBlockId = "b2",
-        leakFromMin = null,
         status = "3 blocks left",
         nowCard = NowCardUi(
             title = "Free",
@@ -63,7 +60,6 @@ object FakeHomeStates {
 
     fun kidTime(): HomeState = base(
         currentBlockId = null,
-        leakFromMin = null,
         status = "6 blocks left",
         nowCard = NowCardUi(
             title = "Kid time",
@@ -82,7 +78,6 @@ object FakeHomeStates {
 
     fun ended(): HomeState = base(
         currentBlockId = null,
-        leakFromMin = null,
         status = "6 blocks left",
         nowCard = NowCardUi(
             title = "Day done",
@@ -98,7 +93,6 @@ object FakeHomeStates {
 
     private fun base(
         currentBlockId: String?,
-        leakFromMin: Int?,
         nowCard: NowCardUi,
         status: String = "4 blocks left",
     ) = HomeState(
@@ -109,7 +103,6 @@ object FakeHomeStates {
         hourLabels = (DAY_START_MIN..DAY_END_MIN step 60).map { hhmm(it) }.toPersistentList(),
         blocks = sunTueWedBlocks(),
         currentBlockId = currentBlockId,
-        leakFromMin = leakFromMin,
         nowCard = nowCard,
         eveningChoicePending = false,
     )

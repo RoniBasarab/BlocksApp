@@ -55,6 +55,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -67,6 +68,7 @@ import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.schedule.BlockEdit
 import com.roni.blocks.core.schedule.Edge
 import com.roni.blocks.core.schedule.PlanEditor
+import com.roni.blocks.core.schedule.TimelinePhase
 import com.roni.blocks.designsystem.AppShapes
 import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.AppType
@@ -90,7 +92,6 @@ fun DayCalendar(
     walkMarkers: List<WalkMarkerUi>,
     dayStartMin: Int,
     currentBlockId: String?,
-    leakFromMin: Int?,
     hourLabels: ImmutableList<String>,
     minuteOfDay: () -> Int,
     scrollState: ScrollState,
@@ -129,12 +130,6 @@ fun DayCalendar(
                 minuteOfDay = minuteOfDay,
                 onBlockClick = onBlockClick,
                 onAction = onAction,
-                modifier = Modifier.fillMaxWidth().height(gridHeight),
-            )
-            LeakOverlay(
-                leakFromMin = leakFromMin,
-                dayStartMin = dayStartMin,
-                minuteOfDay = minuteOfDay,
                 modifier = Modifier.fillMaxWidth().height(gridHeight),
             )
             WalkMarkersOverlay(
@@ -318,7 +313,7 @@ private fun CalendarBlock(
         Modifier
             .zIndex(if (isSelected) 1f else 0f)
             .graphicsLayer {
-                alpha = 0.6f + 0.4f * emphasis
+                alpha = if (block.phase == TimelinePhase.MISSED) 0.45f else 0.6f + 0.4f * emphasis
                 scaleX = 1f + 0.02f * emphasis
                 scaleY = 1f + 0.02f * emphasis
                 shadowElevation = Metrics.shadowBlock.toPx() * emphasis
@@ -333,6 +328,28 @@ private fun CalendarBlock(
             }
             .drawWithContent {
                 if (fit.sliver) return@drawWithContent
+                val pxPerMin = size.height / (block.endMin - block.startMin)
+                // Pauses: grey stripes over the container, behind the text (3.3.0).
+                block.pauses.forEach { p ->
+                    val top = (p.first - block.startMin) * pxPerMin
+                    val bottom = (p.last + 1 - block.startMin) * pxPerMin
+                    drawStripes(c.textMuted.copy(alpha = 0.25f), top, bottom, size.width)
+                    if (bottom - top >= 16.dp.toPx()) {
+                        val t = measurer.measure("Paused ${p.last + 1 - p.first} min", small.copy(color = c.textMuted))
+                        drawText(t, topLeft = Offset((size.width - t.size.width) / 2f, top + (bottom - top - t.size.height) / 2f))
+                    }
+                }
+                // The red tail: the part from [overrunFromMin] to the end ran over the plan (3.3.0).
+                block.overrunFromMin?.let { from ->
+                    val top = (from - block.startMin) * pxPerMin
+                    val bottom = size.height
+                    drawStripes(c.leak.copy(alpha = 0.35f), top, bottom, size.width)
+                    drawLine(c.leak, Offset(0f, top), Offset(size.width, top), 1.dp.toPx())
+                    if (bottom - top >= 16.dp.toPx()) {
+                        val t = measurer.measure("+${block.endMin - from} min", small.copy(color = c.leak))
+                        drawText(t, topLeft = Offset(size.width - t.size.width - Metrics.blockPadH.toPx(), bottom - t.size.height - Metrics.blockPadV.toPx()))
+                    }
+                }
                 drawContent()
                 if (block.phases.isNotEmpty()) {
                     val pxPerMin = size.height / (block.endMin - block.startMin)
@@ -389,19 +406,25 @@ private fun CalendarBlock(
         // The text starts where CalendarLayout says (relative to this block's top), never below it.
         val topDp = fit.textTopDp - (block.startMin - dayStartMin) * CalendarLayout.DP_PER_MIN
         val timeStyle = MaterialTheme.typography.labelSmall.merge(AppType.numbers)
+        val strike = if (block.phase == TimelinePhase.MISSED) TextDecoration.LineThrough else null
         Column(
             Modifier
                 .padding(start = Metrics.blockPadH, end = Metrics.blockPadH, top = topDp.dp),
         ) {
             when (fit.fit) {
                 TextFit.TWO_LINES -> {
-                    Text(block.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        block.title,
+                        style = MaterialTheme.typography.titleSmall.copy(textDecoration = strike),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     Text(block.timeLabel, style = timeStyle, color = palette.accent, maxLines = 1)
                 }
                 TextFit.ONE_LINE ->
                     Text(
                         "${block.title} · ${block.timeLabel}",
-                        style = MaterialTheme.typography.labelLarge,
+                        style = MaterialTheme.typography.labelLarge.copy(textDecoration = strike),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -411,36 +434,15 @@ private fun CalendarBlock(
     }
 }
 
-@Composable
-private fun LeakOverlay(leakFromMin: Int?, dayStartMin: Int, minuteOfDay: () -> Int, modifier: Modifier = Modifier) {
-    if (leakFromMin == null) return
-    val c = AppTheme.colors
-    val measurer = rememberTextMeasurer()
-    val style = MaterialTheme.typography.labelSmall.merge(AppType.numbers).copy(color = c.leak)
-    Spacer(
-        modifier.drawBehind {
-            val now = minuteOfDay()
-            if (now <= leakFromMin) return@drawBehind
-            val pxPerMin = HourHeight.toPx() / 60f
-            val left = (Gutter + Metrics.calendarGap).toPx()
-            val right = size.width - Metrics.calendarRight.toPx()
-            val top = TopInset.toPx() + (leakFromMin - dayStartMin) * pxPerMin
-            val bottom = TopInset.toPx() + (now - dayStartMin) * pxPerMin
-            drawRoundRect(
-                c.leakContainer.copy(alpha = 0.85f),
-                Offset(left, top),
-                Size(right - left, bottom - top),
-                CornerRadius(BlockCorner.toPx()),
-            )
-            drawLine(c.leak, Offset(left, top), Offset(right, top), Metrics.hairline.toPx())
-            drawLine(c.leak, Offset(left, bottom), Offset(right, bottom), Metrics.nowLine.toPx())
-            drawCircle(c.leak, Metrics.nowDot.toPx(), Offset(left + Metrics.nowDot.toPx(), bottom))
-            if (bottom - top >= Metrics.leakLabelMin.toPx()) {
-                val t = measurer.measure("+${now - leakFromMin} min", style)
-                drawText(t, topLeft = Offset(right - t.size.width - Metrics.blockPadH.toPx(), bottom - t.size.height - Metrics.blockPadV.toPx()))
-            }
-        },
-    )
+/** Diagonal stripes filling [top]..[bottom], [gap] apart at 45°, clipped by the block's shape. */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawStripes(color: Color, top: Float, bottom: Float, width: Float) {
+    if (bottom <= top || width <= 0f) return
+    val h = bottom - top
+    var x = -h
+    while (x < width) {
+        drawLine(color, Offset(x, top), Offset(x + h, bottom), strokeWidth = 2.dp.toPx())
+        x += 6.dp.toPx()
+    }
 }
 
 @Composable

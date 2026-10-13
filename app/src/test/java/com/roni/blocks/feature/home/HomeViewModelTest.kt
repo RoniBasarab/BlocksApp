@@ -16,9 +16,12 @@ import com.roni.blocks.core.model.EVENING_CHOICE_ID
 import com.roni.blocks.core.model.EVENING_DISHES_ID
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.TemplateId
+import com.roni.blocks.core.model.isWork
+import com.roni.blocks.feature.templates.BlockSheetAction
 import com.roni.blocks.core.notifications.NotificationModel
 import com.roni.blocks.core.notifications.NotificationModelMapper
 import com.roni.blocks.core.notifications.NotificationPort
+import com.roni.blocks.core.schedule.Edge
 import com.roni.blocks.core.schedule.ScheduleEngine
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsStorage
@@ -259,6 +262,8 @@ class HomeViewModelTest {
 
         clock.now = LocalTime(21, 32).at(date, zone)
         viewModel.onAction(HomeAction.PickEvening(Choice.GAME))
+        // 3.3.0: Dishes never ends by itself; "Done dishes" starts the picked activity.
+        viewModel.onAction(HomeAction.SkipDishes)
         withTimeout(5_000) { orchestrator.state.first { it == DayState.Evening(1) } }
 
         clock.now = LocalTime(21, 40).at(date, zone)
@@ -290,7 +295,7 @@ class HomeViewModelTest {
 
         val blocks = viewModel.state.value.blocks
         val kid = requireNotNull(blocks.firstOrNull { it.id == "sun_tue_wed.kid_time" })
-        assertEquals("kid time starts when the plan had it", 16 * 60 + 20, kid.startMin)
+        assertEquals("kid time really started when the day started it", 20 * 60 + 12, kid.startMin)
         assertEquals("kid time ends at the tap", 20 * 60 + 12, kid.endMin)
 
         val dishes = requireNotNull(blocks.firstOrNull { it.id == EVENING_DISHES_ID })
@@ -304,17 +309,81 @@ class HomeViewModelTest {
         assertEquals(22 * 60 + 30, read.endMin)
     }
 
+    // ── 3.3.0: the shared block sheet (Task-22a slice 2) ─────────────────────────────────────────
+
     @Test
-    fun insertIntoFreeTime_selectsTheNewBlock() = runBlocking {
+    fun addAfter_pushesAndSaves() = runBlocking {
+        startDayInsideCoding()
+        val plan = orchestrator.todayPlan.value!!.blocks
+        val pmId = plan.first { it.type == BlockType.Coding && it.start.hour == 14 }.id
+
+        viewModel.onAction(HomeAction.OpenBlock(pmId))
+        viewModel.onAction(HomeAction.Sheet(BlockSheetAction.AddAfter))
+        val added = withTimeout(5_000) { viewModel.state.first { it.sheet != null && it.sheetId == null } }
+        assertEquals(15 * 60 + 30, added.sheet!!.startMin)
+        assertEquals(30, added.sheet!!.lengthMin)
+
+        viewModel.onAction(HomeAction.Sheet(BlockSheetAction.Save))
+        val saved = withTimeout(5_000) {
+            viewModel.state.first { s -> s.blocks.any { it.startMin == 15 * 60 + 30 && it.endMin == 16 * 60 && it.type.isWork } }
+        }
+        val inserted = saved.blocks.first { it.startMin == 15 * 60 + 30 }
+        assertEquals(30, inserted.endMin - inserted.startMin)
+        val freePm = saved.blocks.first { it.type == BlockType.Free && it.startMin == 16 * 60 }
+        assertEquals(16 * 60 + 20, freePm.endMin)
+    }
+
+    @Test
+    fun noRoomBeforeKidTime_saveOff() = runBlocking {
+        startDayInsideCoding()
+        val plan = orchestrator.todayPlan.value!!.blocks
+        val pmId = plan.first { it.type == BlockType.Coding && it.start.hour == 14 }.id
+
+        viewModel.onAction(HomeAction.OpenBlock(pmId))
+        viewModel.onAction(HomeAction.Sheet(BlockSheetAction.LengthBy(60)))
+
+        val sheet = withTimeout(5_000) { viewModel.state.first { it.sheet?.line != null } }.sheet!!
+        assertEquals("No room before kid time at 16:20.", sheet.line)
+        assertEquals(false, sheet.canSave)
+    }
+
+    @Test
+    fun runningBlock_hasNoStartAndNoDelete() = runBlocking {
         startDayInsideCoding()
 
-        viewModel.onAction(HomeAction.Insert("sun_tue_wed.free_midday", BlockType.Cv))
+        viewModel.onAction(HomeAction.OpenBlock(firstBlockId))
 
-        withTimeout(5_000) { viewModel.state.first { s -> s.blocks.any { it.id == "edit-1" } } }
-        val inserted = viewModel.state.value.blocks.first { it.id == "edit-1" }
-        assertEquals(BlockType.Cv, inserted.type)
+        val sheet = withTimeout(5_000) { viewModel.state.first { it.sheet != null } }.sheet!!
+        assertEquals(null, sheet.startMin)
+        assertEquals(false, sheet.canDelete)
+        assertEquals(true, sheet.canAddAfter)
+        assertTrue(sheet.categories.isNotEmpty())
+    }
+
+    @Test
+    fun insertThenDrag_movesTheNewBlock() = runBlocking {
+        startDayInsideCoding()
+
+        viewModel.onAction(HomeAction.OpenBlock(firstBlockId))
+        viewModel.onAction(HomeAction.Sheet(BlockSheetAction.AddAfter))
+        val added = withTimeout(5_000) { viewModel.state.first { it.sheet != null && it.sheetId == null } }.sheet!!
+        assertEquals(11 * 60 + 30, added.startMin)
+
+        viewModel.onAction(HomeAction.Sheet(BlockSheetAction.Save))
+        val saved = withTimeout(5_000) {
+            viewModel.state.first { s -> s.blocks.any { it.startMin == 11 * 60 + 30 && it.type.isWork } }
+        }
+        val inserted = saved.blocks.first { it.startMin == 11 * 60 + 30 && it.type.isWork }
         assertEquals(11 * 60 + 30, inserted.startMin)
-        assertEquals("edit-1", viewModel.state.value.selectId)
+        assertEquals(12 * 60, inserted.endMin)
+
+        viewModel.onAction(HomeAction.DragEdge(inserted.id, Edge.BOTTOM, 12 * 60))
+        viewModel.onAction(HomeAction.DragDone(inserted.id, Edge.BOTTOM, 12 * 60 + 15))
+
+        val dragged = withTimeout(5_000) {
+            viewModel.state.first { s -> s.blocks.any { it.id == inserted.id && it.endMin == 12 * 60 + 15 } }
+        }
+        assertEquals(12 * 60 + 15, dragged.blocks.first { it.id == inserted.id }.endMin)
     }
 
     @Test
@@ -370,9 +439,10 @@ class HomeViewModelTest {
         viewModel.onAction(HomeAction.KidAsleep)
         withTimeout(5_000) { orchestrator.state.first { it == DayState.Evening(0) } }
 
-        // Dishes runs 21:12-21:32; the pick lands exactly on its end, so the activity starts at once.
+        // Dishes runs 21:12-21:32; 3.3.0: it runs over until "Done dishes" starts the pick.
         clock.now = LocalTime(21, 32).at(date, zone)
         viewModel.onAction(HomeAction.PickEvening(Choice.READ))
+        viewModel.onAction(HomeAction.SkipDishes)
         withTimeout(5_000) { orchestrator.state.first { it == DayState.Evening(1) } }
 
         viewModel.onAction(HomeAction.Walk)
@@ -450,6 +520,63 @@ class HomeViewModelTest {
         assertEquals("Start now", nowCard.buttons.first { it.id == NowButtonId.START_NOW }.label)
         assertEquals("Change day", nowCard.buttons.first { it.id == NowButtonId.CHANGE_DAY }.label)
         assertEquals("in 1h 20m", nowCard.subtitle)
+    }
+
+    // ── 3.3.0: the real day on the calendar (Task-22a slice 1) ───────────────────────────────────
+
+    @Test
+    fun runningOver_growsAndEatsTheNextBlock() = runBlocking {
+        clock.now = LocalTime(11, 30).at(date, zone)
+        orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        withTimeout(5_000) { viewModel.state.first { it.currentBlockId == "sun_tue_wed.free_midday" } }
+
+        clock.now = LocalTime(14, 12).at(date, zone)
+        val state = withTimeout(5_000) {
+            viewModel.state.first { s ->
+                s.blocks.firstOrNull { it.id == "sun_tue_wed.free_midday" }?.endMin == 14 * 60 + 12
+            }
+        }
+
+        val free = requireNotNull(state.blocks.firstOrNull { it.id == "sun_tue_wed.free_midday" })
+        assertEquals(11 * 60 + 30, free.startMin)
+        assertEquals(14 * 60 + 12, free.endMin)
+        assertEquals(14 * 60, free.overrunFromMin)
+        val pm = requireNotNull(state.blocks.firstOrNull { it.id == "sun_tue_wed.coding_pm" })
+        assertEquals(14 * 60 + 12, pm.startMin)
+    }
+
+    @Test
+    fun afterNext_theOverrunStays() = runBlocking {
+        clock.now = LocalTime(11, 30).at(date, zone)
+        orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        withTimeout(5_000) { viewModel.state.first { it.currentBlockId == "sun_tue_wed.free_midday" } }
+
+        clock.now = LocalTime(14, 20).at(date, zone)
+        viewModel.onAction(HomeAction.Next)
+
+        val state = withTimeout(5_000) { viewModel.state.first { it.currentBlockId == "sun_tue_wed.coding_pm" } }
+        val free = requireNotNull(state.blocks.firstOrNull { it.id == "sun_tue_wed.free_midday" })
+        assertEquals(11 * 60 + 30, free.startMin)
+        assertEquals(14 * 60 + 20, free.endMin)
+        assertEquals(14 * 60, free.overrunFromMin)
+        val pm = requireNotNull(state.blocks.firstOrNull { it.id == "sun_tue_wed.coding_pm" })
+        assertEquals("14:20–15:30", pm.timeLabel)
+        assertTrue(pm.subtitle?.contains("20 min late") == true)
+    }
+
+    @Test
+    fun eatenWhole_isAMissedPill() = runBlocking {
+        clock.now = LocalTime(11, 30).at(date, zone)
+        orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        withTimeout(5_000) { viewModel.state.first { it.currentBlockId == "sun_tue_wed.free_midday" } }
+
+        clock.now = LocalTime(15, 40).at(date, zone)
+        val state = withTimeout(5_000) {
+            viewModel.state.first { it.pillLabels["sun_tue_wed.coding_pm"] == "Coding · missed" }
+        }
+        val pm = requireNotNull(state.blocks.firstOrNull { it.id == "sun_tue_wed.coding_pm" })
+        assertEquals(15 * 60 + 40, pm.startMin)
+        assertEquals(15 * 60 + 40, pm.endMin)
     }
 
     private suspend fun startDayInsideCoding() {

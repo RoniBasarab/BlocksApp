@@ -8,6 +8,9 @@ import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.schedule.BlockEdit
 import com.roni.blocks.core.schedule.Edge
 import com.roni.blocks.core.schedule.PomodoroSlot
+import com.roni.blocks.core.schedule.TimelinePhase
+import com.roni.blocks.feature.templates.BlockSheetAction
+import com.roni.blocks.feature.templates.BlockSheetUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
@@ -22,6 +25,14 @@ data class CalendarBlockUi(
     val subtitle: String?,
     val phases: ImmutableList<PomodoroSlot> = persistentListOf(),
     val edit: BlockEdit = BlockEdit.NONE,
+    /** Where the block really is (3.3.0): the real-day [DayTimeline] phase, not the plan. */
+    val phase: TimelinePhase = TimelinePhase.AHEAD,
+    /** The part from there to [endMin] ran over (the red tail); null when it didn't. */
+    val overrunFromMin: Int? = null,
+    /** It started this many minutes after its plan (3.3.0). */
+    val lateMin: Int = 0,
+    /** Pauses inside the block (3.3.0), in minutes of the day. */
+    val pauses: ImmutableList<IntRange> = persistentListOf(),
 )
 
 enum class ChipTone { NEUTRAL, BREAK, LEAK }
@@ -92,7 +103,6 @@ data class HomeState(
     val hourLabels: ImmutableList<String> = persistentListOf(),
     val blocks: ImmutableList<CalendarBlockUi> = persistentListOf(),
     val currentBlockId: String? = null,
-    val leakFromMin: Int? = null,
     val recap: DayRecapUi? = null,
     val nowCard: NowCardUi? = null,
     val walkCard: WalkCardUi? = null,
@@ -111,6 +121,10 @@ data class HomeState(
     val eveningSheetOpen: Boolean = false,
     val draggingId: String? = null,
     val selectId: String? = null,
+    /** The shared block sheet's state (3.3.0); null when it's closed. */
+    val sheet: BlockSheetUi? = null,
+    /** The block the sheet is editing; null when it's a new (Add after) block. */
+    val sheetId: String? = null,
     val use24: Boolean = true,
     /** The calendar's first minute (2.7.0): min(08:00, the plan's first start rounded down to the hour). */
     val calendarStartMin: Int = DAY_START_MIN,
@@ -146,18 +160,20 @@ sealed interface HomeAction {
     data class DragDone(val id: String, val edge: Edge, val toMin: Int) : HomeAction
     data object DragCancelled : HomeAction
     data class StepEdge(val id: String, val edge: Edge, val byMin: Int) : HomeAction
-    data class Retype(val id: String, val type: BlockType) : HomeAction
-    data class Insert(val id: String, val type: BlockType) : HomeAction
+    /** Opens the shared block sheet for an editable block (3.3.0), replacing the select-then-card flow. */
+    data class OpenBlock(val id: String) : HomeAction
+    /** One action inside the shared block sheet (3.3.0). */
+    data class Sheet(val action: BlockSheetAction) : HomeAction
     data class LockedBlockTapped(val id: String) : HomeAction
     /** The calendar's real text heights (2.6.1), measured per font scale and used for the layout. */
     data class TextMeasured(val metrics: TextMetrics) : HomeAction
 
     val affectsOverlays: Boolean
-        get() = this is ChooseEvening || this is PickEvening || this is DismissEveningSheet
+        get() = this is ChooseEvening || this is PickEvening || this is DismissEveningSheet ||
+            this is Sheet || this is OpenBlock
 
     val affectsCalendar: Boolean
-        get() = this is DragEdge || this is DragDone || this is DragCancelled ||
-            this is StepEdge || this is Retype || this is Insert
+        get() = this is DragEdge || this is DragDone || this is DragCancelled || this is StepEdge
 }
 
 val NowCardReservedHeight: Dp = 220.dp
