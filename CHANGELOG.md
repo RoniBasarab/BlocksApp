@@ -1,5 +1,8 @@
 # Changelog
 
+## 2.7.1
+- The debug build shows as Blocks Debug
+
 ## 2.7.0
 - A day picked before its first block waits: "Day starts at 09:00 · in 1h 20m", with Start now and Change day. The first block starts by itself at its time.
 - Steps read as an estimate ("about 2,050 steps"), rounded to tens.
