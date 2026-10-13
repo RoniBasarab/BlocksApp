@@ -15,6 +15,7 @@ import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Today
+import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
@@ -42,7 +43,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
-enum class AppTab { HOME, WEEKLY, INSIGHTS }
+enum class AppTab { HOME, WEEKLY, INSIGHTS, TEMPLATES }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -199,6 +200,7 @@ fun AppBottomBar(selected: AppTab, onSelect: (AppTab) -> Unit) {
         BarItem(AppTab.HOME, selected, Icons.Outlined.Today, "Home", onSelect)
         BarItem(AppTab.WEEKLY, selected, Icons.Outlined.BarChart, "Weekly", onSelect)
         BarItem(AppTab.INSIGHTS, selected, Icons.Outlined.Insights, "Insights", onSelect)
+        BarItem(AppTab.TEMPLATES, selected, Icons.Outlined.ViewAgenda, "Templates", onSelect)
     }
 }
 
