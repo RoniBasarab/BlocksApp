@@ -8,9 +8,11 @@ data class StoredTemplate(
     val id: TemplateId,
     val title: String,                 // "Monday / Thursday"
     val subtitle: String,              // "Gym day"
+    /** 3.1 only; read once by Profiles.repair (3.2.0). */
     val short: String,                 // "MON · THU"
     val iconKey: String,               // "fitness" | "code" | "weekend" | "games"
     val accentArgb: Long,
+    /** 3.1 only; read once by Profiles.repair (3.2.0). */
     val weekdays: Set<Int>,            // ISO day numbers it's suggested on (Mon = 1 … Sun = 7); plain Ints serialize safely
     val blocks: List<BlockSpec>,
     val archived: Boolean = false,     // 3.1.0: a deleted own template stays in stored so History's titles still resolve
@@ -44,7 +46,13 @@ private fun BlockSpec.minutes(): Int = (end.hour * 60 + end.minute) - (start.hou
 val OWN_TEMPLATE_ICONS = listOf("event", "code", "fitness", "weekend", "games", "work", "school", "home")
 
 @Serializable
-data class Profile(val id: String, val name: String, val templateIds: List<TemplateId>)
+data class Profile(
+    val id: String,
+    val name: String,
+    val templateIds: List<TemplateId>,
+    /** ISO day (Mon = 1 … Sun = 7) → the template it suggests (3.2.0). Null only in 3.1 data, until [Profiles.repair] moves the weekdays in. */
+    val days: Map<Int, TemplateId>? = null,
+)
 
 /** The display seed and suggestion weekdays for the four templates 2.x shipped (3.0.0). Blocks come from assets. */
 data class TemplateSeed(

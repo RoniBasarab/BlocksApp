@@ -121,7 +121,7 @@ class TemplateListViewModel @Inject constructor(
         val name = _state.value.newDialog?.name?.trim() ?: return
         if (name.isEmpty() || name.length > 24) return
         viewModelScope.launch {
-            val created = actions.create(name)
+            val created = actions.createIn(store.activeProfileId(), name)
             _state.update { it.copy(newDialog = null) }
             _effects.emit(TemplateListEffect.OpenTemplate(created.id))
         }

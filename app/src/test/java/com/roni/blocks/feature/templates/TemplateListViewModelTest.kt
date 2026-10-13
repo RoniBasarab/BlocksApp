@@ -45,7 +45,7 @@ class TemplateListViewModelTest {
         val rig = testActions(context)
         val viewModel = TemplateListViewModel(store = rig.store, actions = rig.templates)
 
-        val created = rig.templates.create("Office day")
+        val created = rig.templates.createIn(rig.store.activeProfileId(), "Office day")
         assertEquals("Office day", viewModel.state.value.templates.first { it.id == created.id }.title)
 
         val renamed = requireNotNull(rig.store.find(created.id)).copy(title = "Desk day")

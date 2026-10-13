@@ -13,6 +13,8 @@ import com.roni.blocks.core.logging.AppLogger
 import com.roni.blocks.core.model.BlockSpec
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.TemplateId
+import com.roni.blocks.core.model.UNEMPLOYED_PROFILE
+import com.roni.blocks.core.profiles.Profiles
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateStore
@@ -105,8 +107,8 @@ class TemplatePickerTest {
         context.getSharedPreferences(PrefsFile.SETTINGS.name.lowercase(), 0).edit().clear().commit()
         val ownId = runBlocking {
             val store = TemplateStore(context, PrefsStorage(context, UnconfinedTestDispatcher()), AppLogger(context))
-            val own = store.create("Mine")
-            store.setWeekdays(own.id, setOf(1))
+            val own = store.createIn(UNEMPLOYED_PROFILE.id, "Mine")
+            store.edit { Profiles.setDay(it, UNEMPLOYED_PROFILE.id, 1, own.id) }
             assertEquals(own.id, todayTemplate(DayOfWeek.MONDAY))
             assertEquals(TemplateId.MON_THU, todayTemplate(DayOfWeek.THURSDAY))
             own.id
@@ -150,9 +152,9 @@ class TemplatePickerTest {
         context.getSharedPreferences(PrefsFile.SETTINGS.name.lowercase(), 0).edit().clear().commit()
         val state = runBlocking {
             val store = TemplateStore(context, PrefsStorage(context, UnconfinedTestDispatcher()), AppLogger(context))
-            store.create("One")
-            store.create("Two")
-            store.create("Three")
+            store.createIn(UNEMPLOYED_PROFILE.id, "One")
+            store.createIn(UNEMPLOYED_PROFILE.id, "Two")
+            store.createIn(UNEMPLOYED_PROFILE.id, "Three")
             PickerUiState(
                 greeting = "Good morning",
                 date = "Monday",

@@ -73,6 +73,7 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.nullable
+import kotlinx.serialization.builtins.serializer
 
 /**
  * The single writer of the day's state: it applies events, persists the result, and pushes the
@@ -138,6 +139,8 @@ class DayOrchestrator @Inject constructor(
      * the foreground. Used to suppress nagging alerts once Roni has acknowledged the day.
      */
     private var reactedAt: Instant? = null
+    /** The profile today started under (3.2.0), for History's label and the Off day's `profile_name` key. */
+    private var dayProfileName: String? = null
     /** A standalone walk (2.4.0) that runs outside the day; survives the date rollover. */
     private var standaloneWalk: WalkSession? = null
     /** Today's step arithmetic (2.5.0): the baseline and the day's total, kept across rollover. */
@@ -326,6 +329,7 @@ class DayOrchestrator @Inject constructor(
         segments = book.segments,
         flags = book.flags,
         plannedBlocks = _todayPlan.value?.blocks,
+        profileName = _todayPlan.value?.profileName ?: dayProfileName,
     )
 
     /**
@@ -744,6 +748,7 @@ class DayOrchestrator @Inject constructor(
             _todayPlan.value = null
             pendingChoice = null
             reactedAt = null
+            dayProfileName = null
             persist()
         }
     }
@@ -781,6 +786,7 @@ class DayOrchestrator @Inject constructor(
         _todayPlan.value = null
         standaloneWalk = null
         pendingChoice = null
+        dayProfileName = null
         persist()
         alarms.cancel()
         sideEffects()
@@ -839,7 +845,8 @@ class DayOrchestrator @Inject constructor(
         _state.value = when {
             event is DayEvent.StartDay && event.template != TemplateId.OFF -> {
                 val template = templates.get(event.template)
-                _todayPlan.value = TodayPlan(event.template, template.blocks)
+                dayProfileName = templateStore?.activeProfileName()
+                _todayPlan.value = TodayPlan(event.template, template.blocks, profileName = dayProfileName)
                 // 2.7.0: before its first block opens the day waits with an empty book, even when
                 // that first block is kid time: the state stays Running until its time comes.
                 val currentBlock = template.blocks.getOrNull(book.index)
@@ -941,6 +948,7 @@ class DayOrchestrator @Inject constructor(
     private fun record(event: DayEvent, now: kotlin.time.Instant) {
         val today = today()
         if (event is DayEvent.StartDay && event.template == com.roni.blocks.core.model.TemplateId.OFF) {
+            dayProfileName = templateStore?.activeProfileName()
             book = DayBook()
             return
         }
@@ -953,7 +961,10 @@ class DayOrchestrator @Inject constructor(
             DayEvent.KidAsleep -> SegmentBook.kidAsleep(book, today, zone, now).also { pendingChoice = null }
             is DayEvent.EveningChoice -> SegmentBook.eveningChoice(book, event.choice, today, zone, now)
             is DayEvent.EndDay -> SegmentBook.endDay(book, now, _state.value is DayState.KidTime)
-            DayEvent.TakeOffDay -> DayBook()
+            DayEvent.TakeOffDay -> {
+                dayProfileName = templateStore?.activeProfileName()
+                DayBook()
+            }
             is DayEvent.SwapTemplate -> book
         }
     }
@@ -991,7 +1002,7 @@ class DayOrchestrator @Inject constructor(
         val template = _state.value.templateId() ?: prefs.read(PrefsFile.DAY, TEMPLATE, TemplateId.serializer())
         val plan = _todayPlan.value
         val finalFlags = if (plan?.edited == true) flags + DayFlag.PLAN_EDITED else flags
-        val record = DayRecord(today, template, _segments.value, finalFlags, plannedBlocks = plan?.blocks?.ifEmpty { null })
+        val record = DayRecord(today, template, _segments.value, finalFlags, plannedBlocks = plan?.blocks?.ifEmpty { null }, profileName = plan?.profileName ?: dayProfileName)
         history.writeDay(record)
         rebuildWeek(today)
         notificationRenderer.render(null, transition = true)
@@ -1214,6 +1225,7 @@ class DayOrchestrator @Inject constructor(
         // A standalone walk survives the rollover: it is read and kept whatever the stored date.
         standaloneWalk = prefs.read(PrefsFile.DAY, STANDALONE_WALK, WalkSession.serializer().nullable)
         pendingChoice = prefs.read(PrefsFile.DAY, PENDING_EVENING, Choice.serializer().nullable)
+        dayProfileName = prefs.read(PrefsFile.DAY, PROFILE_NAME, String.serializer().nullable)
         steps = prefs.read(PrefsFile.DAY, STEP_STATE, StepStateSerializer) ?: StepState()
         if (storedPlanStartsAt != null) prefs.remove(PrefsFile.DAY, PLAN_STARTS_AT)
         persist()
@@ -1346,6 +1358,7 @@ class DayOrchestrator @Inject constructor(
         prefs.write(PrefsFile.DAY, REACTED_AT, reactedAt, InstantSerializer.nullable)
         prefs.write(PrefsFile.DAY, STANDALONE_WALK, standaloneWalk, WalkSession.serializer().nullable)
         prefs.write(PrefsFile.DAY, PENDING_EVENING, pendingChoice, Choice.serializer().nullable)
+        prefs.write(PrefsFile.DAY, PROFILE_NAME, dayProfileName, String.serializer().nullable)
         prefs.write(PrefsFile.DAY, STEP_STATE, steps, StepStateSerializer)
         _walkSession.value = currentWalkSession()
         _todaySteps.value = if (steps.baseline < 0) null else steps.today
@@ -1435,6 +1448,7 @@ class DayOrchestrator @Inject constructor(
         const val REACTED_AT = "reacted_at"
         const val STANDALONE_WALK = "standalone_walk"
         const val PENDING_EVENING = "pending_evening"
+        const val PROFILE_NAME = "profile_name"
         const val STEP_STATE = "step_state"
         const val MAX_REPLAY_STEPS = 500
     }

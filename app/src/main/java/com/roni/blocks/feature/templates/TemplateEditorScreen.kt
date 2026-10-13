@@ -115,12 +115,10 @@ data class BlockSheetUi(
 data class TemplateEditorState(
     val title: String = "",
     val iconKey: String = "event",
-    val weekdays: Set<Int> = emptySet(),
     val rows: List<TemplateRow> = emptyList(),
     val readOnly: Boolean = false,
     val strip: ImmutableList<Pair<Color, Float>> = persistentListOf(),
     val sheet: BlockSheetUi? = null,
-    val dayMoved: String? = null,
     val confirmDelete: Boolean = false,
     val deleted: Boolean = false,
     val use24: Boolean = true,
@@ -133,7 +131,6 @@ sealed interface TemplateEditorAction {
     data object AddBlock : TemplateEditorAction
     data class Rename(val title: String) : TemplateEditorAction
     data class Icon(val key: String) : TemplateEditorAction
-    data class ToggleDay(val iso: Int) : TemplateEditorAction
     data object DeleteTemplate : TemplateEditorAction
     data object ConfirmDelete : TemplateEditorAction
     data object DismissDialog : TemplateEditorAction
@@ -195,7 +192,6 @@ class TemplateEditorViewModel @Inject constructor(
             TemplateEditorState(
                 title = t.title,
                 iconKey = t.iconKey,
-                weekdays = t.weekdays,
                 readOnly = store.isBuiltIn(t.id),
                 use24 = timeFormatter.use24.value,
             ).painted()
@@ -208,7 +204,6 @@ class TemplateEditorViewModel @Inject constructor(
         TemplateEditorAction.AddBlock -> addBlock()
         is TemplateEditorAction.Rename -> rename(action.title)
         is TemplateEditorAction.Icon -> icon(action.key)
-        is TemplateEditorAction.ToggleDay -> toggleDay(action.iso)
         TemplateEditorAction.DeleteTemplate -> _state.update { it.copy(confirmDelete = true) }
         TemplateEditorAction.DismissDialog -> _state.update { it.copy(confirmDelete = false) }
         TemplateEditorAction.ConfirmDelete -> confirmDelete()
@@ -309,20 +304,6 @@ class TemplateEditorViewModel @Inject constructor(
         }
     }
 
-    private fun toggleDay(iso: Int) {
-        val t = template ?: return
-        val days = if (iso in t.weekdays) t.weekdays - iso else t.weekdays + iso
-        viewModelScope.launch {
-            val owner = store.all().firstOrNull { iso in it.weekdays }
-            actions.setWeekdays(t.id, days)
-            template = store.find(t.id)
-            val moved = if (owner != null && owner.id != t.id && iso !in t.weekdays) {
-                "${DAY_NAMES[iso - 1]} moves here from ${owner.title}"
-            } else null
-            _state.update { it.copy(dayMoved = moved).painted() }
-        }
-    }
-
     private fun confirmDelete() {
         val t = template ?: return
         viewModelScope.launch {
@@ -337,7 +318,6 @@ class TemplateEditorViewModel @Inject constructor(
         return copy(
             title = t.title,
             iconKey = t.iconKey,
-            weekdays = t.weekdays,
             rows = rowsOf(),
             readOnly = store.isBuiltIn(t.id),
             strip = stripFor(t.blocks),
@@ -442,8 +422,6 @@ fun TemplateEditorScreen(state: TemplateEditorState, onAction: (TemplateEditorAc
                 EditorHeader(title = state.title, iconKey = state.iconKey, onAction = onAction)
                 Spacer(Modifier.height(Spacing.m))
             }
-            WeekdayChips(state.weekdays, state.dayMoved, onAction)
-            Spacer(Modifier.height(Spacing.m))
             BlockStrip(state.strip, modifier = Modifier.fillMaxWidth().height(28.dp))
             Spacer(Modifier.height(Spacing.m))
             state.rows.forEach { row ->
@@ -487,7 +465,7 @@ fun TemplateEditorScreen(state: TemplateEditorState, onAction: (TemplateEditorAc
             AlertDialog(
                 onDismissRequest = { onAction(TemplateEditorAction.DismissDialog) },
                 title = { Text("Delete ${state.title}?") },
-                text = { Text("Days you already had keep their history.") },
+                text = { Text("It leaves every profile. Days you already had keep their history.") },
                 confirmButton = {
                     TextButton(onClick = { onAction(TemplateEditorAction.ConfirmDelete) }) {
                         Text("Delete", color = colors.leak)
@@ -536,31 +514,6 @@ private fun EditorHeader(title: String, iconKey: String, onAction: (TemplateEdit
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun WeekdayChips(weekdays: Set<Int>, dayMoved: String?, onAction: (TemplateEditorAction) -> Unit) {
-    val colors = AppTheme.colors
-    val isoOrder = listOf(7, 1, 2, 3, 4, 5, 6)
-    val labels = mapOf(7 to "S", 1 to "M", 2 to "T", 3 to "W", 4 to "T", 5 to "F", 6 to "S")
-    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-        isoOrder.forEach { iso ->
-            FilterChip(
-                selected = iso in weekdays,
-                onClick = { onAction(TemplateEditorAction.ToggleDay(iso)) },
-                label = { Text(labels.getValue(iso)) },
-                modifier = Modifier.testTag("day_$iso"),
-            )
-        }
-    }
-    if (dayMoved != null) {
-        Text(
-            dayMoved,
-            style = MaterialTheme.typography.bodySmall,
-            color = colors.textSecondary,
-            modifier = Modifier.padding(top = Spacing.s),
-        )
     }
 }
 
