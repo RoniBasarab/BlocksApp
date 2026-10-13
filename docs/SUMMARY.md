@@ -13,7 +13,7 @@ Why it exists: Roni is job-hunting and his unstructured days were drifting (even
 - Code: `C:\Blocks App` on Roni's Windows machine. A git repo; `master` holds released work, tagged `vX.Y.Z`. Remote `origin` = `github.com/RoniBasarab/BlocksApp`. Keep it private (§17).
 - All spec and task files live in the repo root (committed from Task-6 on).
 - Timezone Asia/Jerusalem. The work week is Sunday–Thursday; the weekend is Friday–Saturday.
-- Released: **2.6.2** (Task-15). In progress: **2.7.0** (Task-17: days that wait for their first block; steps as an estimate). Next: **3.0 → 3.2**, profiles and your own templates (§10).
+- Released: **2.7.1** (Task-17: days wait for their first block; steps as an estimate; 2.7.1 names the debug app "Blocks Debug"). In progress: **3.0.0** (Task-18: the invisible foundation for your own templates). Then 3.1 (editor), 3.2 (profiles).
 - All docs live in `docs/` (from Task-8 on); the root holds only the build files, `README.md` and `CHANGELOG.md`.
 
 ## 2. People and roles
@@ -53,6 +53,7 @@ Roni starts fresh sessions for both agents at handoffs, so everything they need 
 - **Anything that could vary, ask (13 Oct):** whenever a feature has a value that could reasonably differ (per day, per template, per profile, on vacation), run a short questionnaire on how dynamic it should be before writing the task. Day start was the trigger: it was a constant and he wanted it per template.
 - **Small tasks (13 Oct):** split big work into tasks small enough that the working agent never needs a huge context: one version per task, about 3–5 slices.
 - **Parallel agents (13 Oct):** when two pieces of work touch disjoint files, say so and give them as separate tracks, each in its own git worktree (`git worktree add "../Blocks App B" -b <branch>`), merged one after the other. Never two agents in the same folder.
+- **Branch naming from Task-18 (13 Oct):** branch `task-<N>/v<version>` (e.g. `task-18/v3.0.0`); parallel tracks `task-<N><letter>/v<version>-<what>` (`task-19a/v3.1.0-categories`) in worktree folders like `C:/Blocks App 19b`; commits `task-<N> slice <S>: <title>`; tags stay `v<version>`; task files stay `docs/Task-<N>.md`.
 - **Agent sessions don't start in the repo:** `AGENT.md` step 0 is `cd "C:/Blocks App"`.
 - He writes fast and casually, sometimes by voice dictation, so expect typos. Interpret the intent.
 - He installs with Android Studio's Run button. His daily app must be the **release** variant (`com.roni.blocks`). `debug` installs a separate test copy (`com.roni.blocks.debug`) with demo data and the debug clock. Every installed copy fires the 9:00 prompt, so test copies should be uninstalled after use.
@@ -63,8 +64,8 @@ Roni starts fresh sessions for both agents at handoffs, so everything they need 
 | File | What it is | Status |
 |---|---|---|
 | `SUMMARY.md` | This file: the handoff | Current |
-| `AGENT.md` | The working agent's standing instructions; Roni's prompt is just "Read docs/AGENT.md and do what it says." | Updated by the planning agent for each task |
-| `Task-17.md` | The current task (2.7.0), with a slice map of line ranges | Ready to hand over |
+| `AGENT.md` | The working agent's standing instructions; Roni's prompt is just "Read "C:/Blocks App/docs/AGENT.md" and do what it says." | Updated by the planning agent for each task |
+| `Task-18.md` | The current task (3.0.0), with a slice map of line ranges | Ready to hand over |
 | `schedule-spec.md`, `architecture.md`, `visuals.md` | Behavior, code, look | Describe 2.1.0; 2.2.0 changes are in Task-9 and §10 here |
 | `CODEMAP.md` | One row per source file | The real file map; task files use its names |
 | `NOTES.md` | The working agent's decision log | Must not contradict the code |
@@ -195,11 +196,11 @@ Coding uses Pomodoro 50/10, counted from the block's actual start. Phase switche
 
 Roni walks in the evenings now and likes the subtle steps counter.
 
-**Next, 2.7.0 (Task-17, ready):** a template picked before its first block waits ("Day starts at 09:00 · in 1h 20m", Start now / Change day), and steps read "about 2,050 steps" (the sensor counts car bumps). Task-16 was folded into it and never run.
+**Done, 2.7.0/2.7.1 (checked on the phone 13 Oct, "everything worked perfectly"):** a template picked before its first block waits ("Day starts at 09:00 · in 1h 20m", Start now / Change day), and steps read "about 2,050 steps" (the sensor counts car bumps). Task-16 was folded into it and never run.
 
 **The repo is public** (Roni opened it so the planning agent could read it). The docs describe his family's routine; he was told he can switch it back to private.
 
-**Waiting on Roni:** extract the Task-17 files into the repo and start the working agent with "Read docs/AGENT.md and do what it says." Before installing release, a keystore (`keystore.properties` in the root) and a backup of it.
+**Waiting on Roni:** extract the Task-18 files into the repo and start the working agent with "Read "C:/Blocks App/docs/AGENT.md" and do what it says." Before installing release, a keystore (`keystore.properties` in the root) and a backup of it.
 
 **Deviation to remember:** Roni once asked for "minutes left, updated once a minute" in the notification. It uses the system chronometer instead (it shows negative time while running over). He hasn't objected.
 
@@ -267,7 +268,8 @@ Roni walks in the evenings now and likes the subtle steps counter.
 - **Profiles:** a profile holds its own templates plus which template is suggested on each weekday. Switch by hand in Settings; History keeps which profile each day used. Start: "Unemployed" (today's four templates).
 - **Templates:** made in a **new Templates area with a visual editor** (Settings → Templates → list → an editor that looks like Home's calendar). New screens, built by reference to Home's look and behaviour, without touching Home's tested code.
 - **Categories:** your own block kinds, each with a name, a colour, "counts as work" and Pomodoro on/off. CV, Coding, Gym and Free become the first four; Office, Commute and so on are added by him.
-- **Kid time and the evening routine:** always on, for every template, as today.
+- **Kid time and the evening routine:** always on. Every template ends with kid time until 22:30; more kid time earlier is allowed (Fri/Sat). The four evening activities stay as they are.
+- **Built-in categories** (CV, Coding, Gym, Free) can be renamed and recoloured, never deleted. Pomodoro is on/off per category, always 50/10.
 - **Day start:** comes from each template's first block (2.7.0); templates can be picked from midnight. Day end stays 22:30 for now.
 - **Major bump, 3.0.0:** the stored data model changes and can't go back to 2.x.
 - **Order:**
@@ -288,9 +290,10 @@ Roni walks in the evenings now and likes the subtle steps counter.
 
 ## 11. Next steps
 
-1. **Roni:** run Task-17 (2.7.0) with the working agent.
-2. **Planning agent:** write Task-18 (3.0.0, the invisible model change) with its verified pieces. Before writing, ask Roni anything left open that could vary (e.g. weekday suggestions per profile, category colours).
-3. Then Task-19 (3.1.0, the editor; check whether it splits into parallel tracks), then Task-20 (3.2.0, profiles).
+1. **Roni:** run Task-18 (3.0.0) and install it *over* 2.7.1 (never uninstall): nothing should look different.
+2. **Planning agent:** review Task-18 in the repo, especially that `LegacyFormatTest` was written before the `TemplateId` change and passes unedited after it.
+3. Then Task-19 (3.1.0): the Templates area, the category editor and the visual template editor. Ask Roni about the editor's interactions first, and decide whether categories and the editor run as two parallel tracks (`task-19a/v3.1.0-categories`, `task-19b/v3.1.0-editor`).
+4. Then Task-20 (3.2.0): profiles.
 
 ## 12. Decisions log (settled; don't reopen without a reason)
 
@@ -421,7 +424,7 @@ Roni asked whether big comments in every file the agent touches (how it works, a
 **Working agent:** the instructions live in `docs/AGENT.md`, so Roni's whole prompt is:
 
 ```
-Read docs/AGENT.md and do what it says.
+Read "C:/Blocks App/docs/AGENT.md" and do what it says.
 ```
 
 The planning agent updates `AGENT.md` for each task (task name, branch, version, verified files). It encodes every lesson so far: grep first and never web-search the repo, no scratch files in the repo, the PowerShell 5.1 rules, the error-only Gradle command, reading test results instead of rerunning, `./gradlew --stop` after 10 minutes, no waiting on anything external, few big steps per slice, at most two sentences of thinking between commands, a 15-minute time-box, and resume-from-git-log. The same line restarts a fresh session after a quota stop.
