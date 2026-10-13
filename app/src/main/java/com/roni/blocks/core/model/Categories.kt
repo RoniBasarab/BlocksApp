@@ -2,6 +2,13 @@ package com.roni.blocks.core.model
 
 import kotlinx.serialization.Serializable
 
+/** The colours a category can take (3.1.0): the four built-ins first, then eight that read well on the dark calendar. */
+val CategoryPalette: List<Long> = listOf(
+    0xFFA99BC9, 0xFF7A9CC6, 0xFF8FB58A, 0xFFD9C38A,
+    0xFFE08A7A, 0xFFE3A35F, 0xFFC2C46A, 0xFF6FBFAF,
+    0xFF6FB7D6, 0xFF8A92E0, 0xFFD58FC4, 0xFFA89A88,
+)
+
 /** One of your own block kinds (3.0.0). The block carries a copy, so history keeps what it was. */
 @Serializable
 data class CategoryInfo(

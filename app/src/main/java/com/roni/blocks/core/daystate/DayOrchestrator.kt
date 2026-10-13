@@ -4,6 +4,7 @@ import com.roni.blocks.core.alarms.AlarmScheduler
 import com.roni.blocks.core.di.ApplicationScope
 import com.roni.blocks.core.logging.AppLogger
 import com.roni.blocks.core.model.BlockType
+import com.roni.blocks.core.model.CategoryInfo
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
@@ -1119,6 +1120,74 @@ class DayOrchestrator @Inject constructor(
         val template = currentTemplate()
         val timeline = engine.timelineAt(template, today, zone, _segments.value, now)
         widgetUpdater.update(notificationMapper.from(_state.value, timeline, now, template?.name))
+    }
+
+    /**
+     * A saved template may change today's plan while the day still waits for its first block
+     * (3.1.0): the plan takes the stored blocks, and if the new first start is already due the day
+     * starts exactly as a missed transition would, otherwise just [startsAt] and the alarm move to
+     * the new first start. A day that already started, or an edited plan, keeps its plan.
+     */
+    suspend fun onTemplateSaved(id: TemplateId) {
+        ensureRestored()
+        val plan = _todayPlan.value ?: return
+        if (plan.edited) return
+        if (plan.templateId != id) return
+        val stored = templateStore?.find(id) ?: return
+        val now = clock.now()
+        val today = today()
+        if (waitingStart(now, today) == null) return
+        _todayPlan.value = plan.copy(blocks = stored.blocks)
+        val firstStart = planFirstStart(today)
+        if (firstStart != null && now >= firstStart) {
+            val template = currentTemplate() ?: return
+            book = SegmentBook.startDay(template, today, zone, now)
+            _segments.value = book.segments
+            _state.value = if (template.blocks.getOrNull(book.index)?.type == BlockType.KidTime) {
+                DayState.KidTime
+            } else {
+                DayState.Running(id, book.index.coerceAtLeast(0))
+            }
+            persist()
+            sideEffects(transition = true)
+        } else {
+            persist()
+            sideEffects()
+        }
+    }
+
+    /**
+     * A custom category changed (3.1.0): today's plan blocks of that category take the new copy
+     * (or become free time when it was deleted, ids and times unchanged), and so does its open
+     * segment. Closed segments and History keep what they had. Persists and re-renders.
+     */
+    suspend fun onCategoryChanged(categoryId: String, info: CategoryInfo?) {
+        ensureRestored()
+        val newType = info?.let { BlockType.Custom(it.id, it.name, it.colorArgb, it.work, it.pomodoro) }
+            ?: BlockType.Free
+        val plan = _todayPlan.value
+        if (plan != null) {
+            val replaced = plan.blocks.map { b ->
+                val custom = b.type as? BlockType.Custom
+                if (custom != null && custom.id == categoryId) b.copy(type = newType) else b
+            }
+            if (replaced != plan.blocks) _todayPlan.value = plan.copy(blocks = replaced)
+        }
+        if (info != null) {
+            val index = _segments.value.indexOfLast { it.actualEnd == null }
+            if (index >= 0) {
+                val open = _segments.value[index]
+                val custom = open.type as? BlockType.Custom
+                if (custom != null && custom.id == categoryId) {
+                    val segments = _segments.value.toMutableList()
+                    segments[index] = open.copy(type = newType)
+                    _segments.value = segments
+                    book = book.copy(segments = segments)
+                }
+            }
+        }
+        persist()
+        sideEffects()
     }
 
     /**

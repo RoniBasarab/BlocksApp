@@ -11,12 +11,15 @@ import com.roni.blocks.core.daystate.DayEvent
 import com.roni.blocks.core.daystate.DayStateSerializer
 import com.roni.blocks.core.daystate.EndReason
 import com.roni.blocks.core.logging.AppLogger
+import com.roni.blocks.core.model.BlockSpec
 import com.roni.blocks.core.model.BlockType
+import com.roni.blocks.core.model.CategoryInfo
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.InstantSerializer
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
+import com.roni.blocks.core.model.StoredTemplate
 import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.notifications.ActionEvent
 import com.roni.blocks.core.notifications.NotificationModel
@@ -28,10 +31,12 @@ import com.roni.blocks.core.schedule.Edge
 import com.roni.blocks.core.schedule.PlanEdit
 import com.roni.blocks.core.schedule.ScheduleEngine
 import com.roni.blocks.core.steps.StepSensor
+import com.roni.blocks.core.storage.CategoryStore
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
+import com.roni.blocks.core.storage.TemplateStore
 import com.roni.blocks.core.storage.debtMinutes
 import com.roni.blocks.core.time.at
 import com.roni.blocks.core.time.SystemTimeMapper
@@ -109,10 +114,13 @@ class DayOrchestratorTest {
     private fun newOrchestrator(
         walkRinger: WalkRinger = RecordingWalkRinger(ringerKinds),
         stepSensor: StepSensor = this.stepSensor,
+        templates: TemplateManager = TemplateManager(context),
+        templateStore: TemplateStore? = null,
+        categories: CategoryStore? = null,
     ): DayOrchestrator = DayOrchestrator(
         prefs = prefs,
         engine = engine,
-        templates = TemplateManager(context),
+        templates = templates,
         history = history,
         alarms = AlarmScheduler(context, SystemTimeMapper.Identity, logger),
         notificationMapper = NotificationModelMapper(engine, zone, TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))),
@@ -123,6 +131,8 @@ class DayOrchestratorTest {
         zone = zone,
         logger = logger,
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+        categories = categories,
+        templateStore = templateStore,
     )
 
     private val firstBlockId = "sun_tue_wed.cv"
@@ -413,6 +423,95 @@ class DayOrchestratorTest {
         assertEquals("sun_tue_wed.cv", open.blockId)
         assertEquals(LocalTime(9, 0).at(date, zone), requireNotNull(open.plannedStart))
         assertEquals("the day must start with the normal transition sound", true, transitions.last())
+    }
+
+    // 3.1.0: saving an own template can move today while the day still waits for its first block.
+
+    private suspend fun ownOffice(store: TemplateStore): StoredTemplate {
+        store.load()
+        val mine = store.create("Office day")
+        val withCoding = mine.copy(
+            blocks = listOf(
+                BlockSpec("user_1.b1", BlockType.Coding, LocalTime(10, 0), LocalTime(12, 0)),
+                mine.blocks.first(),
+            ),
+        )
+        assertTrue(store.save(withCoding))
+        return withCoding
+    }
+
+    @Test
+    fun ownTemplateSaved_whileWaiting_todayFollows() = runBlocking {
+        val store = TemplateStore(context, prefs, logger)
+        val withCoding = ownOffice(store)
+        orchestrator = newOrchestrator(templates = TemplateManager(store), templateStore = store)
+
+        clock.now = LocalTime(7, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(withCoding.id))
+        assertEquals(DayState.Running(withCoding.id, 0), orchestrator.state.value)
+        assertEquals(LocalTime(10, 0).at(date, zone), orchestrator.startsAt.value)
+
+        store.save(
+            withCoding.copy(
+                blocks = listOf(
+                    BlockSpec("user_1.b1", BlockType.Coding, LocalTime(8, 0), LocalTime(10, 0)),
+                    withCoding.blocks.last(),
+                ),
+            ),
+        )
+        orchestrator.onTemplateSaved(withCoding.id)
+
+        assertEquals(LocalTime(8, 0).at(date, zone), orchestrator.startsAt.value)
+        assertEquals(LocalTime(8, 0), requireNotNull(orchestrator.todayPlan.value).blocks.first().start)
+    }
+
+    @Test
+    fun ownTemplateSaved_afterTheDayStarted_todayKeepsItsPlan() = runBlocking {
+        val store = TemplateStore(context, prefs, logger)
+        val withCoding = ownOffice(store)
+        orchestrator = newOrchestrator(templates = TemplateManager(store), templateStore = store)
+
+        clock.now = LocalTime(7, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(withCoding.id))
+        clock.now = LocalTime(10, 30).at(date, zone) // the coding block is running
+        orchestrator.onAlarm()
+
+        store.save(
+            withCoding.copy(
+                blocks = listOf(
+                    BlockSpec("user_1.b1", BlockType.Coding, LocalTime(8, 0), LocalTime(10, 0)),
+                    withCoding.blocks.last(),
+                ),
+            ),
+        )
+        orchestrator.onTemplateSaved(withCoding.id)
+
+        val plan = requireNotNull(orchestrator.todayPlan.value)
+        assertEquals("the started day keeps its own plan", LocalTime(10, 0), plan.blocks.first().start)
+    }
+
+    @Test
+    fun customCategoryRenamed_todaysPlanFollows() = runBlocking {
+        val store = TemplateStore(context, prefs, logger)
+        store.load()
+        val mine = store.create("Office day")
+        val withCustom = mine.copy(
+            blocks = listOf(
+                BlockSpec("user_1.b1", BlockType.Custom("cat_1", "Office", 0xFFE08A7A, true, false), LocalTime(10, 0), LocalTime(12, 0)),
+                mine.blocks.first(),
+            ),
+        )
+        store.save(withCustom)
+        orchestrator = newOrchestrator(templates = TemplateManager(store), templateStore = store)
+
+        clock.now = LocalTime(7, 0).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(withCustom.id))
+
+        orchestrator.onCategoryChanged("cat_1", CategoryInfo("cat_1", "Desk", 0xFF6FB7D6, true, true, builtIn = false))
+
+        val type = requireNotNull(orchestrator.todayPlan.value).blocks.first().type as BlockType.Custom
+        assertEquals("Desk", type.name)
+        assertEquals(0xFF6FB7D6, type.colorArgb)
     }
 
     @Test

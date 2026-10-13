@@ -13,7 +13,35 @@ data class StoredTemplate(
     val accentArgb: Long,
     val weekdays: Set<Int>,            // ISO day numbers it's suggested on (Mon = 1 … Sun = 7); plain Ints serialize safely
     val blocks: List<BlockSpec>,
+    val archived: Boolean = false,     // 3.1.0: a deleted own template stays in stored so History's titles still resolve
 )
+
+/** "SUN · TUE · WED": ISO days, Sunday first; no days → "NO DAYS". */
+fun shortFor(days: Set<Int>): String =
+    if (days.isEmpty()) "NO DAYS" else days.sortedBy { it % 7 }.joinToString(" · ") { listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")[it - 1] }
+
+/** "6h 30m work", "No work" — the subtitle of your own templates (built-ins keep theirs). */
+fun subtitleFor(blocks: List<BlockSpec>): String {
+    val minutes = blocks.filter { it.type.isWork }.sumOf { it.minutes() }
+    if (minutes == 0) return "No work"
+    val h = minutes / 60
+    val m = minutes % 60
+    return if (m == 0) "${h}h work" else "${h}h ${m}m work"
+}
+
+/** The colour of the work category with the most minutes; kid-time grey 0xFF9C968C if none. */
+fun accentFor(blocks: List<BlockSpec>): Long {
+    val work = blocks.filter { it.type.isWork }
+    if (work.isEmpty()) return 0xFF9C968C
+    return work.groupBy { Categories.infoFor(it.type)?.colorArgb }
+        .filterKeys { it != null }
+        .maxByOrNull { (_, bs) -> bs.sumOf { it.minutes() } }?.key ?: 0xFF9C968C
+}
+
+private fun BlockSpec.minutes(): Int = (end.hour * 60 + end.minute) - (start.hour * 60 + start.minute)
+
+/** The icons your own templates can take (3.1.0); each maps to an icon in TemplateDisplay's [iconFor]. */
+val OWN_TEMPLATE_ICONS = listOf("event", "code", "fitness", "weekend", "games", "work", "school", "home")
 
 @Serializable
 data class Profile(val id: String, val name: String, val templateIds: List<TemplateId>)
