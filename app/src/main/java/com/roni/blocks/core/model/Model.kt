@@ -93,11 +93,19 @@ sealed interface BlockType {
 
     @Serializable
     data class EveningChoice(val choice: Choice) : BlockType
+
+    /** One of your own block kinds (3.0.0). The block carries a copy, so history keeps what it was. */
+    @Serializable
+    data class Custom(val id: String, val name: String, val colorArgb: Long, val work: Boolean, val pomodoro: Boolean) : BlockType
 }
 
-/** CV, Coding and Gym: the blocks that count as worked time and may be paused. */
+/** CV, Coding, Gym and your own work categories: the blocks that count as worked time and may be paused. */
 val BlockType.isWork: Boolean
-    get() = this == BlockType.Cv || this == BlockType.Coding || this == BlockType.Gym
+    get() = when (this) {
+        BlockType.Cv, BlockType.Coding, BlockType.Gym -> true
+        is BlockType.Custom -> work
+        else -> false
+    }
 
 @Serializable
 data class Pomodoro(

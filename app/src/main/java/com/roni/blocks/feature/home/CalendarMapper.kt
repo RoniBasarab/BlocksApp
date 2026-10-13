@@ -2,6 +2,7 @@ package com.roni.blocks.feature.home
 
 import com.roni.blocks.core.model.BlockSpec
 import com.roni.blocks.core.model.BlockType
+import com.roni.blocks.core.model.Categories
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.Template
 import com.roni.blocks.core.schedule.PomodoroSlot
@@ -74,21 +75,19 @@ object CalendarMapper {
     }
 }
 
-internal fun blockTitle(type: BlockType): String = when (type) {
-    BlockType.Cv -> "CV"
-    BlockType.Coding -> "Coding"
-    BlockType.Gym -> "Gym"
-    BlockType.Free -> "Free"
-    BlockType.KidTime -> "Kid time"
-    BlockType.Dishes -> "Dishes"
-    BlockType.Walk -> "Walk"
-    is BlockType.EveningChoice -> when (type.choice) {
-        Choice.GAME -> "Game"
-        Choice.PROJECT -> "Project"
-        Choice.READ -> "Read"
-        Choice.CHILL -> "Chill"
+internal fun blockTitle(type: BlockType): String =
+    Categories.infoFor(type)?.name ?: when (type) {
+        BlockType.KidTime -> "Kid time"
+        BlockType.Dishes -> "Dishes"
+        BlockType.Walk -> "Walk"
+        is BlockType.EveningChoice -> when (type.choice) {
+            Choice.GAME -> "Game"
+            Choice.PROJECT -> "Project"
+            Choice.READ -> "Read"
+            Choice.CHILL -> "Chill"
+        }
+        else -> "Block"
     }
-}
 
 internal fun hhmm(minute: Int): String = label(minute, use24 = true)
 

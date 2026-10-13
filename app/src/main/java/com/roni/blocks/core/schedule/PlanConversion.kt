@@ -2,6 +2,7 @@ package com.roni.blocks.core.schedule
 
 import com.roni.blocks.core.model.BlockSpec
 import com.roni.blocks.core.model.BlockType
+import com.roni.blocks.core.model.Categories
 import com.roni.blocks.core.model.Pomodoro
 import kotlinx.datetime.LocalTime
 
@@ -25,7 +26,7 @@ fun PlanBlock.toBlockSpec(originals: List<BlockSpec>): BlockSpec {
         type = type,
         start = LocalTime(startMin / 60, startMin % 60),
         end = LocalTime(endMin / 60, endMin % 60),
-        pomodoro = if (type == BlockType.Coding) original?.pomodoro ?: Pomodoro() else null,
+        pomodoro = if (Categories.infoFor(type)?.pomodoro == true) original?.pomodoro ?: Pomodoro() else null,
         quiet = original?.quiet ?: false,
     )
 }

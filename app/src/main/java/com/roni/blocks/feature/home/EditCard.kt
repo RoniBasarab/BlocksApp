@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.roni.blocks.core.model.BlockType
+import com.roni.blocks.core.model.Categories
 import com.roni.blocks.core.schedule.BlockEdit
 import com.roni.blocks.core.schedule.Edge
 import com.roni.blocks.core.schedule.PlanEditor
@@ -38,13 +39,7 @@ private val EditTypes = listOf(BlockType.Cv, BlockType.Coding, BlockType.Gym, Bl
 
 private val WorkTypes = listOf(BlockType.Cv, BlockType.Coding, BlockType.Gym)
 
-private fun typeKey(type: BlockType): String = when (type) {
-    BlockType.Cv -> "Cv"
-    BlockType.Coding -> "Coding"
-    BlockType.Gym -> "Gym"
-    BlockType.Free -> "Free"
-    else -> "Other"
-}
+private fun typeKey(type: BlockType): String = Categories.infoFor(type)?.name ?: "Other"
 
 @Composable
 fun EditCard(

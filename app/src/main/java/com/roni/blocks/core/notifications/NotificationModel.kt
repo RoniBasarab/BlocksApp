@@ -3,6 +3,7 @@ package com.roni.blocks.core.notifications
 import com.roni.blocks.core.daystate.DayState
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Choice
+import com.roni.blocks.core.model.Categories
 import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.schedule.DayTimeline
 import com.roni.blocks.core.schedule.PlanEditor
@@ -420,6 +421,7 @@ private fun accent(type: BlockType?): Int = when {
             Choice.READ -> CHOICE_READ
             Choice.CHILL -> CHOICE_CHILL
         }
+        is BlockType.Custom -> Categories.infoFor(type)?.colorArgb?.toInt() ?: PRIMARY
     }
 }
 
@@ -436,16 +438,14 @@ private const val CHOICE_PROJECT = 0xFF8C9BD1.toInt()
 private const val CHOICE_READ = 0xFFB8B77E.toInt()
 private const val CHOICE_CHILL = 0xFFB58FAA.toInt()
 
-internal fun blockName(type: BlockType): String = when (type) {
-    BlockType.Cv -> "CV"
-    BlockType.Coding -> "Coding"
-    BlockType.Gym -> "Gym"
-    BlockType.Free -> "Free"
-    BlockType.KidTime -> "Kid time"
-    BlockType.Dishes -> "Dishes"
-    BlockType.Walk -> "Walk"
-    is BlockType.EveningChoice -> "Evening · ${choiceName(type.choice)}"
-}
+internal fun blockName(type: BlockType): String =
+    Categories.infoFor(type)?.name ?: when (type) {
+        BlockType.KidTime -> "Kid time"
+        BlockType.Dishes -> "Dishes"
+        BlockType.Walk -> "Walk"
+        is BlockType.EveningChoice -> "Evening · ${choiceName(type.choice)}"
+        else -> "Block"
+    }
 
 internal fun choiceName(choice: Choice): String = when (choice) {
     Choice.GAME -> "Game"

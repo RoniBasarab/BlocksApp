@@ -80,3 +80,6 @@ Still-live rules first (decisions a future agent needs), then one section per ve
 - Home: the waiting card ("Day starts at HH:MM · in 1h 20m", PRIMARY Start now → `HomeAction.StartNow`, SECONDARY Change day → `SwapTemplate`), the "Starts at HH:MM" status, and `HomeState.calendarStartMin` = `min(08:00, first start rounded down to the hour)` used by `DayCalendar`/`CalendarLayout.fit`; `HomeViewModel` collects `day.startsAt` so the card appears even though `persist()` sets it after the state/segments.
 - Change day while waiting is the existing `SwapTemplate` (per the task): it replans and starts the new template from now, it does not re-apply the wait.
 - `versionName` 2.7.0 / `versionCode` 20700.
+## 3.0.0 (Task-18)
+- Slice 2: `recapTitle` (DayRecap) already delegates to `blockTitle`, so a category rename reaches it unchanged; `EditCard.typeKey` now returns `Categories.infoFor(type)?.name ?: "Other"` (tags change e.g. `edit_type_Cv` -> `edit_type_CV`; no test used them); `accent(BlockType)` in NotificationModel gained a `Custom` branch using the category colour.
+- Slice 2: `CategoryStore` is an optional last `DayOrchestrator` constructor param (default null) so hand-built tests are untouched; production injects it and `ensureRestored()` calls `load()` before `restoreFromStorage()`.

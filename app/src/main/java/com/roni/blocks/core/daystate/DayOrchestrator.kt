@@ -37,6 +37,7 @@ import com.roni.blocks.core.schedule.timelineAt
 import com.roni.blocks.core.schedule.toBlockSpecs
 import com.roni.blocks.core.schedule.toPlanBlocks
 import com.roni.blocks.core.storage.HistoryManager
+import com.roni.blocks.core.storage.CategoryStore
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
@@ -107,6 +108,8 @@ class DayOrchestrator @Inject constructor(
     private val zone: TimeZone,
     private val logger: AppLogger,
     @ApplicationScope private val scope: CoroutineScope,
+    /** The categories in use (3.0.0). Production injects it and loads it at restore; hand-built tests default to null. */
+    private val categories: CategoryStore? = null,
 ) {
     private val _state = MutableStateFlow<DayState>(DayState.NotStarted)
     val state: StateFlow<DayState> = _state.asStateFlow()
@@ -196,6 +199,7 @@ class DayOrchestrator @Inject constructor(
         restoreMutex.withLock {
             if (_isRestored.value) return
             try {
+                categories?.load()
                 restoreFromStorage()
                 logger.info("restored day_state=${_state.value}")
             } catch (e: CancellationException) {
