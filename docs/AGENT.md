@@ -2,25 +2,15 @@
 
 Read this first, every session. The current task is named in the first paragraph.
 
-You're the working agent for Blocks, an Android app (Kotlin, Compose, Hilt) in this repo. The current task is docs/Task-19.md (target 3.1.0). It has four parts; your prompt names yours: Base, Track A, Track B or Finish. Do only that part. The owner's tokens are limited: be fast, decisive and brief.
-
-| Part | Folder (step 0) | Branch | Read |
-|---|---|---|---|
-| Base | C:/Blocks App | task-19/v3.1.0 | docs/Task-19.md lines 1-38, then 40-145 |
-| Track A | C:/Blocks App 19a | task-19a/v3.1.0-categories | docs/Task-19.md lines 1-38, then docs/Task-19a.md |
-| Track B | C:/Blocks App 19b | task-19b/v3.1.0-editor | docs/Task-19.md lines 1-38, then docs/Task-19b.md |
-| Finish | C:/Blocks App | task-19/v3.1.0 | docs/Task-19.md lines 1-38, then 147-end |
-
-Tracks A and B run at the same time, in separate folders (git worktrees) of the same repo. Never cd into the other track's folder, never check out another branch, never touch master from a track.
+You're the working agent for Blocks, an Android app (Kotlin, Compose, Hilt) in this repo. Implement docs/Task-20.md (target 3.1.1) exactly, on the branch task-20/v3.1.1 from master. The owner's tokens are limited: be fast, decisive and brief.
 
 START
-0. Your session doesn't start in the repo. First cd to your part's folder, with the quotes (e.g. cd "C:/Blocks App 19a"). Every command below runs from there; if a command ever says "not a git repository", cd there again.
-1. One command: git branch --show-current ; git log --oneline -8 ; git status --short
-   - Base, first run (you're on master, no "task-19 prep" commit): the task says how to start. The new docs/ and app/ files show as untracked or modified: that's expected, the prep commit takes them first.
-   - Commits named "task-19 slice N" / "task-19a slice N" / "task-19b slice N" are finished slices; continue with the lowest one missing in your part.
-   - Modified files mean a previous session stopped mid-slice: run that slice's tests; if green or a quick fix, finish and commit it; otherwise git stash push -m "partial" and redo the slice. Never stash before the "task-19 prep" commit exists.
-   - Finish: first check both tracks are done (their branches list their slices). If not, say which one isn't and stop.
-2. Read the lines in the table once, then each slice when you start it. Open docs/CODEMAP.md when you need to find a file; docs/NOTES.md only to look up an earlier decision. Don't read SUMMARY.md or the specs.
+0. Your session doesn't start in the repo. First: cd "C:/Blocks App" (the repo root, with the space and the quotes). Every command below runs from there; if a command ever says "not a git repository", cd there again.
+1. One command: git branch --show-current ; git log --oneline master..task-20/v3.1.1 2>$null ; git status --short
+   - No task-20/v3.1.1 branch yet: follow the task's Rules 1, then the prep commit and Slice 1. On this first run the new docs/ files show as untracked or modified: that's expected, the prep commit takes them first.
+   - Commits named "task-20 slice N" are finished slices; continue with the lowest one missing.
+   - Modified files mean a previous session stopped mid-slice: run that slice's tests; if green or a quick fix, finish and commit it; otherwise git stash push -m "partial" and redo the slice. Never stash before the "task-20 prep" commit exists: the new docs would go with it.
+2. Read docs/Task-20.md lines 1-28 once (findings, causes, rules), then each slice's lines from the map when you start it. Open docs/CODEMAP.md when you need to find a file; docs/NOTES.md only to look up an earlier decision. Don't read SUMMARY.md or the specs.
 
 FINDING THINGS: GREP FIRST
 - Search the repo with git grep -n "<name>" (add -- "*.kt" to narrow). It answers in a second; reading files to search, writing Python or PowerShell scripts to search, or searching the web is slower. Never do those for anything inside the repo.
@@ -53,7 +43,7 @@ EACH SLICE
 1. Read the slice. git grep what you'll change.
 2. Make all the slice's edits, code and its named tests, before building. Paste the task's code and adapt names; don't rewrite it.
 3. Build and test the slice; fix until exit=0. Then the full suite once: the same command without --tests.
-4. git add -A ; git commit -m "<prefix> slice N: <title>" 2>&1 | Select-Object -First 1   (prefix: task-19, task-19a or task-19b)
+4. git add -A ; git commit -m "task-20 slice N: <title>" 2>&1 | Select-Object -First 1
 5. One line: "Slice N done: <hash>". Start the next slice at once.
 
 ALWAYS
@@ -61,9 +51,9 @@ ALWAYS
 - Keep going until the final report. Stop early only for a real blocker, and say exactly what it is. Don't ask questions; log choices in docs/NOTES.md in one line each.
 - Time-box: after ~15 minutes on one problem, take the simplest option that passes the named tests, note it in docs/NOTES.md, and move on.
 - Code marked verified (TemplateEditor.kt, TemplateRules.kt, PlanEditor.kt, AlertPlanner.kt, RecordEditor.kt, StepBook.kt, WalkClock.kt, CalendarLayout.kt, their tests, and StartEarlyWalkTest.kt) is final: don't edit it.
+- ARCHITECTURE IS BINDING (docs/architecture.md section 5): @Immutable State, sealed Action, sealed Effect, @HiltViewModel with injected managers and one onAction(), state only via _state.update { it.copy(...) }, effects via MutableSharedFlow. Only the Route knows the ViewModel; every other composable takes (state, onAction). Never a list of callback parameters, never a global/static store instead of an injected one. If the task seems to need otherwise, don't improvise: say so in the report.
 - If an existing test checks something the task changes on purpose, update or delete it and list it in the report. Add only the tests the task names.
 - Real names win: if a name in the task doesn't exist, use the real one. Don't refactor beyond the slice.
 - If an edit mangles a file: git checkout -- <file>, then redo the edit.
 - Phone: only com.roni.blocks.debug. Never install over, clear, force-stop or uninstall com.roni.blocks.
-- Tracks: edit only the files your track file names; another agent is editing the rest right now. Push your branch, report, stop; Finish merges.
-- End your part exactly as its last slice says (Base: hand over; tracks: push; Finish: tag v3.1.0, push, remove the worktrees), give the short report, then stop. Don't re-verify finished slices or close old todo lists by re-checking them; mark them done and end.
+- Finish with Slice 3: final gate, merge task-20/v3.1.1 into master, tag v3.1.1, push, the short final report, then stop. Don't re-verify finished slices or close old todo lists by re-checking them; mark them done and end.
