@@ -489,6 +489,17 @@ class DayOrchestrator @Inject constructor(
     private fun nowMinutes(): Int = minutesOfDay(clock.now())
 
     /**
+     * What the day allows around the walk that started at [oldStart] (3.4.1): a day-block walk's own
+     * segments when it has one, else the standalone walks around it. The correction sheet's live
+     * line reads it; [correctWalk] stays the authority on Save.
+     */
+    suspend fun walkBounds(date: LocalDate, oldStart: Instant): Pair<Int, Int> {
+        ensureRestored()
+        val segment = closedWalkSegment(date, oldStart)
+        return if (segment != null) walkSegmentBounds(date, segment) else walkLogBounds(date, oldStart)
+    }
+
+    /**
      * The walk the start sheet would take (2.3.0): when to turn back, when Roni is home, and what
      * runs after the walk. Uses the same [PlanEditor] calls [startWalk] commits with, so the sheet
      * and the walk agree. Null when no walk fits: not running, a walk already on, or under ten

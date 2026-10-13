@@ -3,22 +3,38 @@ package com.roni.blocks.feature.history
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.roni.blocks.core.alarms.AlarmScheduler
+import com.roni.blocks.core.daystate.DayOrchestrator
+import com.roni.blocks.core.logging.AppLogger
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
+import com.roni.blocks.core.model.WalkLog
+import com.roni.blocks.core.notifications.NotificationModel
+import com.roni.blocks.core.notifications.NotificationModelMapper
+import com.roni.blocks.core.notifications.NotificationPort
+import com.roni.blocks.core.schedule.ScheduleEngine
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsStorage
+import com.roni.blocks.core.storage.TemplateManager
+import com.roni.blocks.core.time.SystemTimeMapper
+import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.core.time.at
+import com.roni.blocks.feature.templates.BlockSheetAction
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
@@ -49,11 +65,12 @@ class HistoryViewModelTest {
     private val tuesdaySep8 = LocalDate(2026, 9, 8)
 
     private lateinit var history: HistoryManager
+    private lateinit var prefs: PrefsStorage
 
     @Before
     fun setUp() {
         Dispatchers.setMain(Dispatchers.Unconfined)
-        val prefs = PrefsStorage(context, UnconfinedTestDispatcher())
+        prefs = PrefsStorage(context, UnconfinedTestDispatcher())
         history = HistoryManager(prefs)
         runBlocking { history.clear() }
     }
@@ -162,5 +179,68 @@ class HistoryViewModelTest {
         assertTrue(day.outlined)
         assertTrue(day.strip.isEmpty())
         assertEquals("", day.summary)
+    }
+
+    @Test
+    fun walkRow_opensTheSheet_andSaves() = runBlocking {
+        history.writeDay(DayRecord(friday, template = null, segments = emptyList()))
+        history.addWalk(
+            friday,
+            WalkLog(LocalTime(21, 0).at(friday, zone), LocalTime(22, 0).at(friday, zone)),
+        )
+
+        val clock = object : Clock {
+            override fun now(): Instant = LocalTime(10, 0).at(today, zone)
+        }
+        val viewModel = HistoryDetailViewModel(
+            history = history,
+            day = orchestratorFor(clock),
+            timeFormatter = TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)),
+            clock = clock,
+            zone = zone,
+        )
+        viewModel.load(friday.toString())
+        val loaded = withTimeout(5_000) { viewModel.state.first { it?.walks?.isNotEmpty() == true } }!!
+        assertTrue(loaded.walks.single().text.contains("21:00–22:00"))
+
+        viewModel.onAction(HistoryDetailAction.OpenWalk(loaded.walks.single().startEpochSec))
+        withTimeout(5_000) { viewModel.state.first { it?.sheet != null } }
+
+        viewModel.onAction(HistoryDetailAction.Sheet(BlockSheetAction.LengthBy(-25)))
+        viewModel.onAction(HistoryDetailAction.Sheet(BlockSheetAction.Save))
+
+        val saved = withTimeout(5_000) {
+            viewModel.state.first { it?.walks?.single()?.text?.contains("21:00–21:35") == true }
+        }!!
+        assertTrue(saved.walks.single().text.contains("21:00–21:35"))
+        assertNull("the sheet closes on Save", saved.sheet)
+    }
+
+    private fun orchestratorFor(clock: Clock): DayOrchestrator {
+        val logger = AppLogger(context)
+        return DayOrchestrator(
+            prefs = prefs,
+            engine = ScheduleEngine(clock, zone),
+            templates = TemplateManager(context),
+            history = history,
+            alarms = AlarmScheduler(context, SystemTimeMapper.Identity, logger),
+            notificationMapper = NotificationModelMapper(
+                ScheduleEngine(clock, zone),
+                zone,
+                TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)),
+            ),
+            notificationRenderer = SilentNotificationPort,
+            clock = clock,
+            zone = zone,
+            logger = logger,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+        )
+    }
+
+    private object SilentNotificationPort : NotificationPort {
+        override fun ensureChannels() = Unit
+        override fun render(model: NotificationModel?, transition: Boolean, alert: Boolean) = Unit
+        override fun onDismissed(key: String) = Unit
+        override fun sendTestNotification() = Unit
     }
 }

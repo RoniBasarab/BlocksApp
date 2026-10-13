@@ -93,6 +93,13 @@ data class WalkMarkerUi(
     val label: String,
 )
 
+/** A walk that just ended (3.4.1): the card under the calendar offers to fix its time. */
+@Immutable
+data class WalkFixUi(
+    val startEpochSec: Long,
+    val text: String,
+)
+
 @Immutable
 data class HomeState(
     val weekdayShort: String = "",
@@ -128,6 +135,8 @@ data class HomeState(
     val use24: Boolean = true,
     /** The calendar's first minute (2.7.0): min(08:00, the plan's first start rounded down to the hour). */
     val calendarStartMin: Int = DAY_START_MIN,
+    /** A standalone walk that ended within the last 30 minutes (3.4.1); null when there is nothing to fix. */
+    val walkFix: WalkFixUi? = null,
 )
 
 sealed interface HomeAction {
@@ -164,13 +173,17 @@ sealed interface HomeAction {
     data class OpenBlock(val id: String) : HomeAction
     /** One action inside the shared block sheet (3.3.0). */
     data class Sheet(val action: BlockSheetAction) : HomeAction
+    /** "Fix the time" on the walk that just ended (3.4.1): opens the walk correction sheet. */
+    data object FixWalk : HomeAction
+    /** Hides the "got home earlier?" card (3.4.1). */
+    data object DismissWalkFix : HomeAction
     data class LockedBlockTapped(val id: String) : HomeAction
     /** The calendar's real text heights (2.6.1), measured per font scale and used for the layout. */
     data class TextMeasured(val metrics: TextMetrics) : HomeAction
 
     val affectsOverlays: Boolean
         get() = this is ChooseEvening || this is PickEvening || this is DismissEveningSheet ||
-            this is Sheet || this is OpenBlock
+            this is Sheet || this is OpenBlock || this is FixWalk
 
     val affectsCalendar: Boolean
         get() = this is DragEdge || this is DragDone || this is DragCancelled || this is StepEdge

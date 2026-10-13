@@ -123,6 +123,8 @@ import com.roni.blocks.core.time.Ticker
 import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.core.time.minuteOfDay
 import com.roni.blocks.core.walk.WalkClock
+import com.roni.blocks.core.walk.WalkCorrection
+import com.roni.blocks.core.walk.WalkFix
 import com.roni.blocks.core.walk.WalkPhase
 import com.roni.blocks.core.walk.WalkView
 import com.roni.blocks.designsystem.AppBottomBar
@@ -167,6 +169,9 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.builtins.serializer
+
+/** The walk the Home correction sheet is editing (3.4.1): its log, the times being changed, and the day's bounds. */
+private data class WalkEdit(val log: WalkLog, val startMin: Int, val endMin: Int, val floorMin: Int, val ceilMin: Int)
 
 @HiltViewModel
 /**
@@ -218,6 +223,11 @@ private val day: DayOrchestrator,
     private var sheetMode: BlockEdit = BlockEdit.NONE
     /** The sheet's block start in the committed plan, for the running block's Resize. */
     private var sheetPlanStart: Int = 0
+
+    /** The walk the correction sheet edits (3.4.1); non-null while the walk sheet is up. */
+    private var walkEdit: WalkEdit? = null
+    /** The start of the walk whose "got home earlier?" card was dismissed (3.4.1). */
+    private var dismissedWalkStartSec: Long? = null
 
     /** The calendar's real text heights (2.6.1); [HomeAction.TextMeasured] replaces it and re-publishes. */
     private var textMetrics = TextMetrics()
@@ -391,7 +401,12 @@ private val day: DayOrchestrator,
             is HomeAction.StepEdge -> if (action.id == EVENING_DISHES_ID) stepDishes(action.byMin)
                 else stepEdge(action.id, action.edge, action.byMin)
             is HomeAction.OpenBlock -> openBlockSheet(action.id)
-            is HomeAction.Sheet -> onSheet(action.action)
+            is HomeAction.Sheet -> if (walkEdit != null) onWalkSheet(action.action) else onSheet(action.action)
+            HomeAction.FixWalk -> openWalkFix()
+            HomeAction.DismissWalkFix -> {
+                dismissedWalkStartSec = latestWalkLog()?.start?.epochSeconds
+                publish(day.state.value)
+            }
             is HomeAction.LockedBlockTapped -> {
                 val block = _state.value.blocks.firstOrNull { it.id == action.id }
                 val row = block?.let { recapRowForBlock(it) }
@@ -619,6 +634,89 @@ private val day: DayOrchestrator,
         sheet = null
         sheetId = null
         sheetMode = BlockEdit.NONE
+    }
+
+    // ── The walk correction sheet (3.4.1) ───────────────────────────────────────────────────────
+
+    /** The walk a just-ended day-block or standalone walk logged; the latest end wins. */
+    private fun latestWalkLog(): WalkLog? = walkLogs.maxByOrNull { it.end }
+
+    /** "Fix the time": opens the shared sheet over the latest logged walk, with the day's real bounds. */
+    private fun openWalkFix() {
+        val log = latestWalkLog() ?: return
+        viewModelScope.launch {
+            val date = clock.now().toLocalDateTime(zone).date
+            val (floor, ceil) = day.walkBounds(date, log.start)
+            walkEdit = WalkEdit(log, log.start.minuteOfDay(zone), log.end.minuteOfDay(zone), floor, ceil)
+            sheetId = null
+            sheetMode = BlockEdit.NONE
+            sheet = walkSheetUi()
+            publish(day.state.value)
+        }
+    }
+
+    private fun onWalkSheet(action: BlockSheetAction) {
+        val edit = walkEdit ?: return
+        when (action) {
+            is BlockSheetAction.StartBy -> setWalk(startMin = edit.startMin + action.minutes)
+            is BlockSheetAction.StartAt -> setWalk(startMin = action.minute)
+            is BlockSheetAction.LengthBy -> setWalk(lengthMin = (edit.endMin - edit.startMin) + action.minutes)
+            BlockSheetAction.Save -> saveWalk()
+            BlockSheetAction.Dismiss -> {
+                walkEdit = null
+                sheet = null
+                publish(day.state.value)
+            }
+            else -> Unit
+        }
+    }
+
+    /** One change inside the walk sheet (3.4.1); nothing is committed until Save. */
+    private fun setWalk(startMin: Int? = null, lengthMin: Int? = null) {
+        val edit = walkEdit ?: return
+        val start = startMin ?: edit.startMin
+        val end = start + (lengthMin ?: (edit.endMin - edit.startMin))
+        walkEdit = edit.copy(startMin = start, endMin = end)
+        sheet = walkSheetUi()
+        publish(day.state.value)
+    }
+
+    private fun saveWalk() {
+        val edit = walkEdit ?: return
+        val date = clock.now().toLocalDateTime(zone).date
+        walkEdit = null
+        sheet = null
+        viewModelScope.launch {
+            day.correctWalk(date, edit.log.start, edit.startMin, edit.endMin)
+            publish(day.state.value)
+        }
+    }
+
+    /** The shared sheet's state for the walk being corrected: no categories, Start/Length and the live line. */
+    private fun walkSheetUi(): BlockSheetUi? {
+        val edit = walkEdit ?: return null
+        val fix = WalkCorrection.check(
+            edit.startMin,
+            edit.endMin,
+            edit.floorMin,
+            edit.ceilMin,
+            clock.now().minuteOfDay(zone),
+        )
+        val use24 = timeFormatter.use24.value
+        val line = when (fix) {
+            is WalkFix.Ok -> "${label(fix.startMin, use24)}–${label(fix.endMin, use24)} · ${fix.endMin - fix.startMin} min"
+            is WalkFix.Refused -> fix.why
+        }
+        return BlockSheetUi(
+            title = "Walk",
+            type = BlockType.Walk,
+            categories = persistentListOf(),
+            startMin = edit.startMin,
+            lengthMin = edit.endMin - edit.startMin,
+            line = line,
+            lineIsError = fix is WalkFix.Refused,
+            canSave = fix is WalkFix.Ok,
+        )
     }
 
     /** The work categories in use plus Free, for a block ahead (3.3.0). */
@@ -923,9 +1021,11 @@ private val day: DayOrchestrator,
         if (dayState is DayState.Ended || dayState is DayState.Off || dayState is DayState.NotStarted) {
             preview = null
             draggingId = null
-            sheet = null
-            sheetId = null
-            sheetMode = BlockEdit.NONE
+            if (walkEdit == null) {
+                sheet = null
+                sheetId = null
+                sheetMode = BlockEdit.NONE
+            }
         }
         // The evening sheet opens once when Dishes starts (2.5.0); dismissing it is fine, and the
         // card's "Choose evening" reopens it. Outside the evening it is always closed.
@@ -939,6 +1039,19 @@ private val day: DayOrchestrator,
             eveningAutoOpened = false
         }
         if (walkCard != null) walkSheet = null
+
+        // A walk that just ended (3.4.1): offer to fix its time for 30 minutes, unless Roni dismissed it.
+        val lastWalk = latestWalkLog()
+        val walkFix = if (lastWalk != null && lastWalk.start.epochSeconds != dismissedWalkStartSec) {
+            val sinceEnd = (now - lastWalk.end).inWholeMinutes
+            if (sinceEnd in 0..30) {
+                WalkFixUi(
+                    startEpochSec = lastWalk.start.epochSeconds,
+                    text = "Walk logged ${timeFormatter.label(lastWalk.start.minuteOfDay(zone))}–" +
+                        "${timeFormatter.label(lastWalk.end.minuteOfDay(zone))}. Got home earlier?",
+                )
+            } else null
+        } else null
 
         _state.value = HomeState(
             weekdayShort = now.toLocalDateTime(zone).dayOfWeek.name.take(3),
@@ -976,6 +1089,7 @@ private val day: DayOrchestrator,
             sheetId = sheetId,
             use24 = timeFormatter.use24.value,
             calendarStartMin = calendarStartMin,
+            walkFix = walkFix,
         )
     }
 
@@ -1503,6 +1617,14 @@ fun HomeScreen(
                     onAction = onAction,
                     modifier = Modifier.weight(1f).testTag("home_calendar"),
                 )
+                state.walkFix?.let { fix ->
+                    WalkFixCard(
+                        ui = fix,
+                        onFix = { onAction(HomeAction.FixWalk) },
+                        onDismiss = { onAction(HomeAction.DismissWalkFix) },
+                        modifier = Modifier.padding(horizontal = Spacing.l, vertical = Spacing.s),
+                    )
+                }
             }
         }
         if (state.recap == null) {
@@ -1773,6 +1895,33 @@ fun NowCard(
             },
             onDismiss = { dialog = null },
         )
+    }
+}
+
+@Composable
+fun WalkFixCard(
+    ui: WalkFixUi,
+    onFix: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    SideEffect { RecompositionCounter.hit("WalkFixCard") }
+    val c = AppTheme.colors
+    AppCard(modifier.fillMaxWidth().testTag("walk_fix_card")) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+            Text(
+                text = ui.text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = c.textPrimary,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onFix, modifier = Modifier.testTag("walk_fix_button")) {
+                Text("Fix the time")
+            }
+            IconButton(onClick = onDismiss, modifier = Modifier.testTag("walk_fix_dismiss")) {
+                Text("\u2715", style = MaterialTheme.typography.titleMedium, color = c.textSecondary)
+            }
+        }
     }
 }
 

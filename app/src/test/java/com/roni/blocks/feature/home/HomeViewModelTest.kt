@@ -466,6 +466,24 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun walkJustEnded_offersTheFix() = runBlocking {
+        clock.now = LocalTime(21, 0, 0).at(date, zone)
+        assertTrue(orchestrator.startWalk(30))
+
+        clock.now = LocalTime(21, 30, 5).at(date, zone)
+        orchestrator.onAlarm()
+        assertEquals(LocalTime(21, 0).at(date, zone), history.walks(date).single().start)
+
+        clock.now = LocalTime(21, 32).at(date, zone)
+        val shown = withTimeout(5_000) { viewModel.state.first { it.walkFix != null } }
+        assertEquals(LocalTime(21, 0).at(date, zone).epochSeconds, shown.walkFix!!.startEpochSec)
+
+        clock.now = LocalTime(22, 1).at(date, zone)
+        withTimeout(5_000) { viewModel.state.first { it.walkFix == null } }
+        Unit
+    }
+
+    @Test
     fun oneMinuteBlock_isASliverWithAPill() = runBlocking {
         clock.now = LocalTime(9, 0).at(date, zone)
         orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))

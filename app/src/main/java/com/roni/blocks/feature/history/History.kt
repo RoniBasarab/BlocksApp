@@ -1,6 +1,7 @@
 package com.roni.blocks.feature.history
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.CircleShape
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,13 +42,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.roni.blocks.core.model.CheckIn
 import com.roni.blocks.core.model.DayFlag
+import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.WalkLog
+import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.schedule.RecordEdit
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.debtMinutes
 import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.core.time.minuteOfDay
+import com.roni.blocks.core.walk.WalkCorrection
+import com.roni.blocks.core.walk.WalkFix
 import com.roni.blocks.designsystem.AppCard
 import com.roni.blocks.designsystem.AppChip
 import com.roni.blocks.designsystem.AppTheme
@@ -68,9 +74,15 @@ import com.roni.blocks.feature.home.DayRecapMapper
 import com.roni.blocks.feature.home.DayRecapUi
 import com.roni.blocks.feature.home.RecapList
 import com.roni.blocks.feature.home.RecapRow
+import com.roni.blocks.feature.templates.BlockSheet
+import com.roni.blocks.feature.templates.BlockSheetAction
+import com.roni.blocks.feature.templates.BlockSheetUi
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlin.time.Clock
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -106,14 +118,28 @@ data class HistoryUiState(
     val weeks: List<HistoryWeek> = emptyList(),
 )
 
+/** One logged walk as History lists it (3.4.1): its start (to open the sheet) and its line. */
+@Immutable
+data class WalkRowUi(val startEpochSec: Long, val text: String)
+
+/** What the History detail screen can do (3.4.1). */
+sealed interface HistoryDetailAction {
+    /** Tapping a walk row opens the correction sheet for it. */
+    data class OpenWalk(val startEpochSec: Long) : HistoryDetailAction
+    /** One action inside the walk sheet, shared with Home. */
+    data class Sheet(val action: BlockSheetAction) : HistoryDetailAction
+}
+
 data class HistoryDetailUi(
     val title: String,
     val recap: DayRecapUi,
     val use24: Boolean = true,
-    /** "Walk · HH:MM–HH:MM · N min", one per standalone walk (2.4.0); empty hides the section. */
-    val walks: List<String> = emptyList(),
+    /** One per standalone walk (2.4.0); empty hides the section. */
+    val walks: ImmutableList<WalkRowUi> = persistentListOf(),
     /** "6,240 steps" for the day (2.5.0); null hides the header line. */
     val steps: String? = null,
+    /** The walk correction sheet (3.4.1); null when it's closed. */
+    val sheet: BlockSheetUi? = null,
 )
 
 /** Content only; the top bar lives in [HistoryRoute]. */
@@ -316,6 +342,7 @@ class HistoryViewModel @Inject constructor(
  */
 class HistoryDetailViewModel @Inject constructor(
     private val history: HistoryManager,
+    private val day: DayOrchestrator,
     private val timeFormatter: TimeFormatter,
     private val clock: Clock,
     private val zone: TimeZone,
@@ -324,6 +351,8 @@ class HistoryDetailViewModel @Inject constructor(
     val state: StateFlow<HistoryDetailUi?> = _state.asStateFlow()
     private var loadedDate: LocalDate? = null
     private var job: Job? = null
+    /** The walk the correction sheet edits (3.4.1); null when it's closed. */
+    private var walkEdit: WalkEdit? = null
 
     fun load(dateKey: String) {
         job?.cancel()
@@ -341,16 +370,94 @@ class HistoryDetailViewModel @Inject constructor(
                             title = "${weekdayFull(it.date.dayOfWeek)} ${it.date.dayOfMonth} ${monthName(it.date.monthNumber)}",
                             recap = DayRecapMapper.map(it, timeFormatter.use24.value, checkInTitle = "How was this day?"),
                             use24 = timeFormatter.use24.value,
-                            walks = logs.map(::walkLine),
+                            walks = logs.map { log -> WalkRowUi(log.start.epochSeconds, walkLine(log)) }.toPersistentList(),
                             steps = steps?.let { value ->
                                 val driveSteps = history.drives(date).mapNotNull { it.steps }.sum()
                                 "About ${formatStepsApprox(value)} steps" +
                                     if (driveSteps > 0) " · about ${formatStepsApprox(driveSteps)} while driving" else ""
                             },
+                            sheet = walkSheetUi(),
                         )
                     }
                 }
         }
+    }
+
+    fun onAction(action: HistoryDetailAction) {
+        when (action) {
+            is HistoryDetailAction.OpenWalk -> openWalk(action.startEpochSec)
+            is HistoryDetailAction.Sheet -> onSheet(action.action)
+        }
+    }
+
+    /** Opens the shared sheet over the walk starting at [startEpochSec], with the day's real bounds. */
+    private fun openWalk(startEpochSec: Long) {
+        val date = loadedDate ?: return
+        viewModelScope.launch {
+            val log = history.walks(date).firstOrNull { it.start.epochSeconds == startEpochSec } ?: return@launch
+            val (floor, ceil) = day.walkBounds(date, log.start)
+            walkEdit = WalkEdit(log, log.start.minuteOfDay(zone), log.end.minuteOfDay(zone), floor, ceil)
+            refreshSheet()
+        }
+    }
+
+    private fun onSheet(action: BlockSheetAction) {
+        val edit = walkEdit ?: return
+        when (action) {
+            is BlockSheetAction.StartBy -> setWalk(startMin = edit.startMin + action.minutes)
+            is BlockSheetAction.StartAt -> setWalk(startMin = action.minute)
+            is BlockSheetAction.LengthBy -> setWalk(lengthMin = (edit.endMin - edit.startMin) + action.minutes)
+            BlockSheetAction.Save -> saveWalk()
+            BlockSheetAction.Dismiss -> {
+                walkEdit = null
+                refreshSheet()
+            }
+            else -> Unit
+        }
+    }
+
+    private fun setWalk(startMin: Int? = null, lengthMin: Int? = null) {
+        val edit = walkEdit ?: return
+        val start = startMin ?: edit.startMin
+        val end = start + (lengthMin ?: (edit.endMin - edit.startMin))
+        walkEdit = edit.copy(startMin = start, endMin = end)
+        refreshSheet()
+    }
+
+    private fun saveWalk() {
+        val edit = walkEdit ?: return
+        val date = loadedDate ?: return
+        walkEdit = null
+        viewModelScope.launch {
+            day.correctWalk(date, edit.log.start, edit.startMin, edit.endMin)
+            refreshSheet()
+        }
+    }
+
+    /** The shared sheet's state for the walk being corrected: no categories, Start/Length and the live line. */
+    private fun walkSheetUi(): BlockSheetUi? {
+        val edit = walkEdit ?: return null
+        val nowMin = if (loadedDate == clock.now().toLocalDateTime(zone).date) clock.now().minuteOfDay(zone) else null
+        val fix = WalkCorrection.check(edit.startMin, edit.endMin, edit.floorMin, edit.ceilMin, nowMin)
+        val use24 = timeFormatter.use24.value
+        val line = when (fix) {
+            is WalkFix.Ok -> "${TimeFormatter.label(fix.startMin, use24)}–${TimeFormatter.label(fix.endMin, use24)} · ${fix.endMin - fix.startMin} min"
+            is WalkFix.Refused -> fix.why
+        }
+        return BlockSheetUi(
+            title = "Walk",
+            type = BlockType.Walk,
+            categories = persistentListOf(),
+            startMin = edit.startMin,
+            lengthMin = edit.endMin - edit.startMin,
+            line = line,
+            lineIsError = fix is WalkFix.Refused,
+            canSave = fix is WalkFix.Ok,
+        )
+    }
+
+    private fun refreshSheet() {
+        _state.value = _state.value?.copy(sheet = walkSheetUi())
     }
 
     private fun walkLine(log: WalkLog): String {
@@ -420,9 +527,12 @@ fun HistoryDetailRoute(date: String?, onBack: () -> Unit, viewModel: HistoryDeta
                                             modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.l),
                                         )
                                     }
-                                    d.walks.forEach { line ->
+                                    d.walks.forEach { row ->
                                         Row(
-                                            modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.l),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { viewModel.onAction(HistoryDetailAction.OpenWalk(row.startEpochSec)) }
+                                                .padding(horizontal = Spacing.l),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(Spacing.s),
                                         ) {
@@ -432,7 +542,7 @@ fun HistoryDetailRoute(date: String?, onBack: () -> Unit, viewModel: HistoryDeta
                                                     .background(color = Color(0xFF8FC7C9), shape = CircleShape),
                                             )
                                             Text(
-                                                text = line,
+                                                text = row.text,
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 color = AppTheme.colors.textSecondary,
                                             )
@@ -454,7 +564,17 @@ fun HistoryDetailRoute(date: String?, onBack: () -> Unit, viewModel: HistoryDeta
             onDismiss = { correcting = null },
         )
     }
+    detail?.sheet?.let { ui ->
+        BlockSheet(
+            ui = ui,
+            use24 = detail?.use24 ?: true,
+            onAction = { viewModel.onAction(HistoryDetailAction.Sheet(it)) },
+        )
+    }
 }
+
+/** The walk the History correction sheet is editing (3.4.1): its log, the times being changed, and the day's bounds. */
+private data class WalkEdit(val log: WalkLog, val startMin: Int, val endMin: Int, val floorMin: Int, val ceilMin: Int)
 
 private fun checkInWord(checkIn: CheckIn?): String? = when (checkIn) {
     CheckIn.GOOD -> "Good"
