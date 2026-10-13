@@ -140,6 +140,8 @@ data class TodayPlan(
     val templateId: TemplateId,
     val blocks: List<BlockSpec>,
     val edited: Boolean = false,
+    /** The profile the day started under (3.2.0), so History can label it. */
+    val profileName: String? = null,
 )
 
 @Serializable
@@ -163,6 +165,8 @@ data class DayRecord(
     val checkIn: CheckIn? = null,
     val plannedBlocks: List<BlockSpec>? = null,
     val demo: Boolean = false,
+    /** The profile the day started under (3.2.0). */
+    val profileName: String? = null,
 )
 
 /**

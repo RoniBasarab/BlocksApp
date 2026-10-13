@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Nightlight
 import androidx.compose.material.icons.outlined.Pause
@@ -130,6 +131,7 @@ import com.roni.blocks.designsystem.formatStepsApprox
 import com.roni.blocks.designsystem.templateDisplay
 import com.roni.blocks.feature.weekly.tabKey
 import com.roni.blocks.navigation.HistoryKey
+import com.roni.blocks.navigation.ProfilesKey
 import com.roni.blocks.navigation.SettingsKey
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -381,6 +383,7 @@ private val day: DayOrchestrator,
             }
             HomeAction.SwapTemplate,
             HomeAction.History,
+            HomeAction.Profiles,
             HomeAction.Settings,
             -> Unit
             is HomeAction.TextMeasured -> {
@@ -1113,6 +1116,7 @@ fun HomeRoute(
                 when (action) {
                     HomeAction.SwapTemplate -> onSwap()
                     HomeAction.History -> onMenu(HistoryKey)
+                    HomeAction.Profiles -> onMenu(ProfilesKey)
                     HomeAction.Settings -> onMenu(SettingsKey)
                     else -> viewModel.onAction(action)
                 }
@@ -1404,6 +1408,7 @@ private fun AppDropdownMenu(
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
         MenuRow(Icons.Outlined.History, "History") { onAction(HomeAction.History) }
+        MenuRow(Icons.Outlined.People, "Profiles") { onAction(HomeAction.Profiles) }
         MenuRow(Icons.Outlined.Settings, "Settings") { onAction(HomeAction.Settings) }
     }
 }

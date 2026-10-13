@@ -38,7 +38,7 @@ class LegacyFormatTest {
         )
         val encoded = json.encodeToString(DayRecord.serializer(), record)
         assertEquals(
-            "{\"date\":\"2026-10-12\",\"template\":\"SUN_TUE_WED\",\"segments\":[],\"flags\":[],\"checkIn\":null,\"plannedBlocks\":null,\"demo\":false}",
+            "{\"date\":\"2026-10-12\",\"template\":\"SUN_TUE_WED\",\"segments\":[],\"flags\":[],\"checkIn\":null,\"plannedBlocks\":null,\"demo\":false,\"profileName\":null}",
             encoded,
         )
         assertEquals(record, json.decodeFromString(DayRecord.serializer(), encoded))
@@ -53,7 +53,7 @@ class LegacyFormatTest {
                 "{\"id\":\"fri_sat.kid_am\",\"type\":{\"type\":\"com.roni.blocks.core.model.BlockType.KidTime\"},\"start\":\"09:00\",\"end\":\"13:00\",\"pomodoro\":null,\"quiet\":false}," +
                 "{\"id\":\"fri_sat.free\",\"type\":{\"type\":\"com.roni.blocks.core.model.BlockType.Free\"},\"start\":\"13:00\",\"end\":\"15:00\",\"pomodoro\":null,\"quiet\":false}," +
                 "{\"id\":\"fri_sat.kid_pm\",\"type\":{\"type\":\"com.roni.blocks.core.model.BlockType.KidTime\"},\"start\":\"15:00\",\"end\":\"22:30\",\"pomodoro\":null,\"quiet\":false}]," +
-                "\"edited\":false}",
+                "\"edited\":false,\"profileName\":null}",
             encoded,
         )
         assertEquals(plan, json.decodeFromString(TodayPlan.serializer(), encoded))

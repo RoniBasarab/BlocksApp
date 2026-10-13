@@ -74,7 +74,7 @@ Rules that hold everywhere:
 | --- | --- | --- |
 | `core/model/Model.kt` | `Template`, `TemplateId`, `BlockSpec`, `TodayPlan`, `Segment`, `DayRecord` — the persisted shapes; `WalkSession`/`WalkLog` for standalone walks (2.4.0); `TemplateId` is a `value class` over a String and `BlockType.Custom` carries your own kinds (3.0.0) | kotlinx.serialization |
 | `core/model/Categories.kt` | `CategoryInfo`/`CategorySet` and the `Categories.current` snapshot the pure mappers read; CV/Coding/Gym/Free defaults (3.0.0); `CategoryPalette`, the 12 colours a category can take (3.1.0) | Model |
-| `core/model/Templates.kt` | `StoredTemplate`, `Profile` and the built-in seed texts/icons/accents/weekdays (3.0.0); `archived`, `shortFor`/`subtitleFor`/`accentFor` and `OWN_TEMPLATE_ICONS` for your own templates (3.1.0) | Model |
+| `core/model/Templates.kt` | `StoredTemplate`, `Profile` (`days: Map<Int, TemplateId>?`, 3.2.0) and the built-in seed texts/icons/accents/weekdays (3.0.0); `archived`, `shortFor`/`subtitleFor`/`accentFor` and `OWN_TEMPLATE_ICONS` for your own templates (3.1.0) | Model |
 
 ## core/notifications
 
@@ -86,6 +86,12 @@ Rules that hold everywhere:
 | `core/notifications/NotificationModel.kt` | Channel/action enums and `NotificationModelMapper` (block → notification text); `walk()` builds the standalone walk notification (2.4.0); the "Dishes done · pick your evening" evening alert (2.5.0) | ScheduleEngine, DayState, TimeFormatter |
 | `core/notifications/NotificationRenderer.kt` | `NotificationPort` plus the real renderer; the port exists so tests can fake it | NotificationModel, AppVisibility, DismissalStore |
 | `core/notifications/WalkRinger.kt` | `WalkRinger` plus the alarm-clock walk ringer (2.3.0): half-time and home rings, even on silent | NotificationRenderer, TimeFormatter |
+
+## core/profiles
+
+| path | what it does | talks to |
+| --- | --- | --- |
+| `core/profiles/Profiles.kt` | Profiles (3.2.0), pure: `ProfileBook`, `ProfileEdit`/`ProfileRefusal`, and `repair` (the 3.1 → 3.2 weekday move), `create`/`rename`/`delete`/`switchTo`, `addTemplate`/`removeTemplate`/`setDay`/`dropTemplate`, `suggestedFor`/`daysOf` | Model |
 
 ## core/schedule
 
@@ -116,9 +122,9 @@ Rules that hold everywhere:
 | --- | --- | --- |
 | `core/storage/HistoryManager.kt` | The only reader/writer of days and week aggregates; a version flow lets Home observe writes; `addWalk`/`walks`/`observeWalks` for standalone walks (2.4.0); each day's step total (2.5.0) | PrefsStorage, Model |
 | `core/storage/PrefsStorage.kt` | SharedPreferences wrapper split into DAY / SETTINGS / HISTORY files | android.content.SharedPreferences |
-| `core/storage/Actions.kt` | The two use cases the Templates screens write through (3.1.0): `TemplateActions` (create/save/delete/setWeekdays; a save tells a waiting day) and `CategoryActions` (update/add/delete, rewriting using blocks) | TemplateStore, CategoryStore, DayOrchestrator |
+| `core/storage/Actions.kt` | The use cases the profile screens write through: `TemplateActions` (`createIn`/`save`/`delete`; a save tells a waiting day) and `CategoryActions` (update/add/delete, rewriting using blocks) (3.1.0); `ProfileActions` (create/rename/delete/switchTo/addTemplate/removeTemplate/setDay) (3.2.0) | TemplateStore, CategoryStore, DayOrchestrator |
 | `core/storage/CategoryStore.kt` | Loads/saves `CategorySet` from prefs and sets `Categories.current` (3.0.0); `update`/`add`/`delete` with `CategoryResult`, built-ins never deleted (3.1.0) | PrefsStorage, Categories |
-| `core/storage/TemplateStore.kt` | The stored templates and the one profile; seeds from assets, validates on load, `all`/`get`/`suggestedFor` (3.0.0); `find`/`isBuiltIn`, the writes (`create`/`save`/`delete`/`setWeekdays`/`replaceCategory`), broken own templates archived not crashing (3.1.0); `templates` StateFlow republished on every write and load (3.1.1) | PrefsStorage, assets, TemplateRules, TemplateEditor |
+| `core/storage/TemplateStore.kt` | The stored templates and the `ProfileBook`; seeds from assets, validates on load, `all`/`get`/`suggestedFor` (3.0.0); `find`/`isBuiltIn`, the writes (`createIn`/`save`/`delete`/`replaceCategory`), broken own templates archived not crashing (3.1.0); `templates` StateFlow republished on every write and load (3.1.1); `profiles` StateFlow, `library`/`profileTemplates`/`edit`/`activeProfileName`, `Profiles.repair` on load and seed (3.2.0) | PrefsStorage, assets, TemplateRules, TemplateEditor, Profiles |
 | `core/storage/TemplateManager.kt` | A thin façade over `TemplateStore`, so `get`/`all` keep their call sites (3.0.0) | TemplateStore |
 
 ## core/widget
@@ -161,7 +167,7 @@ Rules that hold everywhere:
 | `designsystem/Format.kt` | `formatSteps`: the one place step counts get thousands separators (2.5.0) | — |
 | `designsystem/Motion.kt` | The app's only motion token | Compose animation |
 | `designsystem/Primitives.kt` | Row-level primitives: `SettingsRow`, tonal chips, `ScreenColumn` | Tokens, Components, Color |
-| `designsystem/Shell.kt` | `AppTab` and the bottom-bar / top-bar shell | Color, Type, Tokens |
+| `designsystem/Shell.kt` | `AppTab` (Home/Weekly/Insights) and the bottom-bar / top-bar shell; the ≡ menu carries History/Profiles/Settings (3.2.0) | Color, Type, Tokens |
 | `designsystem/TemplateDisplay.kt` | Title, subtitle and block preview for one template, read from `TemplateStore` (3.0.0); `iconFor` gains work/school/home icons (3.1.0) | Model, TemplateStore |
 | `designsystem/Theme.kt` | Material color scheme and typography wiring | Color, Type |
 | `designsystem/Tokens.kt` | `Spacing`, `AppShapes`, `Metrics` | Compose units |
@@ -179,13 +185,15 @@ Rules that hold everywhere:
 | `feature/home/CalendarMapper.kt` | Pure model→view mapping for the calendar; no clock, no context | DayCalendar |
 | `feature/home/CalendarLayout.kt` | Pure geometry (2.6.0): `fit(blocks, ticks, dayStartMin)` returns each block's `TextFit`/sliver and the pill rows, so no text overlaps | — |
 | `feature/home/DayCalendar.kt` | The Home calendar grid; draws exactly what `CalendarLayout.fit` returns — slivers, block text, walk ticks and the pill rows (2.6.0) | designsystem, CalendarLayout |
-| `feature/history/History.kt` | History list and the day-detail recap, plus both ViewModels; day detail shows "Walks" section for standalone walks (2.4.0) and each day's steps (2.5.0) | HistoryManager, DayRecapMapper |
+| `feature/history/History.kt` | History list and the day-detail recap, plus both ViewModels; day detail shows "Walks" section for standalone walks (2.4.0) and each day's steps (2.5.0); each day shows the profile it started under (3.2.0) | HistoryManager, DayRecapMapper |
 | `feature/weekly/Weekly.kt` | Weekly screen: planned vs actual per type as bars, week navigation; the week's step total tile (2.5.0) | HistoryManager |
 | `feature/insights/Insights.kt` | Insights screen: last complete week vs the one before | HistoryManager |
-| `feature/templatepicker/TemplatePicker.kt` | Template picker with a live preview of the rest of today; a scrolling `LazyVerticalGrid` of cards, effects via `PickerEffect.Started` (3.1.1) | DayOrchestrator, TemplateStore |
-| `feature/templates/TemplatesScreen.kt` | The 3.1.0 Templates tab: the scaffold (top bar with History/Settings, bottom bar) and the section list | TemplateSection, CategorySection |
-| `feature/templates/TemplateSection.kt` | `TemplateListViewModel` (@HiltViewModel) + the templates section: follows `TemplateStore.templates`, one card per stored template, tap opens the editor, New via `TemplateActions` (3.1.1) | TemplateStore, TemplateActions |
-| `feature/templates/TemplateEditorScreen.kt` | The template editor: the block list and preview strip; every accepted edit saved through `TemplateActions`, built-ins read-only (3.1.0) | TemplateEditor, TemplateActions, TemplateStore |
+| `feature/profiles/ProfilesScreen.kt` | The Profiles list (3.2.0): `ProfilesViewModel` (rows follow `store.profiles`, the `how_to_seen` hint, New profile with Start empty / Copy, Categories entry) and `ProfilesRoute`/`ProfilesScreen` | TemplateStore, ProfileActions, PrefsStorage |
+| `feature/profiles/ProfileScreen.kt` | One profile (3.2.0): `ProfileViewModel` (rename, Use this, the 7 day rows, the profile's templates with remove, + New template / + Add existing, Delete profile) and the stateless `ProfileScreen` | TemplateStore, ProfileActions, TemplateActions |
+| `feature/profiles/CategoriesScreen.kt` | The shared Categories screen (3.2.0): a back/"Categories"/? top bar around the unchanged `CategorySection` | CategorySection |
+| `feature/profiles/HowToUse.kt` | The 5-card "How to use" tour (3.2.0): a full-height sheet with a `HorizontalPager`, dots, Back/Next ("Done" last); `HowToAction.Page`/`Close` | designsystem |
+| `feature/templatepicker/TemplatePicker.kt` | Template picker with a live preview of the rest of today; a scrolling `LazyVerticalGrid` of cards, effects via `PickerEffect.Started` (3.1.1); the top profile switcher ("Unemployed ▾"), the ? tour button and the suggestion/days from the active profile (3.2.0) | DayOrchestrator, TemplateStore, ProfileActions |
+| `feature/templates/TemplateEditorScreen.kt` | The template editor: the block list and preview strip; every accepted edit saved through `TemplateActions`, built-ins read-only (3.1.0); no weekday chips (days live on the profile page, 3.2.0) | TemplateEditor, TemplateActions, TemplateStore |
 | `feature/templates/BlockSheet.kt` | The block sheet: category, start, length, Delete/Save, with the editor's live result line (3.1.0) | TemplateEditor |
 | `feature/templates/CategorySection.kt` | `CategoryListViewModel` + the categories section: rows (built-ins, then yours) and the sheet that edits one (3.1.0) | CategoryStore, CategoryActions |
 | `feature/templates/CategorySheet.kt` | The category sheet: name, `CategoryPalette`, Pomodoro, "counts as work" and Delete (yours only) (3.1.0) | CategoryInfo |

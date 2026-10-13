@@ -92,6 +92,7 @@ data class HistoryDay(
     val weekdayShort: String,
     val dayNumber: String,
     val templateTitle: String,
+    val profileName: String?,
     val strip: List<Pair<Color, Float>>,
     val summary: String,
     val chip: HistoryChip,
@@ -189,6 +190,13 @@ private fun HistoryDayRow(day: HistoryDay, onClick: () -> Unit) {
                         text = day.templateTitle,
                         style = MaterialTheme.typography.bodyLarge,
                         color = AppTheme.colors.textPrimary,
+                    )
+                }
+                day.profileName?.let { name ->
+                    Text(
+                        text = name,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = AppTheme.colors.textMuted,
                     )
                 }
                 if (day.strip.isNotEmpty()) {
@@ -289,6 +297,7 @@ class HistoryViewModel @Inject constructor(
             dayNumber = date.dayOfMonth.toString(),
             templateTitle = (record.template?.let { id -> runCatching { templateDisplay(id).title }.getOrNull() }.orEmpty())
                 + (checkInWord(record.checkIn)?.let { " · $it" } ?: ""),
+            profileName = record.profileName,
             strip = strip,
             summary = summary,
             chip = chunk,

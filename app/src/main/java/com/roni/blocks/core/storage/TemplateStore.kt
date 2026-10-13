@@ -13,8 +13,10 @@ import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.model.UNEMPLOYED_PROFILE
 import com.roni.blocks.core.model.accentFor
 import com.roni.blocks.core.model.builtInTemplateSeeds
-import com.roni.blocks.core.model.shortFor
 import com.roni.blocks.core.model.subtitleFor
+import com.roni.blocks.core.profiles.ProfileBook
+import com.roni.blocks.core.profiles.ProfileEdit
+import com.roni.blocks.core.profiles.Profiles
 import com.roni.blocks.core.schedule.TemplateEditor
 import com.roni.blocks.core.schedule.TemplateRules
 import com.roni.blocks.core.schedule.toBlockSpecs
@@ -46,19 +48,38 @@ class TemplateStore @Inject constructor(
     private val seed: List<StoredTemplate> = parseSeed()
 
     @Volatile private var stored: List<StoredTemplate> = seed
-    @Volatile private var profile: Profile = UNEMPLOYED_PROFILE
+    @Volatile private var book: ProfileBook = Profiles.repair(
+        listOf(UNEMPLOYED_PROFILE), UNEMPLOYED_PROFILE.id, seed.associate { it.id to it.weekdays }, UNEMPLOYED_PROFILE,
+    )
 
     private val _templates = MutableStateFlow(all())
 
     /** The active profile's templates, in its order (3.1.1). Every write and every load publishes. */
     val templates: StateFlow<List<StoredTemplate>> = _templates.asStateFlow()
 
+    private val _profiles = MutableStateFlow(book)
+
+    /** Every profile plus the active one (3.2.0). Every write and every load publishes. */
+    val profiles: StateFlow<ProfileBook> = _profiles.asStateFlow()
+
     init {
         instance = this
     }
 
     /** The active profile's templates, in its order (deleted ones are archived and no longer listed). */
-    fun all(): List<StoredTemplate> = profile.templateIds.mapNotNull { id -> stored.firstOrNull { it.id == id && !it.archived } }
+    fun all(): List<StoredTemplate> = profileTemplates(book.activeId)
+
+    /** Every stored template that isn't archived (3.2.0): built-ins first, then yours in creation order. */
+    fun library(): List<StoredTemplate> {
+        val live = stored.filter { !it.archived }
+        return live.filter { isBuiltIn(it.id) } + live.filter { !isBuiltIn(it.id) }
+    }
+
+    /** That profile's templates in its order (3.2.0). */
+    fun profileTemplates(profileId: String): List<StoredTemplate> {
+        val ids = book.find(profileId)?.templateIds ?: return emptyList()
+        return ids.mapNotNull { id -> stored.firstOrNull { it.id == id && !it.archived } }
+    }
 
     /** The stored template, falling back to its built-in seed; null only for an unknown id. */
     fun find(id: TemplateId): StoredTemplate? = stored.firstOrNull { it.id == id } ?: seed.firstOrNull { it.id == id }
@@ -68,8 +89,14 @@ class TemplateStore @Inject constructor(
     /** True for the four templates 2.x shipped: they cannot be saved, deleted, or lose their seed. */
     fun isBuiltIn(id: TemplateId): Boolean = id in TemplateId.builtIns
 
-    /** The first template of the active profile whose weekdays contain [day]. */
-    fun suggestedFor(day: DayOfWeek): TemplateId? = all().firstOrNull { day.isoDayNumber in it.weekdays }?.id
+    /** The template the active profile suggests on [day] (3.2.0). */
+    fun suggestedFor(day: DayOfWeek): TemplateId? = Profiles.suggestedFor(book, day.isoDayNumber)
+
+    /** The active profile's display name, for the day it starts (3.2.0). */
+    fun activeProfileName(): String = book.active.name
+
+    /** The active profile's id. */
+    fun activeProfileId(): String = book.activeId
 
     suspend fun load() {
         val templates = prefs.read(PrefsFile.SETTINGS, KEY_TEMPLATES, ListSerializer(StoredTemplate.serializer()))
@@ -80,7 +107,13 @@ class TemplateStore @Inject constructor(
             return
         }
         stored = templates.map { validated(it) }
-        profile = profiles.firstOrNull { it.id == activeId } ?: profiles.firstOrNull() ?: UNEMPLOYED_PROFILE
+        val repaired = Profiles.repair(profiles, activeId, stored.associate { it.id to it.weekdays }, UNEMPLOYED_PROFILE)
+        book = repaired
+        if (repaired.profiles != profiles || repaired.activeId != activeId) {
+            prefs.write(PrefsFile.SETTINGS, KEY_PROFILES, book.profiles, ListSerializer(Profile.serializer()))
+            prefs.write(PrefsFile.SETTINGS, KEY_ACTIVE, book.activeId, String.serializer())
+        }
+        _profiles.value = book
         _templates.value = all()
     }
 
@@ -102,8 +135,11 @@ class TemplateStore @Inject constructor(
 
     // 3.1.0: the only writers. Each persists exactly what it changed and returns its result.
 
-    /** A new blank own template (`user_<n>`), inserted into the active profile before Off. */
-    suspend fun create(title: String): StoredTemplate {
+    /**
+     * A new blank own template (`user_<n>`), added to the library and to [profileId]'s templates
+     * before Off (3.2.0). New templates write `emptySet()` / `""`.
+     */
+    suspend fun createIn(profileId: String, title: String): StoredTemplate {
         val highest = stored.mapNotNull { it.id.key.removePrefix("user_").toIntOrNull() }.maxOrNull() ?: 0
         val key = "user_${highest + 1}"
         val id = TemplateId(key)
@@ -112,21 +148,29 @@ class TemplateStore @Inject constructor(
             id = id,
             title = title,
             subtitle = subtitleFor(blocks),
-            short = shortFor(emptySet()),
+            short = "",
             iconKey = "event",
             accentArgb = accentFor(blocks),
             weekdays = emptySet(),
             blocks = blocks,
         )
         stored = stored + created
-        val ids = profile.templateIds.toMutableList()
-        val off = ids.indexOf(TemplateId.OFF)
-        ids.add(if (off >= 0) off else ids.size, id)
-        profile = profile.copy(templateIds = ids)
         prefs.write(PrefsFile.SETTINGS, KEY_TEMPLATES, stored, ListSerializer(StoredTemplate.serializer()))
-        prefs.write(PrefsFile.SETTINGS, KEY_PROFILES, listOf(profile), ListSerializer(Profile.serializer()))
-        _templates.value = all()
+        edit { Profiles.addTemplate(it, profileId, id) }
         return created
+    }
+
+    /** Runs one profile change through [Profiles] (3.2.0); on Ok, persists the book and publishes both flows. */
+    suspend fun edit(change: (ProfileBook) -> ProfileEdit): ProfileEdit {
+        val result = change(book)
+        if (result is ProfileEdit.Ok) {
+            book = result.book
+            prefs.write(PrefsFile.SETTINGS, KEY_PROFILES, book.profiles, ListSerializer(Profile.serializer()))
+            prefs.write(PrefsFile.SETTINGS, KEY_ACTIVE, book.activeId, String.serializer())
+            _profiles.value = book
+            _templates.value = all()
+        }
+        return result
     }
 
     /** Saves an own template; false for built-ins or a template that breaks the rules. Recomputes the display subtitle and accent. */
@@ -140,38 +184,13 @@ class TemplateStore @Inject constructor(
         return true
     }
 
-    /** Deletes an own template: it stays in stored (archived) so History still resolves its title, and leaves every profile. */
+    /** Deletes an own template: it stays in stored (archived) so History still resolves its title, and leaves every profile (3.2.0). */
     suspend fun delete(id: TemplateId): Boolean {
         if (isBuiltIn(id)) return false
         stored = stored.map { if (it.id == id) it.copy(archived = true) else it }
-        if (id in profile.templateIds) {
-            profile = profile.copy(templateIds = profile.templateIds.filter { it != id })
-            prefs.write(PrefsFile.SETTINGS, KEY_PROFILES, listOf(profile), ListSerializer(Profile.serializer()))
-        }
         prefs.write(PrefsFile.SETTINGS, KEY_TEMPLATES, stored, ListSerializer(StoredTemplate.serializer()))
-        _templates.value = all()
+        edit { ProfileEdit.Ok(Profiles.dropTemplate(it, id)) }
         return true
-    }
-
-    /** Claims [days] for [id] (built-ins too): the days leave every other template and land here; shorts are recomputed for what changed. */
-    suspend fun setWeekdays(id: TemplateId, days: Set<Int>) {
-        var changed = false
-        stored = stored.map { t ->
-            when {
-                t.id == id -> {
-                    changed = true
-                    t.copy(weekdays = days, short = shortFor(days))
-                }
-                t.weekdays.any { it in days } -> {
-                    changed = true
-                    val rest = t.weekdays - days
-                    t.copy(weekdays = rest, short = shortFor(rest))
-                }
-                else -> t
-            }
-        }
-        if (changed) prefs.write(PrefsFile.SETTINGS, KEY_TEMPLATES, stored, ListSerializer(StoredTemplate.serializer()))
-        _templates.value = all()
     }
 
     /**
@@ -196,10 +215,13 @@ class TemplateStore @Inject constructor(
 
     private suspend fun saveSeed() {
         stored = seed
-        profile = UNEMPLOYED_PROFILE
+        book = Profiles.repair(
+            listOf(UNEMPLOYED_PROFILE), UNEMPLOYED_PROFILE.id, seed.associate { it.id to it.weekdays }, UNEMPLOYED_PROFILE,
+        )
         prefs.write(PrefsFile.SETTINGS, KEY_TEMPLATES, seed, ListSerializer(StoredTemplate.serializer()))
-        prefs.write(PrefsFile.SETTINGS, KEY_PROFILES, listOf(UNEMPLOYED_PROFILE), ListSerializer(Profile.serializer()))
-        prefs.write(PrefsFile.SETTINGS, KEY_ACTIVE, UNEMPLOYED_PROFILE.id, String.serializer())
+        prefs.write(PrefsFile.SETTINGS, KEY_PROFILES, book.profiles, ListSerializer(Profile.serializer()))
+        prefs.write(PrefsFile.SETTINGS, KEY_ACTIVE, book.activeId, String.serializer())
+        _profiles.value = book
         _templates.value = all()
     }
 

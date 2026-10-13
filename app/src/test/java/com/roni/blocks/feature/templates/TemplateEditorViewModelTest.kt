@@ -1,4 +1,4 @@
-package com.roni.blocks.feature.templates
+﻿package com.roni.blocks.feature.templates
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.roni.blocks.core.logging.AppLogger
@@ -76,14 +76,14 @@ class TemplateEditorViewModelTest {
     )
 
     private suspend fun ownTemplate(vararg blocks: BlockSpec): StoredTemplate {
-        val created = actions.create("Mine")
+        val created = actions.createIn(store.activeProfileId(), "Mine")
         actions.save(created.copy(blocks = blocks.toList()))
         return store.find(created.id)!!
     }
 
     @Test
     fun addBlock_toABlankTemplate_savesIt() = runBlocking {
-        val created = actions.create("Office day")
+        val created = actions.createIn(store.activeProfileId(), "Office day")
         viewModel.load(created.id)
 
         viewModel.onAction(TemplateEditorAction.AddBlock)
@@ -151,19 +151,8 @@ class TemplateEditorViewModelTest {
     }
 
     @Test
-    fun weekday_movesFromABuiltIn() = runBlocking {
-        val created = actions.create("Mine")
-        viewModel.load(created.id)
-
-        viewModel.onAction(TemplateEditorAction.ToggleDay(1))
-
-        assertEquals("Monday moves here from Monday / Thursday", viewModel.state.value.dayMoved)
-        assertEquals(setOf(4), store.find(TemplateId.MON_THU)!!.weekdays)
-    }
-
-    @Test
     fun deleteTemplate_leavesThePicker() = runBlocking {
-        val created = actions.create("Mine")
+        val created = actions.createIn(store.activeProfileId(), "Mine")
         viewModel.load(created.id)
 
         viewModel.onAction(TemplateEditorAction.DeleteTemplate)

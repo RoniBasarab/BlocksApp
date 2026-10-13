@@ -118,7 +118,7 @@ class TemplateStoreTest {
         val store = store()
         store.load()
 
-        val created = store.create("Office day")
+        val created = store.createIn(UNEMPLOYED_PROFILE.id, "Office day")
 
         assertEquals("user_1", created.id.key)
         assertEquals(listOf(BlockType.KidTime), created.blocks.map { it.type })
@@ -136,7 +136,7 @@ class TemplateStoreTest {
         val store = store()
         store.load()
 
-        store.create("Office day")
+        store.createIn(UNEMPLOYED_PROFILE.id, "Office day")
         assertEquals(
             listOf("MON_THU", "SUN_TUE_WED", "FRI_SAT", "user_1", "OFF"),
             store.templates.value.map { it.id.key },
@@ -153,7 +153,7 @@ class TemplateStoreTest {
     @Test
     fun delete_hidesIt_butHistoryStillFindsIt() = runBlocking {
         val store = store()
-        val created = store.create("Office day")
+        val created = store.createIn(UNEMPLOYED_PROFILE.id, "Office day")
 
         assertTrue(store.delete(created.id))
         assertTrue("deleting it must drop it from the profile", store.all().none { it.id == created.id })
@@ -162,21 +162,74 @@ class TemplateStoreTest {
     }
 
     @Test
-    fun setWeekdays_movesTheDayFromAnotherTemplate() = runBlocking {
+    fun load31_movesTheWeekdaysIntoTheProfile() = runBlocking {
+        val prefs = storage()
+        val seed = TemplateStore(context, prefs, logger)
+        val builtIns = TemplateId.builtIns.map { id ->
+            val t = seed.get(id)
+            if (id == TemplateId.MON_THU) t.copy(weekdays = setOf(4), short = "THU") else t
+        }
+        val office = seed.get(TemplateId.MON_THU).copy(
+            id = TemplateId("user_1"), title = "In-Office", weekdays = setOf(1), short = "MON",
+        )
+        prefs.write(PrefsFile.SETTINGS, "templates", builtIns + office, ListSerializer(StoredTemplate.serializer()))
+        prefs.write(
+            PrefsFile.SETTINGS, "profiles",
+            listOf(UNEMPLOYED_PROFILE.copy(templateIds = TemplateId.builtIns.dropLast(1) + office.id + TemplateId.OFF)),
+            ListSerializer(Profile.serializer()),
+        )
+        prefs.write(PrefsFile.SETTINGS, "active_profile", UNEMPLOYED_PROFILE.id, String.serializer())
+
         val store = store()
-        store.create("Office day")
+        store.load()
 
-        store.setWeekdays(TemplateId("user_1"), setOf(1))
-
-        assertEquals(setOf(4), requireNotNull(store.find(TemplateId.MON_THU)).weekdays)
-        assertEquals("THU", requireNotNull(store.find(TemplateId.MON_THU)).short)
         assertEquals(TemplateId("user_1"), store.suggestedFor(DayOfWeek.MONDAY))
+        assertEquals(TemplateId.SUN_TUE_WED, store.suggestedFor(DayOfWeek.SUNDAY))
+        val persisted = prefs.read(PrefsFile.SETTINGS, "profiles", ListSerializer(Profile.serializer()))!!
+        assertTrue("repair must write the days back", persisted.all { it.days != null })
+    }
+
+    @Test
+    fun profiles_surviveARestart() = runBlocking {
+        val store = store()
+        store.load()
+        val actions = ProfileActions(store)
+
+        actions.create("Employed", copyActive = true)
+        val employed = store.profiles.value.profiles.first { it.name == "Employed" }
+        actions.switchTo(employed.id)
+        actions.setDay(employed.id, 1, TemplateId.MON_THU)
+
+        val restarted = store()
+        restarted.load()
+
+        assertEquals("Employed", restarted.profiles.value.active.name)
+        assertEquals(TemplateId.MON_THU, restarted.profiles.value.active.days?.get(1))
+    }
+
+    @Test
+    fun deletedTemplate_leavesEveryProfile() = runBlocking {
+        val store = store()
+        store.load()
+        val actions = ProfileActions(store)
+        val created = store.createIn(UNEMPLOYED_PROFILE.id, "Office day")
+        actions.create("Employed", copyActive = true)
+        val employed = store.profiles.value.profiles.first { it.name == "Employed" }
+        actions.setDay(UNEMPLOYED_PROFILE.id, 1, created.id)
+        actions.setDay(employed.id, 2, created.id)
+
+        assertTrue(store.delete(created.id))
+
+        val book = store.profiles.value
+        assertTrue("the deleted template leaves every profile", book.profiles.none { created.id in it.templateIds })
+        assertTrue("no day points at it", book.profiles.none { created.id in it.days.orEmpty().values })
+        assertEquals("Office day", requireNotNull(store.find(created.id)).title)
     }
 
     @Test
     fun replaceCategory_renamesOrFrees() = runBlocking {
         val store = store()
-        val created = store.create("Office day")
+        val created = store.createIn(UNEMPLOYED_PROFILE.id, "Office day")
         val withOffice = created.copy(
             blocks = listOf(
                 BlockSpec("user_1.b1", BlockType.Custom("cat_1", "Office", 0xFFE08A7A, true, false), LocalTime(9, 0), LocalTime(17, 0)),
@@ -203,7 +256,7 @@ class TemplateStoreTest {
     @Test
     fun aBrokenOwnTemplate_isArchived_notACrash() = runBlocking {
         val store = store()
-        store.create("Office day")
+        store.createIn(UNEMPLOYED_PROFILE.id, "Office day")
         val mine = requireNotNull(store.find(TemplateId("user_1")))
         val broken = mine.copy(
             blocks = listOf(

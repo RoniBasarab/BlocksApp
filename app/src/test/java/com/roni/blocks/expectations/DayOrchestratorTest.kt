@@ -35,6 +35,7 @@ import com.roni.blocks.core.storage.CategoryStore
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
+import com.roni.blocks.core.storage.ProfileActions
 import com.roni.blocks.core.storage.TemplateManager
 import com.roni.blocks.core.storage.TemplateStore
 import com.roni.blocks.core.storage.debtMinutes
@@ -429,7 +430,7 @@ class DayOrchestratorTest {
 
     private suspend fun ownOffice(store: TemplateStore): StoredTemplate {
         store.load()
-        val mine = store.create("Office day")
+        val mine = store.createIn(store.activeProfileId(), "Office day")
         val withCoding = mine.copy(
             blocks = listOf(
                 BlockSpec("user_1.b1", BlockType.Coding, LocalTime(10, 0), LocalTime(12, 0)),
@@ -491,10 +492,33 @@ class DayOrchestratorTest {
     }
 
     @Test
+    fun dayRecord_keepsTheProfileItStartedWith() = runBlocking {
+        val store = TemplateStore(context, prefs, logger)
+        store.load()
+        val actions = ProfileActions(store)
+        orchestrator = newOrchestrator(templates = TemplateManager(store), templateStore = store)
+
+        clock.now = LocalTime(9, 5).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        val planBefore = requireNotNull(orchestrator.todayPlan.value)
+
+        actions.create("Employed", copyActive = true)
+        val employed = store.profiles.value.profiles.first { it.name == "Employed" }
+        actions.switchTo(employed.id)
+
+        assertEquals("today's plan never changes at the switch", planBefore, orchestrator.todayPlan.value)
+
+        clock.now = LocalTime(20, 0).at(date, zone)
+        orchestrator.handle(DayEvent.EndDay(EndReason.NORMAL))
+
+        assertEquals("Unemployed", requireNotNull(history.readDay(date)).profileName)
+    }
+
+    @Test
     fun customCategoryRenamed_todaysPlanFollows() = runBlocking {
         val store = TemplateStore(context, prefs, logger)
         store.load()
-        val mine = store.create("Office day")
+        val mine = store.createIn(store.activeProfileId(), "Office day")
         val withCustom = mine.copy(
             blocks = listOf(
                 BlockSpec("user_1.b1", BlockType.Custom("cat_1", "Office", 0xFFE08A7A, true, false), LocalTime(10, 0), LocalTime(12, 0)),

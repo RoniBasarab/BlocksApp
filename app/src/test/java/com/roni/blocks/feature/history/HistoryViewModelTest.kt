@@ -25,6 +25,7 @@ import kotlinx.datetime.TimeZone
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -136,6 +137,16 @@ class HistoryViewModelTest {
         val day = viewModel.state.value.weeks.single().days.single()
         assertEquals("Ran over 18m", day.chip.text)
         assertEquals(com.roni.blocks.designsystem.Leak, day.chip.color)
+    }
+
+    @Test
+    fun day_showsItsProfile() = runBlocking {
+        history.writeDay(DayRecord(friday, template = null, segments = emptyList(), profileName = "Unemployed"))
+        history.writeDay(DayRecord(tuesdaySep8, template = null, segments = emptyList()))
+
+        val days = build().state.value.weeks.flatMap { it.days }
+        assertEquals("Unemployed", days.first { it.date == friday.toString() }.profileName)
+        assertNull("a day with no profile shows none", days.first { it.date == tuesdaySep8.toString() }.profileName)
     }
 
     @Test

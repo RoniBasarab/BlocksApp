@@ -13,10 +13,12 @@ import com.roni.blocks.feature.history.HistoryDetailRoute
 import com.roni.blocks.feature.history.HistoryRoute
 import com.roni.blocks.feature.home.HomeRoute
 import com.roni.blocks.feature.insights.InsightsRoute
+import com.roni.blocks.feature.profiles.CategoriesRoute
+import com.roni.blocks.feature.profiles.ProfileRoute
+import com.roni.blocks.feature.profiles.ProfilesRoute
 import com.roni.blocks.feature.settings.SettingsRoute
 import com.roni.blocks.feature.templatepicker.TemplatePickerRoute
 import com.roni.blocks.feature.templates.TemplateEditorRoute
-import com.roni.blocks.feature.templates.TemplatesRoute
 import com.roni.blocks.feature.weekly.WeeklyRoute
 import kotlinx.serialization.Serializable
 
@@ -24,9 +26,11 @@ import kotlinx.serialization.Serializable
 @Serializable data object HomeKey : NavKey
 @Serializable data object WeeklyKey : NavKey
 @Serializable data object InsightsKey : NavKey
-@Serializable data object TemplatesKey : NavKey
+@Serializable data object ProfilesKey : NavKey
+@Serializable data object CategoriesKey : NavKey
 @Serializable data object HistoryKey : NavKey
 @Serializable data object SettingsKey : NavKey
+@Serializable data class ProfileKey(val id: String) : NavKey
 @Serializable data class HistoryDayKey(val date: String) : NavKey
 @Serializable data class TemplateEditorKey(val key: String) : NavKey
 
@@ -77,12 +81,22 @@ fun AppRoot(start: StartDestination, modifier: Modifier = Modifier) {
             }
             entry<WeeklyKey> { WeeklyRoute(onTab = ::openTab, onMenu = { backStack.add(it) }) }
             entry<InsightsKey> { InsightsRoute(onTab = ::openTab, onMenu = { backStack.add(it) }) }
-            entry<TemplatesKey> {
-                TemplatesRoute(
-                    onTab = ::openTab,
-                    onMenu = { backStack.add(it) },
+            entry<ProfilesKey> {
+                ProfilesRoute(
+                    onBack = { backStack.removeAt(backStack.lastIndex) },
+                    onOpenProfile = { backStack.add(ProfileKey(it)) },
+                    onOpenCategories = { backStack.add(CategoriesKey) },
+                )
+            }
+            entry<ProfileKey> { key ->
+                ProfileRoute(
+                    id = key.id,
+                    onBack = { backStack.removeAt(backStack.lastIndex) },
                     onOpenTemplate = { backStack.add(TemplateEditorKey(it.key)) },
                 )
+            }
+            entry<CategoriesKey> {
+                CategoriesRoute(onBack = { backStack.removeAt(backStack.lastIndex) })
             }
             entry<TemplateEditorKey> { key ->
                 TemplateEditorRoute(id = TemplateId(key.key), onBack = { backStack.removeAt(backStack.lastIndex) })

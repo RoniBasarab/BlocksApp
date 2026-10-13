@@ -74,9 +74,10 @@ class CategoryListViewModelTest {
 
     @Test
     fun deleteCustom_freesItsBlocksInTemplates() = runBlocking {
-        val (templates, categories) = testActions(context)
+        val rig = testActions(context)
+        val (templates, categories) = rig
         categories.add("Office", 0xFFE08A7A, work = true, pomodoro = false)
-        val created = templates.create("Office day")
+        val created = templates.createIn(rig.store.activeProfileId(), "Office day")
         templates.save(
             created.copy(
                 blocks = listOf(
