@@ -59,7 +59,7 @@ import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.model.BlockSpec
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.TemplateId
-import com.roni.blocks.core.storage.TemplateManager
+import com.roni.blocks.core.storage.TemplateStore
 import com.roni.blocks.core.time.Ticker
 import com.roni.blocks.designsystem.AppBackground
 import com.roni.blocks.designsystem.AppCard
@@ -125,7 +125,7 @@ sealed interface PickerAction {
  */
 class TemplatePickerViewModel @Inject constructor(
     private val day: DayOrchestrator,
-    private val templates: TemplateManager,
+    private val templates: TemplateStore,
     private val ticker: Ticker,
     private val clock: Clock,
     private val zone: TimeZone,
@@ -152,18 +152,17 @@ class TemplatePickerViewModel @Inject constructor(
         _state.value = PickerUiState(
             greeting = greetingFor(local.hour),
             date = "${local.dayOfWeek.title()}, ${local.day} ${local.month.name.title()}",
-            cards = TemplateId.builtIns.map { id ->
-                val display = templateDisplay(id)
-                val template = templates.get(id)
+            cards = templates.all().map { template ->
+                val display = templateDisplay(template.id)
                 PickerCard(
-                    id = id,
+                    id = template.id,
                     title = display.title,
                     subtitle = display.subtitle,
                     summary = summarize(template.blocks),
                     icon = display.icon,
                     accent = display.accent,
-                    suggested = id == today,
-                    outlined = id == TemplateId.OFF,
+                    suggested = template.id == today,
+                    outlined = template.id == TemplateId.OFF,
                     strip = stripFor(template.blocks),
                 )
             }.toPersistentList(),
@@ -171,7 +170,11 @@ class TemplatePickerViewModel @Inject constructor(
     }
 }
 
-internal fun todayTemplate(day: DayOfWeek): TemplateId = when (day) {
+internal fun todayTemplate(day: DayOfWeek): TemplateId =
+    TemplateStore.instance?.suggestedFor(day) ?: seedSuggestion(day)
+
+/** The weekdays 2.x shipped, used when no store is up (previews and pure tests). */
+private fun seedSuggestion(day: DayOfWeek): TemplateId = when (day) {
     DayOfWeek.SUNDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY -> TemplateId.SUN_TUE_WED
     DayOfWeek.MONDAY, DayOfWeek.THURSDAY -> TemplateId.MON_THU
     DayOfWeek.FRIDAY, DayOfWeek.SATURDAY -> TemplateId.FRI_SAT

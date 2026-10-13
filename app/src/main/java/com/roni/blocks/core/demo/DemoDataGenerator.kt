@@ -21,6 +21,7 @@ import com.roni.blocks.core.schedule.toBlockSpecs
 import com.roni.blocks.core.schedule.toPlanBlocks
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.TemplateManager
+import com.roni.blocks.core.storage.TemplateStore
 import com.roni.blocks.core.time.at
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -47,6 +48,7 @@ open class DemoDataGenerator @Inject constructor(
     private val history: HistoryManager,
     private val clock: Clock,
     private val zone: TimeZone,
+    private val templateStore: TemplateStore? = null,
 ) {
     /** Seeds [weeks] of demo history and returns how many days were written. */
     open suspend fun seed(weeks: Int = 4, seed: Int = 42): Int {
@@ -242,11 +244,12 @@ open class DemoDataGenerator @Inject constructor(
         else -> Choice.READ
     }
 
-    private fun templateFor(day: DayOfWeek): TemplateId = when (day) {
-        DayOfWeek.SUNDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY -> TemplateId.SUN_TUE_WED
-        DayOfWeek.MONDAY, DayOfWeek.THURSDAY -> TemplateId.MON_THU
-        DayOfWeek.FRIDAY, DayOfWeek.SATURDAY -> TemplateId.FRI_SAT
-    }
+    private fun templateFor(day: DayOfWeek): TemplateId =
+        templateStore?.suggestedFor(day) ?: when (day) {
+            DayOfWeek.SUNDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY -> TemplateId.SUN_TUE_WED
+            DayOfWeek.MONDAY, DayOfWeek.THURSDAY -> TemplateId.MON_THU
+            DayOfWeek.FRIDAY, DayOfWeek.SATURDAY -> TemplateId.FRI_SAT
+        }
 
     /** The first not-yet-used day index whose weekday runs the Sun/Tue/Wed template. */
     private fun sunTueWedIndex(today: LocalDate, dayCount: Int, used: Set<Int>): Int? =

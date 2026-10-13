@@ -41,6 +41,7 @@ import com.roni.blocks.core.storage.CategoryStore
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
+import com.roni.blocks.core.storage.TemplateStore
 import com.roni.blocks.core.steps.StepBook
 import com.roni.blocks.core.steps.StepSensor
 import com.roni.blocks.core.steps.StepState
@@ -110,6 +111,8 @@ class DayOrchestrator @Inject constructor(
     @ApplicationScope private val scope: CoroutineScope,
     /** The categories in use (3.0.0). Production injects it and loads it at restore; hand-built tests default to null. */
     private val categories: CategoryStore? = null,
+    /** The stored templates (3.0.0). Production injects it and loads it at restore; hand-built tests default to null. */
+    private val templateStore: TemplateStore? = null,
 ) {
     private val _state = MutableStateFlow<DayState>(DayState.NotStarted)
     val state: StateFlow<DayState> = _state.asStateFlow()
@@ -200,6 +203,7 @@ class DayOrchestrator @Inject constructor(
             if (_isRestored.value) return
             try {
                 categories?.load()
+                templateStore?.load()
                 restoreFromStorage()
                 logger.info("restored day_state=${_state.value}")
             } catch (e: CancellationException) {

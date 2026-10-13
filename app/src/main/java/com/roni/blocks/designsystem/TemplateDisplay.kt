@@ -2,15 +2,16 @@ package com.roni.blocks.designsystem
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Event
 import androidx.compose.material.icons.outlined.FitnessCenter
 import androidx.compose.material.icons.outlined.SportsEsports
 import androidx.compose.material.icons.outlined.Weekend
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import com.roni.blocks.core.model.BlockType
-import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.TemplateId
+import com.roni.blocks.core.model.builtInTemplateSeeds
+import com.roni.blocks.core.storage.TemplateStore
 
 @Immutable
 data class TemplateDisplay(
@@ -21,37 +22,25 @@ data class TemplateDisplay(
     val accent: Color,
 )
 
-private val displays: Map<TemplateId, TemplateDisplay> = mapOf(
-    TemplateId.MON_THU to TemplateDisplay(
-        title = "Monday / Thursday",
-        subtitle = "Gym day",
-        short = "MON · THU",
-        icon = Icons.Outlined.FitnessCenter,
-        accent = blockColors(BlockType.Gym).accent,
-    ),
-    TemplateId.SUN_TUE_WED to TemplateDisplay(
-        title = "Sunday / Tuesday / Wednesday",
-        subtitle = "Focus day",
-        short = "SUN · TUE · WED",
-        icon = Icons.Outlined.Code,
-        accent = blockColors(BlockType.Coding).accent,
-    ),
-    TemplateId.FRI_SAT to TemplateDisplay(
-        title = "Friday / Saturday",
-        subtitle = "Family day",
-        short = "FRI · SAT",
-        icon = Icons.Outlined.Weekend,
-        accent = blockColors(BlockType.Free).accent,
-    ),
-    TemplateId.OFF to TemplateDisplay(
-        title = "Off day",
-        subtitle = "Anything goes",
-        short = "ANY DAY",
-        icon = Icons.Outlined.SportsEsports,
-        accent = blockColors(BlockType.EveningChoice(Choice.CHILL)).accent,
-    ),
-)
+private fun iconFor(key: String): ImageVector = when (key) {
+    "fitness" -> Icons.Outlined.FitnessCenter
+    "code" -> Icons.Outlined.Code
+    "weekend" -> Icons.Outlined.Weekend
+    "games" -> Icons.Outlined.SportsEsports
+    else -> Icons.Outlined.Event
+}
 
-fun templateDisplay(id: TemplateId): TemplateDisplay = displays.getValue(id)
+/** The stored template when the store is up, else the built-in seed, so a preview never blocks. */
+fun templateDisplay(id: TemplateId): TemplateDisplay {
+    val stored = TemplateStore.instance?.get(id)
+    val seed = builtInTemplateSeeds[id]
+    return TemplateDisplay(
+        title = stored?.title ?: seed?.title ?: id.key,
+        subtitle = stored?.subtitle ?: seed?.subtitle.orEmpty(),
+        short = stored?.short ?: seed?.short.orEmpty(),
+        icon = iconFor(stored?.iconKey ?: seed?.iconKey.orEmpty()),
+        accent = Color(stored?.accentArgb ?: seed?.accentArgb ?: 0xFF7A9CC6),
+    )
+}
 
 fun templateTitle(id: TemplateId): String = templateDisplay(id).title
