@@ -65,12 +65,15 @@ import com.roni.blocks.core.profiles.ProfileBook
 import com.roni.blocks.core.profiles.ProfileEdit
 import com.roni.blocks.core.profiles.ProfileRefusal
 import com.roni.blocks.core.profiles.Profiles
+import com.roni.blocks.core.storage.ExplainerKey
+import com.roni.blocks.core.storage.ExplainerStore
 import com.roni.blocks.core.storage.ProfileActions
 import com.roni.blocks.core.storage.TemplateActions
 import com.roni.blocks.core.storage.TemplateStore
 import com.roni.blocks.designsystem.AppCard
 import com.roni.blocks.designsystem.AppShapes
 import com.roni.blocks.designsystem.AppTheme
+import com.roni.blocks.designsystem.ExplainerDialog
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.SectionHeader
 import com.roni.blocks.designsystem.Spacing
@@ -111,6 +114,7 @@ data class ProfileState(
     val templates: ImmutableList<ProfileTemplateUi> = persistentListOf(),
     val days: ImmutableList<DayRowUi> = persistentListOf(),
     val dayPicker: Int? = null,
+    val explainDays: Boolean = false,
     val addExisting: ImmutableList<ProfileTemplateUi>? = null,
     val newTemplate: String? = null,
     val confirmDelete: Boolean = false,
@@ -130,6 +134,7 @@ sealed interface ProfileAction {
     data class NewTemplateName(val text: String) : ProfileAction
     data object CreateTemplate : ProfileAction
     data class OpenDay(val iso: Int) : ProfileAction
+    data object GotItDays : ProfileAction
     data class SetDay(val iso: Int, val id: TemplateId?) : ProfileAction
     data object Delete : ProfileAction
     data object ConfirmDelete : ProfileAction
@@ -153,6 +158,7 @@ class ProfileViewModel @Inject constructor(
     private val store: TemplateStore,
     private val profiles: ProfileActions,
     private val templates: TemplateActions,
+    private val explainers: ExplainerStore,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ProfileState())
     val state: StateFlow<ProfileState> = _state.asStateFlow()
@@ -161,6 +167,7 @@ class ProfileViewModel @Inject constructor(
     val effects: SharedFlow<ProfileEffect> = _effects.asSharedFlow()
 
     private var profileId: String? = null
+    private var pendingDay: Int? = null
 
     init {
         viewModelScope.launch {
@@ -188,7 +195,8 @@ class ProfileViewModel @Inject constructor(
             ProfileAction.NewTemplate -> _state.update { it.copy(newTemplate = "") }
             is ProfileAction.NewTemplateName -> _state.update { it.copy(newTemplate = action.text) }
             ProfileAction.CreateTemplate -> createTemplate()
-            is ProfileAction.OpenDay -> _state.update { it.copy(dayPicker = action.iso) }
+            is ProfileAction.OpenDay -> openDay(action.iso)
+            ProfileAction.GotItDays -> gotItDays()
             is ProfileAction.SetDay -> if (id != null) viewModelScope.launch {
                 profiles.setDay(id, action.iso, action.id)
                 _state.update { it.copy(dayPicker = null) }
@@ -201,6 +209,26 @@ class ProfileViewModel @Inject constructor(
             ProfileAction.HowTo -> _state.update { it.copy(howTo = true, howToPage = 0) }
             is ProfileAction.HowToPage -> _state.update { it.copy(howToPage = action.page) }
             ProfileAction.CloseHowTo -> _state.update { it.copy(howTo = false) }
+        }
+    }
+
+    private fun openDay(iso: Int) {
+        viewModelScope.launch {
+            if (explainers.seen(ExplainerKey.DAYS)) {
+                _state.update { it.copy(dayPicker = iso) }
+            } else {
+                pendingDay = iso
+                _state.update { it.copy(explainDays = true) }
+            }
+        }
+    }
+
+    private fun gotItDays() {
+        viewModelScope.launch {
+            explainers.markSeen(ExplainerKey.DAYS)
+            val iso = pendingDay
+            pendingDay = null
+            _state.update { it.copy(explainDays = false, dayPicker = iso) }
         }
     }
 
@@ -400,6 +428,9 @@ fun ProfileScreen(state: ProfileState, onAction: (ProfileAction) -> Unit, onBack
             state.addExisting?.let { AddExistingSheet(it, onAction) }
             state.newTemplate?.let { NewTemplateDialog(it, onAction) }
             if (state.confirmDelete) DeleteDialog(state.name, onAction)
+            if (state.explainDays) {
+                ExplainerDialog(ExplainerKey.DAYS, onGotIt = { onAction(ProfileAction.GotItDays) })
+            }
             if (state.howTo) {
                 HowToUse(state.howToPage) { howToAction ->
                     onAction(
