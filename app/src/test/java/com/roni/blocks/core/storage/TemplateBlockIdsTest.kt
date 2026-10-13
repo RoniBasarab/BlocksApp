@@ -60,7 +60,7 @@ class TemplateBlockIdsTest {
             assertEquals("$template is in time order", blocks.map { it.start }, blocks.map { it.start }.sorted())
         }
 
-        val allIds = TemplateId.entries.flatMap { template -> templates.get(template).blocks.map { it.id } }
+        val allIds = TemplateId.builtIns.flatMap { template -> templates.get(template).blocks.map { it.id } }
         assertEquals(
             "block ids must not repeat",
             allIds.size,

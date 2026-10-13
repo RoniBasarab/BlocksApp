@@ -21,7 +21,7 @@ class TemplateManager @Inject constructor(
     private val json = Json { ignoreUnknownKeys = true }
     private val cache: Map<TemplateId, Template> by lazy { load() }
 
-    fun all(): List<Template> = TemplateId.entries.map { requireNotNull(cache[it]) }
+    fun all(): List<Template> = TemplateId.builtIns.map { requireNotNull(cache[it]) }
 
     fun get(id: TemplateId): Template = requireNotNull(cache[id])
 

@@ -70,8 +70,8 @@ class TemplatePickerTest {
     @Test
     fun screen_rendersFourTaggedCardsWithOneSuggested() {
         setContent()
-        TemplateId.entries.forEach { id ->
-            compose.onNodeWithTag("template_card_${id.name}").assertIsDisplayed()
+        TemplateId.builtIns.forEach { id ->
+            compose.onNodeWithTag("template_card_${id.key}").assertIsDisplayed()
         }
         compose.onAllNodesWithText("Suggested").assertCountEquals(1)
     }
@@ -97,7 +97,7 @@ class TemplatePickerTest {
     private fun fakeState(suggested: TemplateId = TemplateId.SUN_TUE_WED) = PickerUiState(
         greeting = "Good morning",
         date = "Sunday, 27 September",
-        cards = TemplateId.entries.map { id ->
+        cards = TemplateId.builtIns.map { id ->
             val display = templateDisplay(id)
             PickerCard(
                 id = id,

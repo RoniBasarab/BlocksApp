@@ -152,7 +152,7 @@ class TemplatePickerViewModel @Inject constructor(
         _state.value = PickerUiState(
             greeting = greetingFor(local.hour),
             date = "${local.dayOfWeek.title()}, ${local.day} ${local.month.name.title()}",
-            cards = TemplateId.entries.map { id ->
+            cards = TemplateId.builtIns.map { id ->
                 val display = templateDisplay(id)
                 val template = templates.get(id)
                 PickerCard(
@@ -348,7 +348,7 @@ private fun RowScope.TemplateCard(card: PickerCard, index: Int, onClick: () -> U
         modifier = Modifier
             .weight(1f)
             .aspectRatio(Metrics.cardAspect)
-            .testTag("template_card_${card.id.name}")
+            .testTag("template_card_${card.id.key}")
             .graphicsLayer {
                 alpha = enter.value
                 translationY = (1f - enter.value) * Metrics.slide.toPx()

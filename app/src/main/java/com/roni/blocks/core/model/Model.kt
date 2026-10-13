@@ -11,12 +11,18 @@ import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 
+/** A template's key (3.0.0). Saved as plain text, exactly like the 2.x enum, so old data decodes unchanged. */
 @Serializable
-enum class TemplateId {
-    MON_THU,
-    SUN_TUE_WED,
-    FRI_SAT,
-    OFF,
+@JvmInline
+value class TemplateId(val key: String) {
+    companion object {
+        val MON_THU = TemplateId("MON_THU")
+        val SUN_TUE_WED = TemplateId("SUN_TUE_WED")
+        val FRI_SAT = TemplateId("FRI_SAT")
+        val OFF = TemplateId("OFF")
+        /** The four templates 2.x shipped with, in picker order. */
+        val builtIns = listOf(MON_THU, SUN_TUE_WED, FRI_SAT, OFF)
+    }
 }
 
 @Serializable
