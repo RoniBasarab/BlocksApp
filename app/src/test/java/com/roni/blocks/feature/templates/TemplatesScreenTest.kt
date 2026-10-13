@@ -9,6 +9,7 @@ import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateStore
 import com.roni.blocks.designsystem.BlocksTheme
+import com.roni.blocks.testing.testActions
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import org.junit.Before
 import org.junit.Rule
@@ -38,11 +39,12 @@ class TemplatesScreenTest {
 
     @Test
     fun templatesTab_listsTheFourTemplatesAndTheFourCategories() {
+        val (_, categories) = testActions(context)
         compose.setContent {
             BlocksTheme {
                 Column {
                     TemplateSection(onOpenTemplate = {}, onNewTemplate = {})
-                    CategorySection()
+                    CategorySection(viewModel = CategoryListViewModel(categories))
                 }
             }
         }

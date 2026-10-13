@@ -14,17 +14,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.roni.blocks.core.model.Categories
 import com.roni.blocks.core.model.CategoryInfo
 import com.roni.blocks.core.model.CategoryPalette
@@ -34,13 +34,12 @@ import com.roni.blocks.core.storage.CategoryResult
 import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.SectionHeader
 import com.roni.blocks.designsystem.Spacing
-import dagger.hilt.EntryPoint
-import dagger.hilt.InstallIn
-import dagger.hilt.android.EntryPointAccessors
-import dagger.hilt.components.SingletonComponent
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** The category editor's sheet state (3.1.0). [id] is null while making a new category. */
@@ -55,106 +54,118 @@ data class CategorySheetUi(
     val confirmDelete: Boolean = false,
 )
 
-/** The real actions in the running app. In previews and Robolectric tests without Hilt, writes are dropped. */
-@EntryPoint
-@InstallIn(SingletonComponent::class)
-internal interface CategoryActionsEntryPoint {
-    fun categoryActions(): CategoryActions
+/** The whole category editor's screen state (3.1.0): the rows and the sheet, when one is open. */
+@Immutable
+data class CategoryListState(
+    val categories: CategorySet,
+    val sheet: CategorySheetUi? = null,
+)
+
+/** Everything the category editor can do, sent to [CategoryListViewModel.onAction]. */
+sealed interface CategoryAction {
+    data class Open(val id: String) : CategoryAction
+    data object New : CategoryAction
+    data class Name(val text: String) : CategoryAction
+    data class Color(val argb: Long) : CategoryAction
+    data class Work(val on: Boolean) : CategoryAction
+    data class Pomodoro(val on: Boolean) : CategoryAction
+    data object Save : CategoryAction
+    data object Delete : CategoryAction
+    data object ConfirmDelete : CategoryAction
+    data object CancelDelete : CategoryAction
+    data object Dismiss : CategoryAction
 }
 
 /**
  * The category editor for the 3.1.0 Templates tab: the rows (built-ins, then yours) plus the sheet
  * that edits one. Every write goes through [CategoryActions]; the rows re-read [Categories] after.
  */
-class CategoryListViewModel(private val actions: CategoryActions?) : ViewModel() {
-    private val _categories = MutableStateFlow(Categories.current)
-    val categories: StateFlow<CategorySet> = _categories.asStateFlow()
+@HiltViewModel
+class CategoryListViewModel @Inject constructor(
+    private val actions: CategoryActions,
+) : ViewModel() {
+    private val _state = MutableStateFlow(CategoryListState(Categories.current))
+    val state: StateFlow<CategoryListState> = _state.asStateFlow()
 
-    private val _sheet = MutableStateFlow<CategorySheetUi?>(null)
-    val sheet: StateFlow<CategorySheetUi?> = _sheet.asStateFlow()
-
-    fun Open(id: String) {
-        val info = all().firstOrNull { it.id == id } ?: return
-        _sheet.value = CategorySheetUi(info.id, info.name, info.colorArgb, info.work, info.pomodoro, info.builtIn)
+    fun onAction(action: CategoryAction) {
+        when (action) {
+            is CategoryAction.Open -> open(action.id)
+            CategoryAction.New -> new()
+            is CategoryAction.Name -> editSheet { it.copy(name = action.text, error = null) }
+            is CategoryAction.Color -> editSheet { it.copy(colorArgb = action.argb) }
+            is CategoryAction.Work -> editSheet { it.copy(work = action.on) }
+            is CategoryAction.Pomodoro -> editSheet { it.copy(pomodoro = action.on) }
+            CategoryAction.Save -> save()
+            CategoryAction.Delete -> editSheet { it.copy(confirmDelete = true) }
+            CategoryAction.ConfirmDelete -> confirmDelete()
+            CategoryAction.CancelDelete -> editSheet { it.copy(confirmDelete = false) }
+            CategoryAction.Dismiss -> _state.update { it.copy(sheet = null) }
+        }
     }
 
-    fun New() {
+    private fun open(id: String) {
+        val info = all().firstOrNull { it.id == id } ?: return
+        _state.update {
+            it.copy(sheet = CategorySheetUi(info.id, info.name, info.colorArgb, info.work, info.pomodoro, info.builtIn))
+        }
+    }
+
+    private fun new() {
         val used = all().map { it.colorArgb }.toSet()
         val color = CategoryPalette.firstOrNull { it !in used } ?: CategoryPalette.first()
-        _sheet.value = CategorySheetUi(null, "", color, work = true, pomodoro = false, builtIn = false)
+        _state.update {
+            it.copy(sheet = CategorySheetUi(null, "", color, work = true, pomodoro = false, builtIn = false))
+        }
     }
 
-    fun Name(text: String) = edit { it.copy(name = text, error = null) }
-    fun Color(argb: Long) = edit { it.copy(colorArgb = argb) }
-    fun Work(on: Boolean) = edit { it.copy(work = on) }
-    fun Pomodoro(on: Boolean) = edit { it.copy(pomodoro = on) }
-    fun Delete() = edit { it.copy(confirmDelete = true) }
-    fun Dismiss() { _sheet.value = null }
-
-    fun Save() {
-        val ui = _sheet.value ?: return
+    private fun save() {
+        val ui = _state.value.sheet ?: return
         viewModelScope.launch {
             val result = if (ui.id == null) {
-                actions?.add(ui.name, ui.colorArgb, ui.work, ui.pomodoro)
+                actions.add(ui.name, ui.colorArgb, ui.work, ui.pomodoro)
             } else {
-                actions?.update(CategoryInfo(ui.id, ui.name, ui.colorArgb, ui.work, ui.pomodoro, ui.builtIn))
+                actions.update(CategoryInfo(ui.id, ui.name, ui.colorArgb, ui.work, ui.pomodoro, ui.builtIn))
             }
             when (result) {
-                CategoryResult.EmptyName -> _sheet.value = ui.copy(error = "Give it a name.")
-                CategoryResult.NameTaken -> _sheet.value = ui.copy(error = "That name is taken.")
-                CategoryResult.TooLong -> _sheet.value = ui.copy(error = "16 characters at most.")
-                else -> {
-                    _sheet.value = null
-                    refresh()
-                }
+                CategoryResult.EmptyName -> _state.update { it.copy(sheet = ui.copy(error = "Give it a name.")) }
+                CategoryResult.NameTaken -> _state.update { it.copy(sheet = ui.copy(error = "That name is taken.")) }
+                CategoryResult.TooLong -> _state.update { it.copy(sheet = ui.copy(error = "16 characters at most.")) }
+                else -> _state.update { it.copy(categories = Categories.current, sheet = null) }
             }
         }
     }
 
-    fun ConfirmDelete() {
-        val id = _sheet.value?.id ?: return
+    private fun confirmDelete() {
+        val id = _state.value.sheet?.id ?: return
         viewModelScope.launch {
-            actions?.delete(id)
-            _sheet.value = null
-            refresh()
+            actions.delete(id)
+            _state.update { it.copy(categories = Categories.current, sheet = null) }
         }
     }
 
     private fun all(): List<CategoryInfo> = Categories.current.let { it.builtIns + it.customs }
 
-    private fun edit(block: (CategorySheetUi) -> CategorySheetUi) {
-        _sheet.value = _sheet.value?.let(block)
-    }
-
-    private fun refresh() {
-        _categories.value = Categories.current
+    private fun editSheet(block: (CategorySheetUi) -> CategorySheetUi) {
+        _state.update { it.copy(sheet = it.sheet?.let(block)) }
     }
 }
 
 /** One row per category, tap to edit: a 12 dp dot in its colour, name and muted flags. */
 @Composable
-fun CategorySection(viewModel: CategoryListViewModel = rememberCategoryListViewModel()) {
-    val set by viewModel.categories.collectAsStateWithLifecycle()
-    val sheet by viewModel.sheet.collectAsStateWithLifecycle()
+fun CategorySection(viewModel: CategoryListViewModel = hiltViewModel()) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
     SectionHeader("Categories")
-    (set.builtIns + set.customs).forEach { info ->
-        CategoryRow(info, onClick = { viewModel.Open(info.id) })
+    (state.categories.builtIns + state.categories.customs).forEach { info ->
+        CategoryRow(info, onClick = { viewModel.onAction(CategoryAction.Open(info.id)) })
     }
-    TextButton(onClick = { viewModel.New() }, modifier = Modifier.testTag("cat_new")) {
+    TextButton(
+        onClick = { viewModel.onAction(CategoryAction.New) },
+        modifier = Modifier.testTag("cat_new"),
+    ) {
         Text("+ New category")
     }
-    sheet?.let { ui ->
-        CategorySheet(
-            ui = ui,
-            onName = viewModel::Name,
-            onColor = viewModel::Color,
-            onWork = viewModel::Work,
-            onPomodoro = viewModel::Pomodoro,
-            onSave = viewModel::Save,
-            onDelete = viewModel::Delete,
-            onConfirmDelete = viewModel::ConfirmDelete,
-            onDismiss = viewModel::Dismiss,
-        )
+    state.sheet?.let { ui ->
+        CategorySheet(ui = ui, onAction = viewModel::onAction)
     }
 }
 
@@ -181,16 +192,4 @@ private fun CategoryRow(info: CategoryInfo, onClick: () -> Unit) {
 private fun MutedLabel(text: String) {
     Text(text, style = MaterialTheme.typography.labelSmall, color = AppTheme.colors.textSecondary)
     Spacer(Modifier.width(Spacing.s))
-}
-
-/** The real [CategoryActions] when Hilt is up; null in previews and Hilt-free Robolectric tests. */
-@Composable
-private fun rememberCategoryListViewModel(): CategoryListViewModel {
-    val appContext = LocalContext.current.applicationContext
-    return viewModel {
-        val actions = runCatching {
-            EntryPointAccessors.fromApplication(appContext, CategoryActionsEntryPoint::class.java).categoryActions()
-        }.getOrNull()
-        CategoryListViewModel(actions)
-    }
 }

@@ -43,18 +43,11 @@ import com.roni.blocks.designsystem.Spacing
 @Composable
 fun CategorySheet(
     ui: CategorySheetUi,
-    onName: (String) -> Unit,
-    onColor: (Long) -> Unit,
-    onWork: (Boolean) -> Unit,
-    onPomodoro: (Boolean) -> Unit,
-    onSave: () -> Unit,
-    onDelete: () -> Unit,
-    onConfirmDelete: () -> Unit,
-    onDismiss: () -> Unit,
+    onAction: (CategoryAction) -> Unit,
 ) {
     val colors = AppTheme.colors
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { onAction(CategoryAction.Dismiss) },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         shape = AppShapes.sheet,
         containerColor = colors.surface,
@@ -71,7 +64,7 @@ fun CategorySheet(
             )
             OutlinedTextField(
                 value = ui.name,
-                onValueChange = { if (it.length <= 16) onName(it) },
+                onValueChange = { if (it.length <= 16) onAction(CategoryAction.Name(it)) },
                 label = { Text("Name") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().testTag("cat_name"),
@@ -83,24 +76,26 @@ fun CategorySheet(
                             ColorSwatch(
                                 argb = argb,
                                 selected = argb == ui.colorArgb,
-                                onClick = { onColor(argb) },
+                                onClick = { onAction(CategoryAction.Color(argb)) },
                                 modifier = Modifier.testTag("cat_color_${CategoryPalette.indexOf(argb)}"),
                             )
                         }
                     }
                 }
             }
-            SwitchRow("Pomodoro", "50 min focus, 10 min break", ui.pomodoro, onPomodoro)
-            if (!ui.builtIn) SwitchRow("Counts as work", "Shows in your work hours", ui.work, onWork)
+            SwitchRow("Pomodoro", "50 min focus, 10 min break", ui.pomodoro) { onAction(CategoryAction.Pomodoro(it)) }
+            if (!ui.builtIn) {
+                SwitchRow("Counts as work", "Shows in your work hours", ui.work) { onAction(CategoryAction.Work(it)) }
+            }
             ui.error?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = colors.leak) }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (!ui.builtIn) {
-                    TextButton(onClick = onDelete) {
+                    TextButton(onClick = { onAction(CategoryAction.Delete) }) {
                         Text("Delete", style = MaterialTheme.typography.labelLarge, color = colors.leak)
                     }
                 }
                 Spacer(Modifier.weight(1f))
-                Button(onClick = onSave, shape = AppShapes.chip) {
+                Button(onClick = { onAction(CategoryAction.Save) }, shape = AppShapes.chip) {
                     Text("Save", style = MaterialTheme.typography.labelLarge)
                 }
             }
@@ -108,19 +103,21 @@ fun CategorySheet(
     }
     if (ui.confirmDelete) {
         AlertDialog(
-            onDismissRequest = onDismiss,
+            onDismissRequest = { onAction(CategoryAction.CancelDelete) },
             title = { Text("Delete ${ui.name}?", style = MaterialTheme.typography.titleLarge) },
             text = { Text("Its blocks in your templates become free time. Days you already had keep it.") },
             confirmButton = {
                 TextButton(
-                    onClick = onConfirmDelete,
+                    onClick = { onAction(CategoryAction.ConfirmDelete) },
                     colors = ButtonDefaults.buttonColors(containerColor = Leak, contentColor = Color(0xFF1C1B19)),
                 ) {
                     Text("Delete", style = MaterialTheme.typography.labelLarge)
                 }
             },
             dismissButton = {
-                TextButton(onClick = onDismiss) { Text("Cancel", style = MaterialTheme.typography.labelLarge) }
+                TextButton(onClick = { onAction(CategoryAction.CancelDelete) }) {
+                    Text("Cancel", style = MaterialTheme.typography.labelLarge)
+                }
             },
         )
     }

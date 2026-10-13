@@ -25,8 +25,8 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 /**
- * Task-19a: the category editor's ViewModel against the real stores from [testActions], the way
- * [com.roni.blocks.feature.home.HomeViewModelTest] drives its own.
+ * Task-19a: the category editor's ViewModel against the real stores from [testActions], driven the
+ * way the screen drives it: one [CategoryAction] at a time through [CategoryListViewModel.onAction].
  */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34])
@@ -50,14 +50,14 @@ class CategoryListViewModelTest {
         val (_, categories) = testActions(context)
         val viewModel = CategoryListViewModel(categories)
 
-        viewModel.New()
-        viewModel.Name("Office")
-        viewModel.Color(0xFFE08A7A)
-        viewModel.Save()
+        viewModel.onAction(CategoryAction.New)
+        viewModel.onAction(CategoryAction.Name("Office"))
+        viewModel.onAction(CategoryAction.Color(0xFFE08A7A))
+        viewModel.onAction(CategoryAction.Save)
 
-        val office = viewModel.categories.value.customs.first { it.name == "Office" }
+        val office = viewModel.state.value.categories.customs.first { it.name == "Office" }
         assertEquals(0xFFE08A7A, office.colorArgb)
-        assertNull(viewModel.sheet.value)
+        assertNull(viewModel.state.value.sheet)
     }
 
     @Test
@@ -65,11 +65,11 @@ class CategoryListViewModelTest {
         val (_, categories) = testActions(context)
         val viewModel = CategoryListViewModel(categories)
 
-        viewModel.New()
-        viewModel.Name("coding")
-        viewModel.Save()
+        viewModel.onAction(CategoryAction.New)
+        viewModel.onAction(CategoryAction.Name("coding"))
+        viewModel.onAction(CategoryAction.Save)
 
-        assertEquals("That name is taken.", viewModel.sheet.value?.error)
+        assertEquals("That name is taken.", viewModel.state.value.sheet?.error)
     }
 
     @Test
@@ -92,14 +92,30 @@ class CategoryListViewModelTest {
         )
         val viewModel = CategoryListViewModel(categories)
 
-        viewModel.Open("cat_1")
-        viewModel.Delete()
-        viewModel.ConfirmDelete()
+        viewModel.onAction(CategoryAction.Open("cat_1"))
+        viewModel.onAction(CategoryAction.Delete)
+        viewModel.onAction(CategoryAction.ConfirmDelete)
 
-        assertTrue(viewModel.categories.value.customs.none { it.id == "cat_1" })
+        assertTrue(viewModel.state.value.categories.customs.none { it.id == "cat_1" })
         val stored = PrefsStorage(context, UnconfinedTestDispatcher())
             .read(PrefsFile.SETTINGS, "templates", ListSerializer(StoredTemplate.serializer()))
         val freed = requireNotNull(stored?.firstOrNull { it.id == created.id })
         assertEquals(BlockType.Free, freed.blocks.first().type)
+    }
+
+    @Test
+    fun cancelDelete_keepsTheSheetOpen() = runBlocking {
+        val (_, categories) = testActions(context)
+        categories.add("Office", 0xFFE08A7A, work = true, pomodoro = false)
+        val viewModel = CategoryListViewModel(categories)
+
+        viewModel.onAction(CategoryAction.Open("cat_1"))
+        viewModel.onAction(CategoryAction.Delete)
+        viewModel.onAction(CategoryAction.CancelDelete)
+
+        val sheet = viewModel.state.value.sheet
+        assertTrue(sheet != null)
+        assertEquals(false, sheet?.confirmDelete)
+        assertTrue(viewModel.state.value.categories.customs.any { it.id == "cat_1" })
     }
 }
