@@ -10,6 +10,14 @@ With a phone attached, run them with:
 These four cannot be automated reliably (they depend on the launcher, the reboot flow, the keyguard
 and the system DND state), so Roni runs them by hand.
 
+**Check on the phone (2.7.0).** Use the debug app for steps that move the clock (Settings -> Developer tools).
+
+1. After midnight (or with the debug clock at 07:00), pick a template: the calendar plus "Day starts at 09:00 · in 2h 0m", nothing counting.
+2. At 09:00 (debug clock) the first block starts by itself with a sound.
+3. Start now at 07:40: CV 07:40–08:10, free time until 09:30, and the calendar now begins at 07:00.
+4. Change day opens the picker.
+5. Steps read "about 2,050 steps"; Weekly shows "≈".
+
 **Check on the phone (2.6.0).** Use the debug app for steps that move the clock (Settings -> Developer tools).
 
 1. Evening: the top-bar walk icon opens the sheet; Start: the card counts 15:00 down in seconds.
