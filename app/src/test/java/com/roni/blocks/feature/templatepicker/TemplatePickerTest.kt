@@ -7,19 +7,28 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.roni.blocks.core.logging.AppLogger
 import com.roni.blocks.core.model.BlockSpec
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.TemplateId
+import com.roni.blocks.core.storage.PrefsFile
+import com.roni.blocks.core.storage.PrefsStorage
+import com.roni.blocks.core.storage.TemplateStore
 import com.roni.blocks.designsystem.BlocksTheme
 import com.roni.blocks.designsystem.templateDisplay
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.LocalTime
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(AndroidJUnit4::class)
@@ -86,6 +95,50 @@ class TemplatePickerTest {
         compose.onAllNodesWithText("Suggested").assertCountEquals(1)
         compose.onNodeWithTag("template_card_FRI_SAT").performClick()
         assertEquals(TemplateId.FRI_SAT, picked)
+    }
+
+    @Test
+    fun ownTemplate_isSuggestedOnItsDay() {
+        val context = RuntimeEnvironment.getApplication()
+        context.getSharedPreferences(PrefsFile.SETTINGS.name.lowercase(), 0).edit().clear().commit()
+        val ownId = runBlocking {
+            val store = TemplateStore(context, PrefsStorage(context, UnconfinedTestDispatcher()), AppLogger(context))
+            val own = store.create("Mine")
+            store.setWeekdays(own.id, setOf(1))
+            assertEquals(own.id, todayTemplate(DayOfWeek.MONDAY))
+            assertEquals(TemplateId.MON_THU, todayTemplate(DayOfWeek.THURSDAY))
+            own.id
+        }
+        // The cards follow the store's suggestion, like the picker's ViewModel builds them.
+        val cards = runBlocking {
+            val store = TemplateStore.instance!!
+            val today = todayTemplate(DayOfWeek.MONDAY)
+            store.all().map { template ->
+                val display = templateDisplay(template.id)
+                PickerCard(
+                    id = template.id,
+                    title = display.title,
+                    subtitle = display.subtitle,
+                    summary = display.short,
+                    icon = display.icon,
+                    accent = display.accent,
+                    suggested = template.id == today,
+                    outlined = template.id == TemplateId.OFF,
+                    strip = stripFor(template.blocks),
+                )
+            }.toPersistentList()
+        }
+        assertTrue(cards.first { it.id == ownId }.suggested)
+        assertFalse(cards.first { it.id == TemplateId.MON_THU }.suggested)
+
+        compose.setContent {
+            BlocksTheme { TemplatePickerScreen(PickerUiState(greeting = "Good morning", date = "Monday", cards = cards), {}) }
+        }
+        compose.onAllNodesWithText("Suggested").assertCountEquals(1)
+        compose.onNodeWithTag("template_card_${ownId.key}").assertIsDisplayed()
+
+        // A fresh store restores the seed so sibling tests still see the built-in suggestion.
+        TemplateStore(context, PrefsStorage(context, UnconfinedTestDispatcher()), AppLogger(context))
     }
 
     private fun setContent() {
