@@ -15,6 +15,7 @@ import com.roni.blocks.core.notifications.NotificationModel
 import com.roni.blocks.core.notifications.NotificationPort
 import com.roni.blocks.core.notifications.NotificationModelMapper
 import com.roni.blocks.core.schedule.ScheduleEngine
+import com.roni.blocks.core.storage.ExplainerStore
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
@@ -117,6 +118,7 @@ class SettingsViewModelTest {
         clock = clock,
         zone = zone,
         prefs = prefs,
+        explainers = ExplainerStore(prefs),
     )
 
     @After

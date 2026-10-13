@@ -2,16 +2,21 @@ package com.roni.blocks.feature.profiles
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.roni.blocks.core.model.TemplateId
+import com.roni.blocks.core.storage.ExplainerStore
 import com.roni.blocks.core.storage.PrefsFile
+import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.testing.testActions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlinx.datetime.DayOfWeek
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -36,11 +41,32 @@ class ProfileViewModelTest {
         Dispatchers.resetMain()
     }
 
+    private fun explainers() = ExplainerStore(PrefsStorage(context, UnconfinedTestDispatcher()))
+
+    @Test
+    fun firstDayTap_explainsThenOpens() = runBlocking {
+        val rig = testActions(context)
+        rig.store.load()
+        val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates, explainers())
+
+        viewModel.load("unemployed")
+        viewModel.onAction(ProfileAction.OpenDay(1))
+        assertTrue("the first tap explains Days", viewModel.state.value.explainDays)
+        assertNull("no sheet before the card is dismissed", viewModel.state.value.dayPicker)
+
+        viewModel.onAction(ProfileAction.GotItDays)
+        assertEquals(1, viewModel.state.value.dayPicker)
+        assertFalse(viewModel.state.value.explainDays)
+
+        viewModel.onAction(ProfileAction.OpenDay(2))
+        assertEquals("the second tap opens directly", 2, viewModel.state.value.dayPicker)
+    }
+
     @Test
     fun setDay_changesTheSuggestion() = runBlocking {
         val rig = testActions(context)
         rig.store.load()
-        val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates)
+        val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates, explainers())
 
         viewModel.load("unemployed")
         viewModel.onAction(ProfileAction.SetDay(1, TemplateId.MON_THU))
@@ -56,7 +82,7 @@ class ProfileViewModelTest {
         val own = rig.templates.createIn(rig.store.activeProfileId(), "Mine")
         rig.profiles.create("Empty", copyActive = false)
         val empty = rig.store.profiles.value.profiles.first { it.name == "Empty" }
-        val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates)
+        val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates, explainers())
 
         viewModel.load(empty.id)
         viewModel.onAction(ProfileAction.AddExisting)
@@ -77,12 +103,27 @@ class ProfileViewModelTest {
     }
 
     @Test
+    fun offDay_opensNothing() = runBlocking {
+        val rig = testActions(context)
+        rig.store.load()
+        val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates, explainers())
+        val effects = mutableListOf<ProfileEffect>()
+        val job = launch(Dispatchers.Unconfined) { viewModel.effects.collect { effects += it } }
+
+        viewModel.load("unemployed")
+        viewModel.onAction(ProfileAction.OpenTemplate(TemplateId.OFF))
+        job.cancel()
+
+        assertTrue("the Off-day card is not clickable", effects.isEmpty())
+    }
+
+    @Test
     fun activeProfile_cantBeDeleted() = runBlocking {
         val rig = testActions(context)
         rig.store.load()
         rig.profiles.create("Other", copyActive = false)
         val other = rig.store.profiles.value.profiles.first { it.name == "Other" }
-        val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates)
+        val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates, explainers())
 
         viewModel.load("unemployed")
         assertFalse(viewModel.state.value.canDelete)

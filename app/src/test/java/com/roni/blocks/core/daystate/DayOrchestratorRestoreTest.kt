@@ -106,14 +106,14 @@ class DayOrchestratorRestoreTest {
         assertFalse("restore has not run yet", pending.isRestored.value)
         assertEquals(DayState.NotStarted, pending.state.value)
         assertEquals(
-            "reading the destination before restore is what opened the picker",
-            StartDestination.TEMPLATE_PICKER,
-            resolveStartDestination(pending.state.value),
+            "reading the destination before restore is what opened the menu",
+            StartDestination.MAIN_MENU,
+            resolveStartDestination(pending.state.value, profileChosen = false),
         )
 
         val restored = orchestrator(Dispatchers.Unconfined)
         restored.awaitRestored()
-        assertEquals(StartDestination.HOME, resolveStartDestination(restored.state.value))
+        assertEquals(StartDestination.HOME, resolveStartDestination(restored.state.value, profileChosen = true))
     }
 
     @Test

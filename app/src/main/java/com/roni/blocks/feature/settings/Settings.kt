@@ -86,6 +86,7 @@ import com.roni.blocks.core.daystate.isDishesSlot
 import com.roni.blocks.core.logging.AppLogger
 import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.notifications.NotificationPort
+import com.roni.blocks.core.storage.ExplainerStore
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
@@ -161,6 +162,8 @@ sealed interface SettingsAction {
     data object DebugClockRealTime : SettingsAction
     data object DebugKidAsleep : SettingsAction
     data object DebugSkipDishes : SettingsAction
+    data object ResetExplainers : SettingsAction
+    data object ShowMainMenu : SettingsAction
 }
 
 /** One-shot outcomes the screen surfaces in its snackbar. */
@@ -208,6 +211,7 @@ class SettingsViewModel @Inject constructor(
     private val zone: TimeZone,
     private val debugTime: DebugTimeController,
     private val prefs: PrefsStorage,
+    private val explainers: ExplainerStore,
 ) : ViewModel() {
     private val _notificationPermission = MutableStateFlow(statuses.notificationsEnabled())
     private val _exactAlarms = MutableStateFlow(statuses.canScheduleExactAlarms())
@@ -369,6 +373,14 @@ class SettingsViewModel @Inject constructor(
     fun debugSkipDishes() {
         viewModelScope.launch {
             if (debugTime.skipDishes()) showMessage("Dishes skipped")
+        }
+    }
+
+    /** Debug: reveals every first-visit explainer card again. */
+    fun resetExplainers() {
+        viewModelScope.launch {
+            explainers.resetAll()
+            showMessage("Explainers reset")
         }
     }
 
@@ -695,6 +707,10 @@ private fun DeveloperToolsDialog(
                     DebugButton(DebugButtonUi("Load demo data (4 weeks)", null, SettingsAction.LoadDemoData, enabled = !state.demoBusy), onAction, Modifier.fillMaxWidth())
                     DebugButton(DebugButtonUi("Clear demo data", null, SettingsAction.ClearDemoData, enabled = !state.demoBusy), onAction, Modifier.fillMaxWidth())
                 }
+                DebugSection("Explainers") {
+                    DebugButton(DebugButtonUi("Reset explainers", null, SettingsAction.ResetExplainers), onAction, Modifier.fillMaxWidth())
+                    DebugButton(DebugButtonUi("Show main menu", null, SettingsAction.ShowMainMenu), onAction, Modifier.fillMaxWidth())
+                }
             }
         }
     }
@@ -821,6 +837,7 @@ fun SettingsRoute(
     onBack: () -> Unit,
     onResetToday: () -> Unit,
     onOpenHome: () -> Unit,
+    onShowMainMenu: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -880,6 +897,11 @@ fun SettingsRoute(
             SettingsAction.DebugClockRealTime -> viewModel.debugClockRealTime()
             SettingsAction.DebugKidAsleep -> viewModel.debugKidAsleep()
             SettingsAction.DebugSkipDishes -> viewModel.debugSkipDishes()
+            SettingsAction.ResetExplainers -> viewModel.resetExplainers()
+            SettingsAction.ShowMainMenu -> {
+                devToolsOpen = false
+                onShowMainMenu()
+            }
         }
     }
 

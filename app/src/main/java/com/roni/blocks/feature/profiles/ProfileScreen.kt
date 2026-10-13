@@ -52,6 +52,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -64,12 +65,15 @@ import com.roni.blocks.core.profiles.ProfileBook
 import com.roni.blocks.core.profiles.ProfileEdit
 import com.roni.blocks.core.profiles.ProfileRefusal
 import com.roni.blocks.core.profiles.Profiles
+import com.roni.blocks.core.storage.ExplainerKey
+import com.roni.blocks.core.storage.ExplainerStore
 import com.roni.blocks.core.storage.ProfileActions
 import com.roni.blocks.core.storage.TemplateActions
 import com.roni.blocks.core.storage.TemplateStore
 import com.roni.blocks.designsystem.AppCard
 import com.roni.blocks.designsystem.AppShapes
 import com.roni.blocks.designsystem.AppTheme
+import com.roni.blocks.designsystem.ExplainerDialog
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.SectionHeader
 import com.roni.blocks.designsystem.Spacing
@@ -110,6 +114,7 @@ data class ProfileState(
     val templates: ImmutableList<ProfileTemplateUi> = persistentListOf(),
     val days: ImmutableList<DayRowUi> = persistentListOf(),
     val dayPicker: Int? = null,
+    val explainDays: Boolean = false,
     val addExisting: ImmutableList<ProfileTemplateUi>? = null,
     val newTemplate: String? = null,
     val confirmDelete: Boolean = false,
@@ -129,6 +134,7 @@ sealed interface ProfileAction {
     data class NewTemplateName(val text: String) : ProfileAction
     data object CreateTemplate : ProfileAction
     data class OpenDay(val iso: Int) : ProfileAction
+    data object GotItDays : ProfileAction
     data class SetDay(val iso: Int, val id: TemplateId?) : ProfileAction
     data object Delete : ProfileAction
     data object ConfirmDelete : ProfileAction
@@ -152,6 +158,7 @@ class ProfileViewModel @Inject constructor(
     private val store: TemplateStore,
     private val profiles: ProfileActions,
     private val templates: TemplateActions,
+    private val explainers: ExplainerStore,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ProfileState())
     val state: StateFlow<ProfileState> = _state.asStateFlow()
@@ -160,6 +167,7 @@ class ProfileViewModel @Inject constructor(
     val effects: SharedFlow<ProfileEffect> = _effects.asSharedFlow()
 
     private var profileId: String? = null
+    private var pendingDay: Int? = null
 
     init {
         viewModelScope.launch {
@@ -177,7 +185,7 @@ class ProfileViewModel @Inject constructor(
         when (action) {
             is ProfileAction.Rename -> rename(action.name)
             ProfileAction.UseThis -> if (id != null) viewModelScope.launch { profiles.switchTo(id) }
-            is ProfileAction.OpenTemplate -> viewModelScope.launch { _effects.emit(ProfileEffect.OpenTemplate(action.id)) }
+            is ProfileAction.OpenTemplate -> if (action.id != TemplateId.OFF) viewModelScope.launch { _effects.emit(ProfileEffect.OpenTemplate(action.id)) }
             is ProfileAction.RemoveTemplate -> if (id != null) viewModelScope.launch { profiles.removeTemplate(id, action.id) }
             ProfileAction.AddExisting -> openAddExisting()
             is ProfileAction.AddTemplate -> if (id != null) viewModelScope.launch {
@@ -187,7 +195,8 @@ class ProfileViewModel @Inject constructor(
             ProfileAction.NewTemplate -> _state.update { it.copy(newTemplate = "") }
             is ProfileAction.NewTemplateName -> _state.update { it.copy(newTemplate = action.text) }
             ProfileAction.CreateTemplate -> createTemplate()
-            is ProfileAction.OpenDay -> _state.update { it.copy(dayPicker = action.iso) }
+            is ProfileAction.OpenDay -> openDay(action.iso)
+            ProfileAction.GotItDays -> gotItDays()
             is ProfileAction.SetDay -> if (id != null) viewModelScope.launch {
                 profiles.setDay(id, action.iso, action.id)
                 _state.update { it.copy(dayPicker = null) }
@@ -200,6 +209,26 @@ class ProfileViewModel @Inject constructor(
             ProfileAction.HowTo -> _state.update { it.copy(howTo = true, howToPage = 0) }
             is ProfileAction.HowToPage -> _state.update { it.copy(howToPage = action.page) }
             ProfileAction.CloseHowTo -> _state.update { it.copy(howTo = false) }
+        }
+    }
+
+    private fun openDay(iso: Int) {
+        viewModelScope.launch {
+            if (explainers.seen(ExplainerKey.DAYS)) {
+                _state.update { it.copy(dayPicker = iso) }
+            } else {
+                pendingDay = iso
+                _state.update { it.copy(explainDays = true) }
+            }
+        }
+    }
+
+    private fun gotItDays() {
+        viewModelScope.launch {
+            explainers.markSeen(ExplainerKey.DAYS)
+            val iso = pendingDay
+            pendingDay = null
+            _state.update { it.copy(explainDays = false, dayPicker = iso) }
         }
     }
 
@@ -399,6 +428,9 @@ fun ProfileScreen(state: ProfileState, onAction: (ProfileAction) -> Unit, onBack
             state.addExisting?.let { AddExistingSheet(it, onAction) }
             state.newTemplate?.let { NewTemplateDialog(it, onAction) }
             if (state.confirmDelete) DeleteDialog(state.name, onAction)
+            if (state.explainDays) {
+                ExplainerDialog(ExplainerKey.DAYS, onGotIt = { onAction(ProfileAction.GotItDays) })
+            }
             if (state.howTo) {
                 HowToUse(state.howToPage) { howToAction ->
                     onAction(
@@ -422,19 +454,29 @@ private fun TemplateCard(
     onRemove: () -> Unit,
 ) {
     val colors = AppTheme.colors
-    AppCard(onClick = onOpen, modifier = Modifier.fillMaxWidth().testTag("profile_template_${template.id.key}")) {
+    val off = template.id == TemplateId.OFF
+    AppCard(onClick = if (off) null else onOpen, modifier = Modifier.fillMaxWidth().testTag("profile_template_${template.id.key}")) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(iconFor(template.icon), null, tint = Color(template.accent))
             Spacer(Modifier.width(Spacing.m))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(template.title, style = MaterialTheme.typography.titleMedium, color = colors.textPrimary)
+                    Text(
+                        template.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = colors.textPrimary,
+                        modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     if (template.builtIn) {
                         Spacer(Modifier.width(Spacing.s))
                         Tag("Built-in")
                     }
                 }
-                if (template.days.isNotEmpty()) {
+                if (off) {
+                    Text("No blocks, no pings", style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+                } else if (template.days.isNotEmpty()) {
                     Text(template.days, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
                 }
             }
@@ -552,6 +594,8 @@ private fun Tag(text: String) {
         text,
         style = MaterialTheme.typography.labelSmall,
         color = AppTheme.colors.textSecondary,
+        maxLines = 1,
+        softWrap = false,
         modifier = Modifier
             .border(1.dp, AppTheme.colors.outline, RoundedCornerShape(50))
             .padding(horizontal = 6.dp, vertical = 2.dp),

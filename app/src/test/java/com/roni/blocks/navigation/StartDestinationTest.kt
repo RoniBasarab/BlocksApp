@@ -8,8 +8,9 @@ import org.junit.Test
 
 class StartDestinationTest {
     @Test
-    fun notStarted_isTheOnlyStateThatShowsThePicker() {
-        assertEquals(StartDestination.TEMPLATE_PICKER, resolveStartDestination(DayState.NotStarted))
+    fun notStarted_showsMainMenuUntilAProfileWasChosen() {
+        assertEquals(StartDestination.MAIN_MENU, resolveStartDestination(DayState.NotStarted, profileChosen = false))
+        assertEquals(StartDestination.TEMPLATE_PICKER, resolveStartDestination(DayState.NotStarted, profileChosen = true))
     }
 
     @Test
@@ -25,7 +26,8 @@ class StartDestinationTest {
             DayState.Ended,
             DayState.Off,
         ).forEach { state ->
-            assertEquals("$state", StartDestination.HOME, resolveStartDestination(state))
+            assertEquals("$state", StartDestination.HOME, resolveStartDestination(state, profileChosen = false))
+            assertEquals("$state", StartDestination.HOME, resolveStartDestination(state, profileChosen = true))
         }
     }
 }
