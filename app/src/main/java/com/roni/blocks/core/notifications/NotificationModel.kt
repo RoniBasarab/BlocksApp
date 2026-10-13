@@ -64,11 +64,16 @@ class NotificationModelMapper @Inject constructor(
     private val zone: TimeZone,
     private val timeFormatter: TimeFormatter,
 ) {
-    fun from(state: DayState, timeline: DayTimeline?, now: Instant): NotificationModel? {
+    fun from(
+        state: DayState,
+        timeline: DayTimeline?,
+        now: Instant,
+        templateName: String? = null,
+    ): NotificationModel? {
         val blocks = timeline?.blocks.orEmpty()
         return when (state) {
             DayState.NotStarted -> notStarted(now)
-            is DayState.Running -> running(state, blocks, timeline, now)
+            is DayState.Running -> running(state, blocks, timeline, now, templateName)
             is DayState.Paused -> paused(state, blocks, timeline)
             DayState.KidTime -> kidTime(now)
             is DayState.Evening -> evening(state, timeline, now)
@@ -128,7 +133,22 @@ class NotificationModelMapper @Inject constructor(
         blocks: List<ResolvedBlock>,
         timeline: DayTimeline?,
         now: Instant,
+        templateName: String?,
     ): NotificationModel? {
+        // 2.7.0: picked before its first block, the day waits. Nothing runs yet, so the notification
+        // is quiet and counts down to the first block; the widget shows the same model.
+        val firstStart = blocks.firstOrNull()?.plannedStart
+        if (timeline?.open == null && firstStart != null && now < firstStart) {
+            return NotificationModel(
+                key = "waiting",
+                channel = NotificationChannelKind.DAY,
+                title = "Day starts at ${hhmm(firstStart)}",
+                text = templateName.orEmpty(),
+                countdownTo = firstStart,
+                actions = emptyList(),
+                accentArgb = accent(blocks.firstOrNull()?.spec?.type),
+            )
+        }
         val block = blocks.getOrNull(state.blockIndex) ?: return null
         val id = block.spec.id
         val end = timeline?.let { effectiveEnd(it, now) } ?: block.plannedEnd

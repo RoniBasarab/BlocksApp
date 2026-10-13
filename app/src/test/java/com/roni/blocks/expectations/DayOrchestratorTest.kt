@@ -386,6 +386,73 @@ class DayOrchestratorTest {
     }
 
     @Test
+    fun startDay_beforeTheFirstBlock_waits() = runBlocking {
+        clock.now = LocalTime(0, 30).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+
+        assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 0), orchestrator.state.value)
+        assertTrue("the day must not open a block before its time", orchestrator.segments.value.isEmpty())
+        assertEquals(LocalTime(9, 0).at(date, zone), orchestrator.startsAt.value)
+        assertTrue(
+            "the first block's start must be the next alarm",
+            LocalTime(9, 0).at(date, zone).toEpochMilliseconds() in scheduledAlarms(),
+        )
+    }
+
+    @Test
+    fun firstBlock_startsByItselfAtItsTime() = runBlocking {
+        clock.now = LocalTime(0, 30).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        transitions.clear()
+
+        clock.now = LocalTime(9, 0, 5).at(date, zone)
+        orchestrator.onAlarm()
+
+        val open = orchestrator.segments.value.last { it.actualEnd == null }
+        assertEquals(BlockType.Cv, open.type)
+        assertEquals("sun_tue_wed.cv", open.blockId)
+        assertEquals(LocalTime(9, 0).at(date, zone), requireNotNull(open.plannedStart))
+        assertEquals("the day must start with the normal transition sound", true, transitions.last())
+    }
+
+    @Test
+    fun startNow_movesTheFirstBlockToNow() = runBlocking {
+        clock.now = LocalTime(7, 40).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+        assertEquals(DayState.Running(TemplateId.SUN_TUE_WED, 0), orchestrator.state.value)
+
+        assertTrue(orchestrator.startNow())
+
+        val open = orchestrator.segments.value.last { it.actualEnd == null }
+        assertEquals(BlockType.Cv, open.type)
+        assertEquals(LocalTime(7, 40).at(date, zone), open.actualStart)
+        assertEquals(LocalTime(7, 40).at(date, zone), requireNotNull(open.plannedStart))
+        assertEquals(LocalTime(8, 10).at(date, zone), requireNotNull(open.plannedEnd))
+
+        val plan = requireNotNull(orchestrator.todayPlan.value)
+        assertEquals(LocalTime(7, 40), plan.blocks[0].start)
+        assertEquals(LocalTime(8, 10), plan.blocks[0].end)
+        assertEquals("the gap the moved block leaves becomes free time", BlockType.Free, plan.blocks[1].type)
+        assertEquals(LocalTime(8, 10), plan.blocks[1].start)
+        assertEquals(LocalTime(9, 30), plan.blocks[1].end)
+    }
+
+    @Test
+    fun friSat_startNow_startsKidTime() = runBlocking {
+        clock.now = LocalTime(8, 15).at(date, zone)
+        orchestrator.handle(DayEvent.StartDay(TemplateId.FRI_SAT))
+        assertEquals(DayState.Running(TemplateId.FRI_SAT, 0), orchestrator.state.value)
+        assertEquals(LocalTime(9, 0).at(date, zone), orchestrator.startsAt.value)
+
+        assertTrue(orchestrator.startNow())
+
+        assertEquals(DayState.KidTime, orchestrator.state.value)
+        val open = orchestrator.segments.value.last { it.actualEnd == null }
+        assertEquals(BlockType.KidTime, open.type)
+        assertEquals(LocalTime(8, 15).at(date, zone), open.actualStart)
+    }
+
+    @Test
     fun todayPlan_startsAsTheTemplate() = runBlocking {
         orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
 

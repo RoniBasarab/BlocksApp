@@ -432,6 +432,26 @@ class HomeViewModelTest {
         assertEquals(TextFit.ONE_LINE, state.calendarFit.blocks.first { it.id == "sun_tue_wed.cv" }.fit)
     }
 
+    @Test
+    fun waiting_showsTheStartsAtCard() = runBlocking {
+        clock.now = LocalTime(7, 40).at(date, zone)
+        orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
+
+        val state = withTimeout(5_000) {
+            viewModel.state.first { it.nowCard?.title == "Day starts at 09:00" }
+        }
+
+        assertEquals("Starts at 09:00", state.status)
+        val nowCard = requireNotNull(state.nowCard)
+        assertEquals(
+            listOf(NowButtonId.START_NOW, NowButtonId.CHANGE_DAY),
+            nowCard.buttons.map { it.id },
+        )
+        assertEquals("Start now", nowCard.buttons.first { it.id == NowButtonId.START_NOW }.label)
+        assertEquals("Change day", nowCard.buttons.first { it.id == NowButtonId.CHANGE_DAY }.label)
+        assertEquals("in 1h 20m", nowCard.subtitle)
+    }
+
     private suspend fun startDayInsideCoding() {
         orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
         awaitRunningOrPaused { it.blockIndex() == 1 }

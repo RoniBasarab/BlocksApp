@@ -88,6 +88,7 @@ fun DayCalendar(
     calendarFit: CalendarFit,
     pillLabels: Map<String, String>,
     walkMarkers: List<WalkMarkerUi>,
+    dayStartMin: Int,
     currentBlockId: String?,
     leakFromMin: Int?,
     hourLabels: ImmutableList<String>,
@@ -102,7 +103,7 @@ fun DayCalendar(
 ) {
     SideEffect { RecompositionCounter.hit("DayCalendar") }
     val c = AppTheme.colors
-    val gridHeight = TopInset + HourHeight * ((DAY_END_MIN - DAY_START_MIN) / 60f)
+    val gridHeight = TopInset + HourHeight * ((DAY_END_MIN - dayStartMin) / 60f)
 
     // [CalendarLayout] already decided where everything goes; draw exactly that. Short walks are
     // ticks, so their blocks aren't in the fit and aren't drawn as blocks.
@@ -121,6 +122,7 @@ fun DayCalendar(
             BlocksLayout(
                 blocks = drawnBlocks,
                 fitById = fitById,
+                dayStartMin = dayStartMin,
                 currentBlockId = currentBlockId,
                 selectedBlockId = selectedBlockId,
                 draggingId = draggingId,
@@ -131,11 +133,13 @@ fun DayCalendar(
             )
             LeakOverlay(
                 leakFromMin = leakFromMin,
+                dayStartMin = dayStartMin,
                 minuteOfDay = minuteOfDay,
                 modifier = Modifier.fillMaxWidth().height(gridHeight),
             )
             WalkMarkersOverlay(
                 markers = walkMarkers,
+                dayStartMin = dayStartMin,
                 modifier = Modifier.fillMaxWidth().height(gridHeight),
             )
             PillRowsOverlay(
@@ -187,6 +191,7 @@ private fun HourGrid(hourLabels: ImmutableList<String>, modifier: Modifier = Mod
 private fun BlocksLayout(
     blocks: ImmutableList<CalendarBlockUi>,
     fitById: Map<String, BlockFit>,
+    dayStartMin: Int,
     currentBlockId: String?,
     selectedBlockId: String?,
     draggingId: String?,
@@ -226,6 +231,7 @@ private fun BlocksLayout(
                         CalendarBlock(
                             block = block,
                             fit = fitById.getValue(block.id),
+                            dayStartMin = dayStartMin,
                             isCurrent = block.id == currentBlockId,
                             isSelected = block.id == selectedBlockId,
                             minuteOfDay = minuteOfDay,
@@ -267,13 +273,13 @@ private fun BlocksLayout(
         val handlePlaceables = measurables[1].map { it.measure(Constraints()) }
         layout(constraints.maxWidth, constraints.maxHeight) {
             blockPlaceables.forEach { (p, start) ->
-                p.place(left, (top + (start - DAY_START_MIN) * pxPerMin + gap).roundToInt())
+                p.place(left, (top + (start - dayStartMin) * pxPerMin + gap).roundToInt())
             }
             if (selected != null && handlePlaceables.isNotEmpty()) {
                 val start = anim[selected.id]?.first?.value ?: selected.startMin.toFloat()
                 val end = anim[selected.id]?.second?.value ?: selected.endMin.toFloat()
-                val topY = top + (start - DAY_START_MIN) * pxPerMin
-                val bottomY = top + (end - DAY_START_MIN) * pxPerMin
+                val topY = top + (start - dayStartMin) * pxPerMin
+                val bottomY = top + (end - dayStartMin) * pxPerMin
                 val rightX = left + width - handlePx
                 when (selected.edit) {
                     BlockEdit.FULL -> {
@@ -293,6 +299,7 @@ private fun BlocksLayout(
 private fun CalendarBlock(
     block: CalendarBlockUi,
     fit: BlockFit,
+    dayStartMin: Int,
     isCurrent: Boolean,
     isSelected: Boolean,
     minuteOfDay: () -> Int,
@@ -380,7 +387,7 @@ private fun CalendarBlock(
     ) {
         if (fit.sliver) return@BoxWithConstraints
         // The text starts where CalendarLayout says (relative to this block's top), never below it.
-        val topDp = fit.textTopDp - (block.startMin - DAY_START_MIN) * CalendarLayout.DP_PER_MIN
+        val topDp = fit.textTopDp - (block.startMin - dayStartMin) * CalendarLayout.DP_PER_MIN
         val timeStyle = MaterialTheme.typography.labelSmall.merge(AppType.numbers)
         Column(
             Modifier
@@ -405,7 +412,7 @@ private fun CalendarBlock(
 }
 
 @Composable
-private fun LeakOverlay(leakFromMin: Int?, minuteOfDay: () -> Int, modifier: Modifier = Modifier) {
+private fun LeakOverlay(leakFromMin: Int?, dayStartMin: Int, minuteOfDay: () -> Int, modifier: Modifier = Modifier) {
     if (leakFromMin == null) return
     val c = AppTheme.colors
     val measurer = rememberTextMeasurer()
@@ -417,8 +424,8 @@ private fun LeakOverlay(leakFromMin: Int?, minuteOfDay: () -> Int, modifier: Mod
             val pxPerMin = HourHeight.toPx() / 60f
             val left = (Gutter + Metrics.calendarGap).toPx()
             val right = size.width - Metrics.calendarRight.toPx()
-            val top = TopInset.toPx() + (leakFromMin - DAY_START_MIN) * pxPerMin
-            val bottom = TopInset.toPx() + (now - DAY_START_MIN) * pxPerMin
+            val top = TopInset.toPx() + (leakFromMin - dayStartMin) * pxPerMin
+            val bottom = TopInset.toPx() + (now - dayStartMin) * pxPerMin
             drawRoundRect(
                 c.leakContainer.copy(alpha = 0.85f),
                 Offset(left, top),
@@ -437,7 +444,7 @@ private fun LeakOverlay(leakFromMin: Int?, minuteOfDay: () -> Int, modifier: Mod
 }
 
 @Composable
-private fun WalkMarkersOverlay(markers: List<WalkMarkerUi>, modifier: Modifier = Modifier) {
+private fun WalkMarkersOverlay(markers: List<WalkMarkerUi>, dayStartMin: Int, modifier: Modifier = Modifier) {
     if (markers.isEmpty()) return
     val accent = Color(0xFF8FC7C9)
     Spacer(
@@ -446,7 +453,7 @@ private fun WalkMarkersOverlay(markers: List<WalkMarkerUi>, modifier: Modifier =
             val left = (Gutter + Metrics.calendarGap).toPx()
             val right = size.width - Metrics.calendarRight.toPx()
             markers.forEach { marker ->
-                val y = TopInset.toPx() + (marker.startMin - DAY_START_MIN) * pxPerMin
+                val y = TopInset.toPx() + (marker.startMin - dayStartMin) * pxPerMin
                 drawLine(accent, Offset(left, y), Offset(right, y), 1.dp.toPx())
             }
         },

@@ -56,6 +56,8 @@ object SegmentBook {
 
     fun startDay(template: Template, date: LocalDate, zone: TimeZone, now: Instant): DayBook {
         val blocks = resolve(template, date, zone, Duration.ZERO)
+        val first = blocks.firstOrNull() ?: return DayBook()
+        if (now < first.plannedStart) return DayBook(index = 0)        // 2.7.0: the day waits for its first block
         val index = blocks.indexOfFirst { now >= it.plannedStart && now < it.plannedEnd }
             .let { if (it >= 0) it else blocks.indexOfFirst { block -> now < block.plannedEnd }.coerceAtLeast(0) }
         val consumed = blocks.take(index).map { consumedLateStart(it) }
