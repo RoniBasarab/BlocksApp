@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.4.3
+- Fixed: a block running over still offered "Done early" on Home.
+
 ## 3.4.2
 - No notification while the day waits for its first block; the first one comes when the day starts.
 - Fixed: a quiet notification could still ring when it was posted for the first time (e.g. picking a template after midnight).
