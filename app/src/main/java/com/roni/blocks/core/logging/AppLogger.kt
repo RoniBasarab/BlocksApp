@@ -16,6 +16,8 @@ class AppLogger @Inject constructor(
 
     fun info(message: String) = write("I", message, null)
 
+    fun warn(message: String) = write("W", message, null)
+
     fun error(message: String, error: Throwable? = null) = write("E", message, error)
 
     fun shareFile(): File {

@@ -9,7 +9,6 @@ import com.roni.blocks.core.schedule.EngineTimeline
 import com.roni.blocks.core.schedule.PlanEditor
 import com.roni.blocks.core.schedule.ResolvedBlock
 import com.roni.blocks.core.schedule.ScheduleEngine
-import com.roni.blocks.core.schedule.effectiveEnd
 import com.roni.blocks.core.schedule.landingBlockForStartNext
 import com.roni.blocks.core.schedule.pomodoroStatus
 import com.roni.blocks.core.schedule.toPlanBlock
@@ -155,7 +154,9 @@ class NotificationModelMapper @Inject constructor(
         }
         val block = blocks.getOrNull(state.blockIndex) ?: return null
         val id = block.spec.id
-        val end = timeline?.let { effectiveEnd(it, now) } ?: block.plannedEnd
+        // 3.4.3: the running/ran-over decision follows today's plan block's end, like the card and
+        // the calendar, not the open segment's own copy of it.
+        val end = block.plannedEnd
         val open = timeline?.open
         val pomodoro = engine.pomodoroStatus(block, now, zone, open?.actualStart ?: block.plannedStart)
 
