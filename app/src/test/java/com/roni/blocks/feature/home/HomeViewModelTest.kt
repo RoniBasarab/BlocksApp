@@ -7,6 +7,7 @@ import com.roni.blocks.core.alarms.AlarmScheduler
 import com.roni.blocks.core.daystate.DayEvent
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.daystate.DayState
+import com.roni.blocks.core.daystate.DayStateSerializer
 import com.roni.blocks.core.daystate.EndReason
 import com.roni.blocks.core.logging.AppLogger
 import com.roni.blocks.core.model.BlockType
@@ -16,6 +17,9 @@ import com.roni.blocks.core.model.EVENING_CHOICE_ID
 import com.roni.blocks.core.model.EVENING_DISHES_ID
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.TemplateId
+import com.roni.blocks.core.model.TodayPlan
+import com.roni.blocks.core.model.LocalDateSerializer
+import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.isWork
 import com.roni.blocks.feature.templates.BlockSheetAction
 import com.roni.blocks.core.notifications.NotificationModel
@@ -24,6 +28,7 @@ import com.roni.blocks.core.notifications.NotificationPort
 import com.roni.blocks.core.schedule.Edge
 import com.roni.blocks.core.schedule.ScheduleEngine
 import com.roni.blocks.core.storage.HistoryManager
+import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
 import com.roni.blocks.core.time.DebugClock
@@ -34,6 +39,7 @@ import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.core.time.at
 import com.roni.blocks.core.walk.WalkPhase
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -48,6 +54,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
+import kotlinx.serialization.builtins.ListSerializer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -76,6 +83,7 @@ class HomeViewModelTest {
     private lateinit var history: HistoryManager
     private lateinit var orchestrator: DayOrchestrator
     private lateinit var viewModel: HomeViewModel
+    private lateinit var logger: AppLogger
 
     private val firstBlockId = "sun_tue_wed.coding_am"
 
@@ -83,34 +91,38 @@ class HomeViewModelTest {
     fun setUp() {
         Dispatchers.setMain(Dispatchers.Unconfined)
         clock = MovableClock(LocalTime(10, 0).at(date, zone))
-        val logger = AppLogger(context)
+        logger = AppLogger(context)
         prefs = PrefsStorage(context, UnconfinedTestDispatcher())
         history = HistoryManager(prefs)
-        orchestrator = DayOrchestrator(
-            prefs = prefs,
-            engine = ScheduleEngine(clock, zone),
-            templates = TemplateManager(context),
-            history = history,
-            alarms = AlarmScheduler(context, SystemTimeMapper.Identity, logger),
-            notificationMapper = NotificationModelMapper(ScheduleEngine(clock, zone), zone, TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))),
-            notificationRenderer = SilentNotificationPort,
-            clock = clock,
-            zone = zone,
-            logger = logger,
-            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
-        )
-        viewModel = HomeViewModel(
-            day = orchestrator,
-            templates = TemplateManager(context),
-            history = history,
-            ticker = Ticker(clock, zone),
-            clock = clock,
-            zone = zone,
-            prefs = prefs,
-            timeFormatter = TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)),
-            debugTime = DebugTimeController(DebugClock(context).apply { setOffsetMinutes(0) }, orchestrator, logger, zone),
-        )
+        orchestrator = buildOrchestrator()
+        viewModel = buildViewModel(orchestrator)
     }
+
+    private fun buildOrchestrator() = DayOrchestrator(
+        prefs = prefs,
+        engine = ScheduleEngine(clock, zone),
+        templates = TemplateManager(context),
+        history = history,
+        alarms = AlarmScheduler(context, SystemTimeMapper.Identity, logger),
+        notificationMapper = NotificationModelMapper(ScheduleEngine(clock, zone), zone, TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))),
+        notificationRenderer = SilentNotificationPort,
+        clock = clock,
+        zone = zone,
+        logger = logger,
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+    )
+
+    private fun buildViewModel(day: DayOrchestrator) = HomeViewModel(
+        day = day,
+        templates = TemplateManager(context),
+        history = history,
+        ticker = Ticker(clock, zone),
+        clock = clock,
+        zone = zone,
+        prefs = prefs,
+        timeFormatter = TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)),
+        debugTime = DebugTimeController(DebugClock(context).apply { setOffsetMinutes(0) }, day, logger, zone),
+    )
 
     @After
     fun tearDown() {
@@ -561,6 +573,40 @@ class HomeViewModelTest {
         assertEquals(14 * 60, free.overrunFromMin)
         val pm = requireNotNull(state.blocks.firstOrNull { it.id == "sun_tue_wed.coding_pm" })
         assertEquals(14 * 60 + 12, pm.startMin)
+    }
+
+    @Test
+    fun runningOver_cardSaysRanOver() = runBlocking {
+        // Force the drift the way it can reach Home after a process death: storage holds an open
+        // Coding segment whose planned end is 30 min later than today's plan. The card must follow
+        // the plan (the calendar already does), so 10 min past the plan end it says "Ran over".
+        val template = TemplateManager(context).get(TemplateId.SUN_TUE_WED)
+        val cv = template.blocks.first { it.id == "sun_tue_wed.cv" }
+        val coding = template.blocks.first { it.id == firstBlockId }
+        val planEnd = coding.end.at(date, zone)
+        prefs.write(PrefsFile.DAY, "day_state", DayState.Running(TemplateId.SUN_TUE_WED, 1), DayStateSerializer)
+        prefs.write(PrefsFile.DAY, "today_date", date, LocalDateSerializer)
+        prefs.write(PrefsFile.DAY, "today_plan", TodayPlan(TemplateId.SUN_TUE_WED, template.blocks), TodayPlan.serializer())
+        prefs.write(
+            PrefsFile.DAY,
+            "today_segments",
+            listOf(
+                Segment(BlockType.Cv, SegmentKind.CONSUMED, cv.start.at(date, zone), cv.end.at(date, zone), cv.start.at(date, zone), cv.end.at(date, zone), cv.id),
+                Segment(BlockType.Coding, SegmentKind.PLANNED, coding.start.at(date, zone), planEnd + 30.minutes, coding.start.at(date, zone), null, firstBlockId),
+            ),
+            ListSerializer(Segment.serializer()),
+        )
+
+        clock.now = planEnd + 10.minutes
+        val day = buildOrchestrator()
+        val vm = buildViewModel(day)
+        day.ensureRestored()
+
+        val card = requireNotNull(withTimeout(5_000) { vm.state.first { it.nowCard?.chip == "Ran over" } }.nowCard)
+        assertEquals("Ran over", card.chip)
+        val next = card.buttons.first { it.id == NowButtonId.NEXT }
+        assertTrue("primary should move on, was ${next.label}", next.label.startsWith("Next:"))
+        assertTrue("no Done early on a block that ran over", card.buttons.none { it.label == "Done early" })
     }
 
     @Test

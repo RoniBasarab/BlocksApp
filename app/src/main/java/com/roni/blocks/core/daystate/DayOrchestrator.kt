@@ -154,6 +154,11 @@ class DayOrchestrator @Inject constructor(
      * the foreground. Used to suppress nagging alerts once Roni has acknowledged the day.
      */
     private var reactedAt: Instant? = null
+    /**
+     * The block whose plan/segment end drift (3.4.3) has already been logged, so the warning fires
+     * once per block. It names the path for the architecture round that removes the duplication.
+     */
+    private var driftWarnedFor: String? = null
     /** The profile today started under (3.2.0), for History's label and the Off day's `profile_name` key. */
     private var dayProfileName: String? = null
     /** A standalone walk (2.4.0) that runs outside the day; survives the date rollover. */
@@ -1179,10 +1184,26 @@ class DayOrchestrator @Inject constructor(
         return true
     }
 
+    /**
+     * 3.4.3 tripwire, not a fix: the open PLANNED segment carries a copy of its planned end, and
+     * some path can leave that copy different from today's plan. The card and the notification now
+     * follow the plan, but the log still names the block if the copy drifts, so the path shows up.
+     */
+    private fun warnOnPlanSegmentDrift(today: LocalDate) {
+        val open = _segments.value.lastOrNull { it.actualEnd == null && it.kind == SegmentKind.PLANNED } ?: return
+        val blockId = open.blockId ?: return
+        val segmentEnd = open.plannedEnd ?: return
+        val planEnd = _todayPlan.value?.blocks?.firstOrNull { it.id == blockId }?.end?.at(today, zone) ?: return
+        if (driftWarnedFor == blockId || segmentEnd == planEnd) return
+        driftWarnedFor = blockId
+        logger.warn("plan/segment end drift: $blockId segment=$segmentEnd plan=$planEnd state=${_state.value}")
+    }
+
     private suspend fun sideEffects(transition: Boolean = false, alert: Boolean = false) {
         val now = clock.now()
         val today = today()
         val template = currentTemplate()
+        warnOnPlanSegmentDrift(today)
         val index = (_state.value as? DayState.Running)?.blockIndex ?: 0
         val anchor = wakeAnchor()
         val wake = engine.nextWakeUp(_state.value, today, now, template, index, anchor)

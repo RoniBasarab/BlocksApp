@@ -7,3 +7,6 @@
    Evidence: `:app:compileDebugAndroidTestKotlin` compiles and
    `:app:assembleBenchmark`/`:macrobenchmark:assembleBenchmark` build, but
    `connectedDebugAndroidTest` needs a device and none was attached during this task.
+
+2. **Two copies of a block's planned end.** `TodayPlan` (the plan) and `Segment.plannedEnd` (the copy taken when the block opened) can disagree; Task-26 made Home and the notification read the plan, with a `plan/segment end drift` tripwire in the log. Remove one copy in the architecture round.
+   Evidence: `docs/Task-26.md`; `HomeViewModel.publish`, `NotificationModelMapper.running`, `DayOrchestrator.warnOnPlanSegmentDrift`.

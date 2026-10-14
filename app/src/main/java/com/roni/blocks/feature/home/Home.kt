@@ -947,8 +947,12 @@ private val day: DayOrchestrator,
             )
         }.toPersistentList()
         val current = blocks.getOrNull(index)
-        val effectiveEndMin = openAny?.plannedEnd?.let { it.minuteOfDay(zone) }
-        val leaking = current != null && effectiveEndMin != null && minute > effectiveEndMin
+        // 3.4.3: the card follows the plan the way the calendar does. The end (and so the leak)
+        // comes from the current TimelineBlock's plan end, never from the open segment's own copy
+        // of it. Done early rides a synthetic-free segment, so it keeps that segment's end.
+        val planEndMin = current?.let { it.overrunFromMin ?: it.endMin }
+        val effectiveEndMin = if (doneEarly) openAny?.plannedEnd?.let { it.minuteOfDay(zone) } else planEndMin
+        val leaking = !doneEarly && current?.overrunFromMin != null
         val nextLabel = if (current != null && daySpecs != null && (doneEarly || !current.type.isWork)) {
             PlanEditor.nextStop(daySpecs.toPlanBlocks(), current.id)?.let { stop -> blocks.firstOrNull { it.id == stop.id } }
         } else blocks.getOrNull(index + 1)

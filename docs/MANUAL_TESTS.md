@@ -194,3 +194,7 @@ stale — the title should become `Coding ran over` with the `Next: Free` action
 - [ ] After midnight (or the debug clock at 07:00), pick a template with the app open -> no notification, no sound; Home shows "Day starts at 09:00".
 - [ ] At 09:00 the first block starts with its notification and sound.
 - [ ] With the app open, Next to the next block -> the notification updates silently.
+
+## Check on the phone (3.4.3)
+- [ ] Let a Coding block run over (debug clock) -> the moment the red tail starts on the calendar, the card shows "Ran over" with "Next: ..." and no "Done early".
+- [ ] Edit that block before it starts so it ends earlier, let the new end pass -> the same "Ran over" card.
