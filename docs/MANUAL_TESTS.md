@@ -189,3 +189,8 @@ stale — the title should become `Coding ran over` with the `Next: Free` action
 - [ ] Templates tab: open a template, rename it, change a day, back -> the card shows the new name and days at once.
 - [ ] Delete a template, back -> its card is gone.
 - [ ] + New template -> name -> Create opens the editor.
+
+## Check on the phone (3.4.2)
+- [ ] After midnight (or the debug clock at 07:00), pick a template with the app open -> no notification, no sound; Home shows "Day starts at 09:00".
+- [ ] At 09:00 the first block starts with its notification and sound.
+- [ ] With the app open, Next to the next block -> the notification updates silently.

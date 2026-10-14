@@ -155,3 +155,10 @@ Still-live rules first (decisions a future agent needs), then one section per ve
 - Slice 2: History detail's `walks` is now `ImmutableList<WalkRowUi>` and it gained `HistoryDetailAction.OpenWalk`/`Sheet`; the ViewModel injects `DayOrchestrator`, keeps its own `walkEdit`, and rebuilds `sheet = walkSheetUi()` inside the collect so a reload (after Save) never drops it. The shared `BlockSheet` is reused with no categories.
 - Slice 2: Home gained `WalkFixUi`/`HomeState.walkFix` (today's latest walk log whose end is within 30 min of now, hidden when its start equals `dismissedWalkStartSec`), `HomeAction.FixWalk`/`DismissWalkFix`, and a private `walkEdit` so `HomeAction.Sheet` routes to the walk handlers while it is set. `AndroidWalkRinger` adds a "Fix the time" action on the `WALK_DONE` notification that opens Home.
 - Slice 3: version 3.4.1 (versionCode 30401); no schema change, so no migration.
+
+## 3.4.2 (Task-25)
+- Cause 1: by design (2.7.0) a waiting day posted a "Day starts at 09:00" notification; Roni wants none until the day really starts.
+- Cause 2: `NotificationRenderer.build` relied on `setOnlyAlertOnce(true)` for a quiet render, which only silences updates of a notification already showing; a fresh one (first of the day, or re-posted after a channel switch) still rang on the `day` channel.
+- Slice 1: `NotificationModel.inShade` (default true, last field) is false for the waiting model; the renderer treats a not-in-shade model like null (cancel, post nothing) and a quiet render now also calls `setSilent(true)` so it never rings, new or updated.
+- Slice 1 tests: added `waitingDay_postsNothing`, `quietRender_ofANewNotification_isSilent`, `alert_stillSounds` to `NotificationRendererTest`; added `FakeNotificationModels.waiting`/`notStarted` (with an `inShade` parameter). No existing test expected the waiting notification, so none changed.
+- Slice 2: version 3.4.2 (versionCode 30402); no schema change. `keystore.properties` absent, so no release APK.
