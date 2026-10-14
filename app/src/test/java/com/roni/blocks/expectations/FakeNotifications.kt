@@ -84,6 +84,27 @@ internal object FakeNotificationModels {
         ),
     )
 
+    /** The waiting day (3.4.2): the widget shows it, the shade must not. */
+    val waiting = model(
+        key = "waiting",
+        channel = NotificationChannelKind.DAY,
+        title = "Day starts at 09:00",
+        text = "Work",
+        countdownTo = at,
+        actions = emptyList(),
+        inShade = false,
+    )
+
+    /** The 09:00-10:00 prompt that IS shown, used to check the waiting render cancels it. */
+    val notStarted = model(
+        key = "not_started",
+        channel = NotificationChannelKind.DAY,
+        title = "Start your day",
+        text = "Pick today's template",
+        countdownTo = null,
+        actions = emptyList(),
+    )
+
     /** A plausible run of a whole day, in order. */
     val wholeDay: List<NotificationModel?> = listOf(
         leakingCv, paused, running, onBreak, running, kidTimePrompt, null,
@@ -96,6 +117,7 @@ internal object FakeNotificationModels {
         text: String,
         countdownTo: Instant?,
         actions: List<NotificationActionModel>,
+        inShade: Boolean = true,
     ) = NotificationModel(
         key = key,
         channel = channel,
@@ -104,5 +126,6 @@ internal object FakeNotificationModels {
         countdownTo = countdownTo,
         actions = actions,
         accentArgb = 0xFF7A9CC6.toInt(),
+        inShade = inShade,
     )
 }

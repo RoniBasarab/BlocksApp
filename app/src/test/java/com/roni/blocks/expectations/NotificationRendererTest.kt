@@ -97,6 +97,45 @@ class NotificationRendererTest {
     }
 
     @Test
+    fun waitingDay_postsNothing() {
+        // 3.4.2: the waiting day is widget-only; the shade must stay empty.
+        renderer.render(FakeNotificationModels.waiting, transition = true)
+        assertEquals(0, nm.activeNotifications.size)
+
+        renderer.render(FakeNotificationModels.notStarted, transition = true)
+        assertEquals(1, nm.activeNotifications.size)
+        renderer.render(FakeNotificationModels.waiting, transition = true)
+        assertEquals("the waiting render must cancel what was showing", 0, nm.activeNotifications.size)
+    }
+
+    @Test
+    fun quietRender_ofANewNotification_isSilent() {
+        // 3.4.2: a quiet render is silent even when it is posted fresh, not just on update.
+        visibility.foreground = true
+        renderer.render(FakeNotificationModels.running, transition = true, alert = false)
+        val notification = posted()
+        assertEquals(
+            NotificationCompat.GROUP_ALERT_SUMMARY,
+            NotificationCompat.getGroupAlertBehavior(notification),
+        )
+        assertEquals(NotificationCompat.GROUP_KEY_SILENT, notification.group)
+        assertNull("a silent render has no sound", notification.sound)
+        assertNull("a silent render has no vibration", notification.vibrate)
+    }
+
+    @Test
+    fun alert_stillSounds() {
+        visibility.foreground = true
+        renderer.render(FakeNotificationModels.running, transition = true, alert = true)
+        val notification = posted()
+        assertNotEquals(
+            NotificationCompat.GROUP_ALERT_SUMMARY,
+            NotificationCompat.getGroupAlertBehavior(notification),
+        )
+        assertEquals(0, notification.flags and Notification.FLAG_ONLY_ALERT_ONCE)
+    }
+
+    @Test
     fun alert_makesASound_evenInTheForeground() {
         // 2.2.0: an alert must play its sound even with the app open.
         visibility.foreground = true

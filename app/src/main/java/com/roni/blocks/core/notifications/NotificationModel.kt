@@ -53,6 +53,8 @@ data class NotificationModel(
     /** At most two. */
     val actions: List<NotificationActionModel>,
     val accentArgb: Int,
+    /** False for a model the widget shows but the shade must not; the waiting day (3.4.2). */
+    val inShade: Boolean = true,
 )
 
 /**
@@ -148,6 +150,7 @@ class NotificationModelMapper @Inject constructor(
                 countdownTo = firstStart,
                 actions = emptyList(),
                 accentArgb = accent(blocks.firstOrNull()?.spec?.type),
+                inShade = false,
             )
         }
         val block = blocks.getOrNull(state.blockIndex) ?: return null

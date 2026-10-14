@@ -58,7 +58,9 @@ class NotificationRenderer @Inject constructor(
     }
 
     override fun render(model: NotificationModel?, transition: Boolean, alert: Boolean) {
-        if (model == null) {
+        // A model the widget shows but the shade must not (the waiting day, 3.4.2) behaves like null:
+        // cancel anything showing, post nothing.
+        if (model == null || !model.inShade) {
             if (lastChannel != null) manager.cancel(ID)
             lastChannel = null
             return
@@ -114,9 +116,11 @@ class NotificationRenderer @Inject constructor(
             .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setDeleteIntent(dismissedIntent(model.key))
-            // An alert always makes a sound, even with the app open; a real transition makes a
-  // sound only when the app isn't on screen; a refresh stays quiet (2.2.0).
-            .setOnlyAlertOnce(!(alert || (transition && !visibility.isForeground)))
+        // An alert always makes a sound, even with the app open; a real transition makes a
+        // sound only when the app isn't on screen; a refresh stays quiet (2.2.0).
+        val sounds = alert || (transition && !visibility.isForeground)
+        builder.setOnlyAlertOnce(!sounds)
+        if (!sounds) builder.setSilent(true)          // new or updated, a quiet render never rings (3.4.2)
         val countdownTo = model.countdownTo
         if (countdownTo != null) {
             builder.setWhen(systemTime.systemMillis(countdownTo))
