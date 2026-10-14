@@ -2,15 +2,15 @@
 
 Read this first, every session. The current task is named in the first paragraph.
 
-You're the working agent for Blocks, an Android app (Kotlin, Compose, Hilt) in this repo. Implement docs/Task-23.md (target 3.4.0) exactly, on the branch task-23/v3.4.0 from master. The owner's tokens are limited: be fast, decisive and brief.
+You're the working agent for Blocks, an Android app (Kotlin, Compose, Hilt) in this repo. Implement docs/Task-25.md (target 3.4.2) exactly, on the branch task-25/v3.4.2 from master. The owner's tokens are limited: be fast, decisive and brief.
 
 START
 0. Your session doesn't start in the repo. First: cd "C:/Blocks App" (the repo root, with the space and the quotes). Every command below runs from there; if a command ever says "not a git repository", cd there again.
-1. One command: git branch --show-current ; git log --oneline master..task-23/v3.4.0 2>$null ; git status --short
-   - No task-23/v3.4.0 branch yet: follow the task's Rules 1, then the prep commit and Slice 1. On this first run the new docs/ files show as untracked or modified: that's expected, the prep commit takes them first.
-   - Commits named "task-23 slice N" are finished slices; continue with the lowest one missing.
-   - Modified files mean a previous session stopped mid-slice: run that slice's tests; if green or a quick fix, finish and commit it; otherwise git stash push -m "partial" and redo the slice. Never stash before the "task-23 prep" commit exists: the new docs would go with it.
-2. Read docs/Task-23.md lines 1-34 once (slice map, decisions, rules), then each slice when you start it. Open docs/CODEMAP.md when you need to find a file; docs/NOTES.md only to look up an earlier decision. Don't read SUMMARY.md or the specs.
+1. One command: git branch --show-current ; git log --oneline master..task-25/v3.4.2 2>$null ; git status --short
+   - No task-25/v3.4.2 branch yet: follow the task's Rules 1, then the prep commit and Slice 1. On this first run the new docs/ files show as untracked or modified: that's expected, the prep commit takes them first.
+   - Commits named "task-25 slice N" are finished slices; continue with the lowest one missing.
+   - Modified files mean a previous session stopped mid-slice: run that slice's tests; if green or a quick fix, finish and commit it; otherwise git stash push -m "partial" and redo the slice. Never stash before the "task-25 prep" commit exists: the new docs would go with it.
+2. Read docs/Task-25.md once, all of it (it's short). Open docs/CODEMAP.md when you need to find a file; docs/NOTES.md only to look up an earlier decision. Don't read SUMMARY.md or the specs.
 
 FINDING THINGS: GREP FIRST
 - Search the repo with git grep -n "<name>" (add -- "*.kt" to narrow). It answers in a second; reading files to search, writing Python or PowerShell scripts to search, or searching the web is slower. Never do those for anything inside the repo.
@@ -43,7 +43,7 @@ EACH SLICE
 1. Read the slice. git grep what you'll change.
 2. Make all the slice's edits, code and its named tests, before building. Paste the task's code and adapt names; don't rewrite it.
 3. Build and test the slice; fix until exit=0. Then the full suite once: the same command without --tests.
-4. git add -A ; git commit -m "task-23 slice N: <title>" 2>&1 | Select-Object -First 1
+4. git add -A ; git commit -m "task-25 slice N: <title>" 2>&1 | Select-Object -First 1
 5. One line: "Slice N done: <hash>". Start the next slice at once.
 
 ALWAYS
@@ -56,4 +56,4 @@ ALWAYS
 - Real names win: if a name in the task doesn't exist, use the real one. Don't refactor beyond the slice.
 - If an edit mangles a file: git checkout -- <file>, then redo the edit.
 - Phone: only com.roni.blocks.debug. Never install over, clear, force-stop or uninstall com.roni.blocks.
-- Finish with Slice 6: final gate, merge task-23/v3.4.0 into master, tag v3.4.0, push, the short final report, then stop. Don't re-verify finished slices or close old todo lists by re-checking them; mark them done and end.
+- Finish with Slice 2: final gate, merge task-25/v3.4.2 into master, tag v3.4.2, push, the short final report, then stop. Don't re-verify finished slices or close old todo lists by re-checking them; mark them done and end.
