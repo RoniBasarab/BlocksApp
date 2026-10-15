@@ -11,6 +11,7 @@ import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.core.model.WalkLog
 import com.roni.blocks.core.model.isWork
+import com.roni.blocks.core.model.minutesPastPlan
 import com.roni.blocks.core.schedule.RecordEdit
 import com.roni.blocks.core.schedule.RecordEditor
 import com.roni.blocks.core.schedule.toRecordRows
@@ -260,7 +261,7 @@ fun missedGym(template: TemplateId?, segments: List<Segment>): Boolean {
 fun debtMinutes(segments: List<Segment>): Int =
     segments.filter { it.kind == SegmentKind.PLANNED && it.actualEnd != null && it.plannedEnd != null }
         .sumOf { segment ->
-            val over = (segment.actualEnd!! - segment.plannedEnd!!).inWholeMinutes
+            val over = segment.minutesPastPlan ?: 0
             over.coerceAtLeast(0)
         }
         .toInt()

@@ -8,6 +8,7 @@ import com.roni.blocks.core.model.MissReason
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.Template
+import com.roni.blocks.core.model.actualMinutes
 import com.roni.blocks.core.model.isWork
 import com.roni.blocks.core.time.at
 import kotlin.time.Duration
@@ -174,9 +175,9 @@ object SegmentBook {
         if (gym.isEmpty()) return false
         if (gym.any { it.kind == SegmentKind.CONSUMED || it.kind == SegmentKind.INTERRUPTION }) return true
         val paused = book.segments.filter { it.kind == SegmentKind.PAUSE && it.actualEnd != null }
-            .sumOf { (it.actualEnd!! - it.actualStart).inWholeMinutes }
+            .sumOf { it.actualMinutes ?: 0 }
         val actual = gym.filter { it.kind == SegmentKind.PLANNED && it.actualEnd != null }
-            .sumOf { (it.actualEnd!! - it.actualStart).inWholeMinutes }
+            .sumOf { it.actualMinutes ?: 0 }
         return actual - paused < 30
     }
 

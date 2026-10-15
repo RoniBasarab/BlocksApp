@@ -49,7 +49,9 @@ import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DriveLog
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.WalkLog
+import com.roni.blocks.core.model.actualMinutes
 import com.roni.blocks.core.model.isWork
+import com.roni.blocks.core.model.plannedMinutes
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.TemplateManager
 import com.roni.blocks.core.storage.debtMinutes
@@ -223,15 +225,15 @@ class WeeklyViewModel @Inject constructor(
     /** Work-block minutes actually worked: planned segments minus the pause that ran inside them. */
     private fun workedWorkMinutes(segments: List<com.roni.blocks.core.model.Segment>): Int {
         val pause = segments.filter { it.kind == SegmentKind.PAUSE && it.actualEnd != null }
-            .sumOf { (it.actualEnd!! - it.actualStart).inWholeMinutes }.toInt()
+            .sumOf { it.actualMinutes ?: 0 }.toInt()
         val actual = segments.filter { it.kind == SegmentKind.PLANNED && it.actualEnd != null && it.type.isWork }
-            .sumOf { (it.actualEnd!! - it.actualStart).inWholeMinutes }.toInt()
+            .sumOf { it.actualMinutes ?: 0 }.toInt()
         return (actual - pause).coerceAtLeast(0)
     }
 
     private fun plannedWorkMinutes(segments: List<com.roni.blocks.core.model.Segment>): Int =
         segments.filter { it.kind == SegmentKind.PLANNED && it.plannedStart != null && it.plannedEnd != null && it.type.isWork }
-            .sumOf { (it.plannedEnd!! - it.plannedStart!!).inWholeMinutes }.toInt()
+            .sumOf { it.plannedMinutes ?: 0 }.toInt()
 
     /**
      * Planned minutes come from each day's final plan (`plannedBlocks`, falling back to the
@@ -289,7 +291,7 @@ class WeeklyViewModel @Inject constructor(
         val missed = days.sumOf { day ->
             day.segments
                 .filter { it.missReason != null && it.plannedStart != null && it.plannedEnd != null }
-                .sumOf { (it.plannedEnd!! - it.plannedStart!!).inWholeMinutes }
+                .sumOf { it.plannedMinutes ?: 0 }
         }.toInt()
         if (missed <= 0) return null
         return "Missed: ${formatHm(missed)} of planned blocks that never happened"
@@ -305,9 +307,9 @@ class WeeklyViewModel @Inject constructor(
         val gymPlanned = days.sumOf { day -> day.segments.count { it.type == BlockType.Gym && it.kind == SegmentKind.PLANNED && it.plannedStart != null } }
         val gymDone = days.sumOf { day ->
             val pause = day.segments.filter { it.kind == SegmentKind.PAUSE && it.actualEnd != null }
-                .sumOf { (it.actualEnd!! - it.actualStart).inWholeMinutes }.toInt()
+                .sumOf { it.actualMinutes ?: 0 }.toInt()
             val gymWorked = day.segments.filter { it.type == BlockType.Gym && it.kind == SegmentKind.PLANNED && it.actualEnd != null }
-                .sumOf { (it.actualEnd!! - it.actualStart).inWholeMinutes }
+                .sumOf { it.actualMinutes ?: 0 }
             if (gymWorked - pause >= 30) 1 else 0
         }
         val total = stepTotals.sum()

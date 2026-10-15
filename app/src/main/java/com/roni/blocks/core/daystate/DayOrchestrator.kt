@@ -882,10 +882,11 @@ class DayOrchestrator @Inject constructor(
         } else null
         // Dishes (3.3.0): its end, then a nag every 5 minutes, no 5-minute warning; vibrates only.
         val dishes = openDishes()
-        val dishesDue = if (_state.value.isDishesSlot && dishes?.plannedEnd != null) {
+        val dishesEnd = dishes?.plannedEnd
+        val dishesDue = if (_state.value.isDishesSlot && dishes != null && dishesEnd != null) {
             com.roni.blocks.core.schedule.AlertPlanner.due(
                 startSec = dishes.actualStart.epochSeconds,
-                endSec = dishes.plannedEnd!!.epochSeconds,
+                endSec = dishesEnd.epochSeconds,
                 boundaries = emptyList(),
                 reactedSec = reactedAt?.epochSeconds,
                 nowSec = now.epochSeconds,
@@ -1054,8 +1055,9 @@ class DayOrchestrator @Inject constructor(
         val plan = _todayPlan.value ?: return false
         val currentId = _state.value.currentBlockId() ?: return false
         val open = book.segments.lastOrNull { it.actualEnd == null }
-        val doneEarly = open != null && open.kind == SegmentKind.PLANNED && open.type.isWork &&
-            open.plannedEnd != null && now < open.plannedEnd!!
+        val openEnd = open?.plannedEnd
+        val doneEarly = open != null && openEnd != null && open.kind == SegmentKind.PLANNED && open.type.isWork &&
+            now < openEnd
         if (doneEarly) return false
         val nowMin = now.toLocalDateTime(zone).let { it.hour * 60 + it.minute }
         val edited = PlanEditor.startEarly(plan.blocks.toPlanBlocks(), currentId, nowMin) ?: return false
@@ -1233,9 +1235,10 @@ class DayOrchestrator @Inject constructor(
                     ?.let { Instant.fromEpochSeconds(it.atSec) }
             }
         } else null
+        val walkEnd = walk?.plannedEnd
         val nextAlert = when {
-            walk?.plannedEnd != null -> com.roni.blocks.core.schedule.AlertPlanner
-                .nextWalk(walk.actualStart.epochSeconds, walk.plannedEnd!!.epochSeconds, now.epochSeconds)
+            walk != null && walkEnd != null -> com.roni.blocks.core.schedule.AlertPlanner
+                .nextWalk(walk.actualStart.epochSeconds, walkEnd.epochSeconds, now.epochSeconds)
                 ?.let { Instant.fromEpochSeconds(it.atSec) }
             session != null -> com.roni.blocks.core.schedule.AlertPlanner
                 .nextWalk(session.start.epochSeconds, session.end.epochSeconds, now.epochSeconds)

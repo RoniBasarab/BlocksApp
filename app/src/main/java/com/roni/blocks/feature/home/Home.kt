@@ -1187,7 +1187,7 @@ private val day: DayOrchestrator,
             return if (ranOverMin != null && ranOverMin > 0) "$left · ran over $ranOverMin min" else left
         }
         val rows = DayRecapMapper.map(
-            if (endedRecord != null) endedRecord!! else day.liveRecord(),
+            endedRecord ?: day.liveRecord(),
             timeFormatter.use24.value,
         ).rows
             .filter { r -> r.type?.let { it.isWork || it == BlockType.Free } == true }

@@ -42,7 +42,10 @@ import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DriveLog
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.WalkLog
+import com.roni.blocks.core.model.actualMinutes
 import com.roni.blocks.core.model.isWork
+import com.roni.blocks.core.model.minutesPastPlan
+import com.roni.blocks.core.model.plannedMinutes
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.debtMinutes
 import com.roni.blocks.designsystem.AppBottomBar
@@ -228,14 +231,14 @@ internal fun metricsOf(
         if (DayFlag.OFF_DAY in day.flags) offDays++
         if (DayFlag.EVENING_SKIPPED in day.flags) eveningsSkipped++
         val pause = day.segments.filter { it.kind == SegmentKind.PAUSE && it.actualEnd != null }
-            .sumOf { (it.actualEnd!! - it.actualStart).inWholeMinutes }.toInt()
+            .sumOf { it.actualMinutes ?: 0 }.toInt()
         pauseMinutes += pause
 
         day.segments.forEach { segment ->
             when (segment.kind) {
                 SegmentKind.PLANNED -> {
                     if (segment.type == BlockType.Dishes && segment.actualEnd != null) {
-                        val minutes = ((segment.actualEnd!! - segment.actualStart).inWholeMinutes).toInt()
+                        val minutes = (segment.actualMinutes ?: 0).toInt()
                         dishesEvenings++
                         if (minutes > 20) {
                             dishesOver20++
@@ -250,7 +253,7 @@ internal fun metricsOf(
                     if (segment.plannedStart != null && segment.plannedEnd != null) {
                         when (segment.type) {
                             BlockType.Coding -> {
-                                codingPlanned += ((segment.plannedEnd!! - segment.plannedStart!!).inWholeMinutes).toInt()
+                                codingPlanned += (segment.plannedMinutes ?: 0).toInt()
                                 segment.actualEnd?.let { actualEnd ->
                                     codingWorked += ((actualEnd - segment.actualStart).inWholeMinutes).toInt()
                                 }
@@ -270,14 +273,14 @@ internal fun metricsOf(
                         }
                     }
                     if (segment.type == BlockType.Gym && segment.actualEnd != null) {
-                        val worked = ((segment.actualEnd!! - segment.actualStart).inWholeMinutes - pause).toInt()
+                        val worked = ((segment.actualMinutes ?: 0) - pause).toInt()
                         if (worked >= 30) gymDone++
                     }
                     segment.actualEnd?.let { actualEnd ->
                         segment.plannedEnd?.takeIf { actualEnd > it }?.let { _ ->
                             val typeKey = segmentTypeLabel(segment.type)
                             val entry = over.getOrPut(typeKey) { Triple(0, 0, 0) }
-                            val overMin = ((actualEnd - segment.plannedEnd!!).inWholeMinutes).toInt()
+                            val overMin = (segment.minutesPastPlan ?: 0).toInt()
                             over[typeKey] = Triple(entry.first + 1, entry.second + overMin, entry.third)
                         }
                     }

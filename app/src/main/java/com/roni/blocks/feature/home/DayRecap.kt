@@ -121,8 +121,9 @@ object DayRecapMapper {
             }
 
             if (happened != null) {
+                val actualEnd = happened.actualEnd ?: continue
                 val start = happened.actualStart.minuteOfDay(zone)
-                val end = happened.actualEnd!!.minuteOfDay(zone)
+                val end = actualEnd.minuteOfDay(zone)
                 val rowType = happened.type
                 // A short walk isn't a row of its own: its line goes under the block it interrupted.
                 if (rowType == BlockType.Walk && end - start < PlanEditor.WALK_MIN) {

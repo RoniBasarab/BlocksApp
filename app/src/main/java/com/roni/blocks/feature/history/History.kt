@@ -45,6 +45,7 @@ import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.WalkLog
+import com.roni.blocks.core.model.actualMinutes
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.schedule.RecordEdit
 import com.roni.blocks.core.storage.HistoryManager
@@ -313,7 +314,7 @@ class HistoryViewModel @Inject constructor(
         )
         val strip = record.segments
             .filter { it.actualEnd != null && (it.kind == SegmentKind.PLANNED || it.kind == SegmentKind.SYNTHETIC_FREE) }
-            .map { segment -> blockColors(segment.type).accent to ((segment.actualEnd!! - segment.actualStart).inWholeMinutes).toFloat() }
+            .map { segment -> blockColors(segment.type).accent to (segment.actualMinutes ?: 0).toFloat() }
         val summary = if (planned == 0) "" else {
             "${done.size}/$planned blocks" + if (pauseCount > 0) " · $pauseCount pause" + (if (pauseCount > 1) "s" else "") else ""
         }
