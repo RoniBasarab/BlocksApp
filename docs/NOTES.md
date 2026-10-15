@@ -191,3 +191,7 @@ Still-live rules first (decisions a future agent needs), then one section per ve
 - Slice 4: 3.5.1 release APK: 3561 KB (was 3802). Platform splash: Theme.Blocks is now the activity theme (parent android:Theme.Material.NoActionBar) with android:windowSplashScreenBackground/AnimatedIcon; Theme.Blocks.Main deleted; MainActivity holds the splash with a first-draw OnPreDrawListener (same !isRestored && within SPLASH_CAP_MS condition); core-splashscreen gone.
 - Slice 4: androidx.hilt:hilt-navigation-compose 1.4.0 -> androidx.hilt:hilt-lifecycle-viewmodel-compose (hiltViewModel already imported from androidx.hilt.lifecycle.viewmodel.compose). Removed lifecycle-runtime-ktx, lifecycle-viewmodel-ktx and compose-ui-graphics with their catalog lines; no other reference. kotlinx-collections-immutable stays (4.1.0).
 - Slice 5: version 3.5.1 (versionCode 30501); CHANGELOG entry; CODEMAP gains Wrappers.kt + icons/AppIcons.kt and drops the driving entries; architecture.md section 2 lists AppIcons and the platform splash screen and states there is no Play Services.
+
+## 3.5.2 (Task-29)
+- Cause: HomeViewModel.workCategories() kept only work=true categories, so a category with "Counts as work" off (like an errand) never showed on Home; the template editor listed every category.
+- Decision: Home offers every category, like the template editor; "Counts as work" only decides what counts toward work hours, never what you can pick.

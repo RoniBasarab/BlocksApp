@@ -207,3 +207,8 @@ stale — the title should become `Coding ran over` with the `Next: Free` action
 ## Check on the phone (3.5.0)
 - [ ] Everything works as in 3.4.3 (a normal day: start, Next, a walk, History, Weekly).
 - [ ] Developer tools → "Break a saved value" → the debug build crashes once; open it again → the day starts fresh, and Settings → Your data shows "1 saved item couldn't be read" → Share works.
+
+## Check on the phone (3.5.2)
+- [ ] Profiles → Categories → add "Errands" with "Counts as work" off.
+- [ ] On Home, tap the running block → Add after → Errands is in the list. Save → the block shows on the calendar.
+- [ ] Weekly doesn't count it as work.

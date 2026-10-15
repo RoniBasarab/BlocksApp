@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.5.2
+- Fixed: categories that don't count as work (like an errand) were missing from Home's block sheet.
+
 ## 3.5.1
 - Removed "steps while driving" (and Google Play services with it).
 - A smaller app: our own icons, fewer libraries. Nothing else changes.
