@@ -17,10 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -73,6 +69,7 @@ import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.WhatTheseMeanDialog
 import com.roni.blocks.designsystem.blockColors
 import com.roni.blocks.designsystem.formatStepsApprox
+import com.roni.blocks.designsystem.icons.AppIcons
 import com.roni.blocks.navigation.HistoryKey
 import com.roni.blocks.navigation.HomeKey
 import com.roni.blocks.navigation.InsightsKey
@@ -406,7 +403,7 @@ fun WeeklyScreen(state: WeeklyUiState, onAction: (WeeklyAction) -> Unit) {
         Column(Modifier.fillMaxSize()) {
             WeekSelector(state, onAction)
             EmptyState(
-                icon = Icons.Outlined.BarChart,
+                icon = AppIcons.BarChart,
                 title = "No data for this week",
                 body = "Use the arrows to see other weeks.",
                 modifier = Modifier.weight(1f),
@@ -508,7 +505,7 @@ private fun WeekSelector(state: WeeklyUiState, onAction: (WeeklyAction) -> Unit)
             ) {
                 IconButton(onClick = { onAction(WeeklyAction.PreviousWeek) }, enabled = state.canGoPrevious) {
                     Icon(
-                        Icons.AutoMirrored.Outlined.KeyboardArrowLeft,
+                        AppIcons.KeyboardArrowLeft,
                         contentDescription = "Previous week",
                         tint = AppTheme.colors.textSecondary,
                     )
@@ -520,7 +517,7 @@ private fun WeekSelector(state: WeeklyUiState, onAction: (WeeklyAction) -> Unit)
                 )
                 IconButton(onClick = { onAction(WeeklyAction.NextWeek) }, enabled = state.canGoNext) {
                     Icon(
-                        Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                        AppIcons.KeyboardArrowRight,
                         contentDescription = "Next week",
                         tint = AppTheme.colors.textMuted,
                     )

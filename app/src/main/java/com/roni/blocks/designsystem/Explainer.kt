@@ -11,12 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CalendarMonth
-import androidx.compose.material.icons.outlined.Palette
-import androidx.compose.material.icons.outlined.People
-import androidx.compose.material.icons.outlined.Schedule
-import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -28,6 +22,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.roni.blocks.core.storage.ExplainerKey
+import com.roni.blocks.designsystem.icons.AppIcons
 
 /** One explainer/tour card (3.3.0); the tour and the in-screen hints share this text. */
 data class HowToCard(
@@ -42,7 +37,7 @@ data class HowToCard(
 val HowToCards: List<HowToCard> = listOf(
     HowToCard(
         ExplainerKey.PROFILES,
-        Icons.Outlined.People,
+        AppIcons.People,
         "Profiles",
         "What's a profile?",
         "A profile is how your weeks look right now, like Unemployed or Employed. It holds the templates " +
@@ -50,7 +45,7 @@ val HowToCards: List<HowToCard> = listOf(
     ),
     HowToCard(
         ExplainerKey.TEMPLATES,
-        Icons.Outlined.ViewAgenda,
+        AppIcons.ViewAgenda,
         "Templates",
         "What's a template?",
         "A template is one kind of day: a gym day, an office day. All templates live in one library, and " +
@@ -58,7 +53,7 @@ val HowToCards: List<HowToCard> = listOf(
     ),
     HowToCard(
         ExplainerKey.BLOCKS,
-        Icons.Outlined.Schedule,
+        AppIcons.Schedule,
         "Blocks",
         "Building a day",
         "Open a template and tap + Add block. Choose a category, a start and a length. Blocks after it move " +
@@ -67,7 +62,7 @@ val HowToCards: List<HowToCard> = listOf(
     ),
     HowToCard(
         ExplainerKey.DAYS,
-        Icons.Outlined.CalendarMonth,
+        AppIcons.CalendarMonth,
         "Days",
         "Which day suggests what",
         "On a profile's page, tap a weekday to choose its template. That morning the picker marks it Suggested; " +
@@ -75,7 +70,7 @@ val HowToCards: List<HowToCard> = listOf(
     ),
     HowToCard(
         ExplainerKey.CATEGORIES,
-        Icons.Outlined.Palette,
+        AppIcons.Palette,
         "Categories",
         "What are categories?",
         "Categories are the kinds of blocks: CV, Coding, Gym, or your own. Each has a colour, Pomodoro on or " +

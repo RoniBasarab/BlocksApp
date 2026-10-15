@@ -19,18 +19,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
-import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.People
-import androidx.compose.material.icons.outlined.Menu
-import androidx.compose.material.icons.outlined.Nightlight
-import androidx.compose.material.icons.outlined.Pause
-import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Stop
-import androidx.compose.material.icons.outlined.SwapHoriz
-import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -41,7 +29,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -142,6 +129,7 @@ import com.roni.blocks.designsystem.Metrics
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.formatStepsApprox
+import com.roni.blocks.designsystem.icons.AppIcons
 import com.roni.blocks.designsystem.templateDisplay
 import com.roni.blocks.feature.templates.BlockSheet
 import com.roni.blocks.feature.templates.BlockSheetAction
@@ -1774,15 +1762,15 @@ fun HomeTopBar(
             }
         }
         IconButton(onClick = { onAction(HomeAction.SwapTemplate) }) {
-            Icon(Icons.Outlined.SwapHoriz, "Swap template")
+            Icon(AppIcons.SwapHoriz, "Swap template")
         }
         if (walkEnabled) {
             IconButton(onClick = { onAction(HomeAction.Walk) }) {
-                Icon(Icons.AutoMirrored.Outlined.DirectionsWalk, "Take a walk")
+                Icon(AppIcons.DirectionsWalk, "Take a walk")
             }
         }
         Box {
-            IconButton(onClick = { menuOpen = true }) { Icon(Icons.Outlined.Menu, "Menu") }
+            IconButton(onClick = { menuOpen = true }) { Icon(AppIcons.Menu, "Menu") }
             AppDropdownMenu(
                 expanded = menuOpen,
                 onDismiss = { menuOpen = false },
@@ -1807,9 +1795,9 @@ private fun AppDropdownMenu(
         shape = AppShapes.card,
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
-        MenuRow(Icons.Outlined.History, "History") { onAction(HomeAction.History) }
-        MenuRow(Icons.Outlined.People, "Profiles") { onAction(HomeAction.Profiles) }
-        MenuRow(Icons.Outlined.Settings, "Settings") { onAction(HomeAction.Settings) }
+        MenuRow(AppIcons.History, "History") { onAction(HomeAction.History) }
+        MenuRow(AppIcons.People, "Profiles") { onAction(HomeAction.Profiles) }
+        MenuRow(AppIcons.Settings, "Settings") { onAction(HomeAction.Settings) }
     }
 }
 
@@ -1860,7 +1848,7 @@ fun NowCard(
                 IconButton(
                     onClick = { dialog = NowCardDialog.Info },
                     modifier = Modifier.size(Metrics.touch),
-                ) { Icon(Icons.Outlined.Info, "What the buttons do") }
+                ) { Icon(AppIcons.Info, "What the buttons do") }
             }
             Row(verticalAlignment = Alignment.Bottom) {
                 CountdownText(countdownText, if (ui.isLeaking) c.leak else c.textPrimary, Modifier.weight(1f))
@@ -2128,17 +2116,17 @@ private fun NowSecondaryButton(button: NowButton, onClick: () -> Unit, modifier:
 }
 
 private fun nowButtonIcon(id: NowButtonId): ImageVector = when (id) {
-    NowButtonId.PAUSE -> Icons.Outlined.Pause
-    NowButtonId.EMERGENCY -> Icons.Outlined.WarningAmber
-    NowButtonId.END_DAY -> Icons.Outlined.Stop
-    NowButtonId.NEXT -> Icons.Outlined.PlayArrow
-    NowButtonId.WALK -> Icons.AutoMirrored.Outlined.DirectionsWalk
-    NowButtonId.RESUME -> Icons.Outlined.PlayArrow
-    NowButtonId.KID_ASLEEP -> Icons.Outlined.Nightlight
-    NowButtonId.CHOOSE_EVENING -> Icons.Outlined.Nightlight
-    NowButtonId.SKIP_DISHES -> Icons.Outlined.PlayArrow
-    NowButtonId.START_NOW -> Icons.Outlined.PlayArrow
-    NowButtonId.CHANGE_DAY -> Icons.Outlined.SwapHoriz
+    NowButtonId.PAUSE -> AppIcons.Pause
+    NowButtonId.EMERGENCY -> AppIcons.WarningAmber
+    NowButtonId.END_DAY -> AppIcons.Stop
+    NowButtonId.NEXT -> AppIcons.PlayArrow
+    NowButtonId.WALK -> AppIcons.DirectionsWalk
+    NowButtonId.RESUME -> AppIcons.PlayArrow
+    NowButtonId.KID_ASLEEP -> AppIcons.Nightlight
+    NowButtonId.CHOOSE_EVENING -> AppIcons.Nightlight
+    NowButtonId.SKIP_DISHES -> AppIcons.PlayArrow
+    NowButtonId.START_NOW -> AppIcons.PlayArrow
+    NowButtonId.CHANGE_DAY -> AppIcons.SwapHoriz
 }
 
 private fun NowButtonId.toAction(): HomeAction = when (this) {

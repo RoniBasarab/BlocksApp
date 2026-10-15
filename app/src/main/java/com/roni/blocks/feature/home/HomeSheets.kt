@@ -12,13 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
-import androidx.compose.material.icons.outlined.Code
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.SportsEsports
-import androidx.compose.material.icons.outlined.WbTwilight
-import androidx.compose.material.icons.outlined.Weekend
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
@@ -46,6 +39,7 @@ import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.Metrics
 import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.blockColors
+import com.roni.blocks.designsystem.icons.AppIcons
 
 private fun Modifier.blockSheetDrags(): Modifier = pointerInput(Unit) {
     detectVerticalDragGestures(
@@ -133,10 +127,10 @@ private fun RowScope.EveningTile(
 }
 
 private fun eveningIcon(choice: Choice): ImageVector = when (choice) {
-    Choice.GAME -> Icons.Outlined.SportsEsports
-    Choice.PROJECT -> Icons.Outlined.Code
-    Choice.READ -> Icons.AutoMirrored.Outlined.MenuBook
-    Choice.CHILL -> Icons.Outlined.Weekend
+    Choice.GAME -> AppIcons.SportsEsports
+    Choice.PROJECT -> AppIcons.Code
+    Choice.READ -> AppIcons.MenuBook
+    Choice.CHILL -> AppIcons.Weekend
 }
 
 private const val CORRECT_SNAP = 5
@@ -265,9 +259,9 @@ fun WalkSheet(
                 )
                 WalkStepButton("+5", ui.canGrow, Modifier.weight(1f)) { onStep(5) }
             }
-            WalkSheetRow(Icons.Outlined.WbTwilight, "Turn back at ${ui.turnBackAt}")
+            WalkSheetRow(AppIcons.WbTwilight, "Turn back at ${ui.turnBackAt}")
             WalkSheetRow(
-                Icons.Outlined.Home,
+                AppIcons.Home,
                 if (ui.cappedByKidTime) "Home by ${ui.homeAt}, before kid time" else "Home by ${ui.homeAt}",
             )
             ui.afterTitle?.let { after ->

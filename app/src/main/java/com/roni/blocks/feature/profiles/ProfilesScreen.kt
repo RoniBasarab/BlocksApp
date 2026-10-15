@@ -22,11 +22,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.HelpOutline
-import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -69,6 +64,7 @@ import com.roni.blocks.designsystem.HintCard
 import com.roni.blocks.designsystem.SectionHeader
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.Spacing
+import com.roni.blocks.designsystem.icons.AppIcons
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.collections.immutable.ImmutableList
@@ -293,7 +289,7 @@ fun ProfilesScreen(state: ProfilesState, onAction: (ProfilesAction) -> Unit, onB
                         modifier = Modifier.fillMaxWidth().testTag("categories_row"),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Outlined.Palette, null, tint = AppTheme.colors.textPrimary)
+                            Icon(AppIcons.Palette, null, tint = AppTheme.colors.textPrimary)
                             Spacer(Modifier.width(Spacing.m))
                             Column(Modifier.weight(1f)) {
                                 Text("Categories", style = MaterialTheme.typography.titleMedium, color = AppTheme.colors.textPrimary)
@@ -303,7 +299,7 @@ fun ProfilesScreen(state: ProfilesState, onAction: (ProfilesAction) -> Unit, onB
                                     color = AppTheme.colors.textSecondary,
                                 )
                             }
-                            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = AppTheme.colors.textMuted)
+                            Icon(AppIcons.KeyboardArrowRight, null, tint = AppTheme.colors.textMuted)
                         }
                     }
                 }
@@ -330,7 +326,7 @@ internal fun ProfilesTopBar(title: String = "Profiles", onBack: () -> Unit, onHo
         onBack = onBack,
         actions = {
             IconButton(onClick = onHowTo, modifier = Modifier.testTag("how_to")) {
-                Icon(Icons.Outlined.HelpOutline, "How to use")
+                Icon(AppIcons.HelpOutline, "How to use")
             }
         },
     )

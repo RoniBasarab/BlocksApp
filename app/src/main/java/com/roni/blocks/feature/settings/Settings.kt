@@ -26,24 +26,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.Alarm
-import androidx.compose.material.icons.outlined.Bedtime
-import androidx.compose.material.icons.outlined.Build
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.Email
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.MusicNote
-import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Restaurant
-import androidx.compose.material.icons.outlined.Restore
-import androidx.compose.material.icons.outlined.Schedule
-import androidx.compose.material.icons.outlined.Upload
-import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -116,6 +98,7 @@ import com.roni.blocks.designsystem.SectionCard
 import com.roni.blocks.designsystem.SectionHeader
 import com.roni.blocks.designsystem.SettingsRow
 import com.roni.blocks.designsystem.Spacing
+import com.roni.blocks.designsystem.icons.AppIcons
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -622,21 +605,21 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
             SectionHeader("Notifications")
             SectionCard {
                 SettingsRow(
-                    icon = Icons.Outlined.Notifications,
+                    icon = AppIcons.Notifications,
                     title = "Notification permission",
                     trailing = { StatusTrailing(state.notificationPermission) },
                     onClick = { onAction(SettingsAction.OpenNotificationSettings) },
                 )
                 CardDivider()
                 SettingsRow(
-                    icon = Icons.Outlined.Alarm,
+                    icon = AppIcons.Alarm,
                     title = "Exact alarms",
                     trailing = { StatusTrailing(state.exactAlarms) },
                     onClick = { onAction(SettingsAction.OpenExactAlarmSettings) },
                 )
                 CardDivider()
                 SettingsRow(
-                    icon = Icons.Outlined.Email,
+                    icon = AppIcons.Email,
                     title = "Test notification",
                     trailing = {
                         TextButton(onClick = { onAction(SettingsAction.SendTestNotification) }) {
@@ -646,7 +629,7 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
                 )
                 CardDivider()
                 SettingsRow(
-                    icon = Icons.Outlined.MusicNote,
+                    icon = AppIcons.MusicNote,
                     title = "Alert sound",
                     subtitle = "Block changes, the 5-minute warning and reminders",
                     trailing = { Chevron() },
@@ -657,7 +640,7 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
             SectionHeader("Steps")
             SectionCard {
                 SettingsRow(
-                    icon = Icons.AutoMirrored.Outlined.DirectionsWalk,
+                    icon = AppIcons.DirectionsWalk,
                     title = "Step counting",
                     trailing = { StatusTrailing(state.steps) },
                     onClick = { onAction(SettingsAction.OpenStepSettings) },
@@ -684,21 +667,21 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
             SectionHeader("Data")
             SectionCard {
                 SettingsRow(
-                    icon = Icons.Outlined.Description,
+                    icon = AppIcons.Description,
                     title = "Share log file",
                     trailing = { Chevron() },
                     onClick = { onAction(SettingsAction.ShareLog) },
                 )
                 CardDivider()
                 SettingsRow(
-                    icon = Icons.Outlined.Refresh,
+                    icon = AppIcons.Refresh,
                     title = "Reset today",
                     trailing = { Chevron() },
                     onClick = { onAction(SettingsAction.ResetToday) },
                 )
                 CardDivider()
                 SettingsRow(
-                    icon = Icons.Outlined.Delete,
+                    icon = AppIcons.Delete,
                     title = "Clear history",
                     titleColor = Leak,
                     trailing = { Chevron() },
@@ -709,7 +692,7 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
             SectionHeader("Your data")
             SectionCard {
                 SettingsRow(
-                    icon = Icons.Outlined.Upload,
+                    icon = AppIcons.Upload,
                     title = "Back up my data",
                     subtitle = "Save every day, walk and step to a file",
                     trailing = { Chevron() },
@@ -717,7 +700,7 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
                 )
                 CardDivider()
                 SettingsRow(
-                    icon = Icons.Outlined.Restore,
+                    icon = AppIcons.Restore,
                     title = "Restore from a backup",
                     subtitle = "Replace everything in this app",
                     trailing = { Chevron() },
@@ -726,7 +709,7 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
                 if (state.unreadable > 0) {
                     CardDivider()
                     SettingsRow(
-                        icon = Icons.Outlined.WarningAmber,
+                        icon = AppIcons.WarningAmber,
                         title = "${state.unreadable} saved item(s) couldn't be read",
                         subtitle = "Kept aside so nothing is lost. Share it to get it looked at.",
                         trailing = {
@@ -742,7 +725,7 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
                 SectionHeader("Developer")
                 SectionCard {
                     SettingsRow(
-                        icon = Icons.Outlined.Build,
+                        icon = AppIcons.Build,
                         title = "Developer tools",
                         trailing = { Chevron() },
                         onClick = { onAction(SettingsAction.OpenDevTools) },
@@ -752,7 +735,7 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
 
             SectionHeader("About")
             SectionCard {
-                SettingsRow(icon = Icons.Outlined.Lock, title = "All data stays on this device")
+                SettingsRow(icon = AppIcons.Lock, title = "All data stays on this device")
             }
 
             Spacer(Modifier.weight(1f))
@@ -955,7 +938,7 @@ private fun DebugButton(
 @Composable
 private fun Chevron() {
     Icon(
-        Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+        AppIcons.KeyboardArrowRight,
         contentDescription = null,
         tint = AppTheme.colors.textMuted,
     )

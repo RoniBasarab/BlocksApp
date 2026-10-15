@@ -15,10 +15,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.HelpOutline
-import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -57,6 +53,7 @@ import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.ErrorCard
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.Spacing
+import com.roni.blocks.designsystem.icons.AppIcons
 import com.roni.blocks.feature.profiles.HowToAction
 import com.roni.blocks.feature.profiles.HowToUse
 import com.roni.blocks.feature.profiles.NewProfileUi
@@ -263,7 +260,7 @@ fun MainMenuScreen(state: MainMenuState, onAction: (MainMenuAction) -> Unit) {
                 modifier = Modifier.fillMaxWidth().testTag("main_menu_categories"),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.Palette, null, tint = colors.textPrimary)
+                    Icon(AppIcons.Palette, null, tint = colors.textPrimary)
                     Spacer(Modifier.width(Spacing.m))
                     Column(Modifier.weight(1f)) {
                         Text("Categories", style = MaterialTheme.typography.titleMedium, color = colors.textPrimary)
@@ -273,7 +270,7 @@ fun MainMenuScreen(state: MainMenuState, onAction: (MainMenuAction) -> Unit) {
                             color = colors.textSecondary,
                         )
                     }
-                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = colors.textMuted)
+                    Icon(AppIcons.KeyboardArrowRight, null, tint = colors.textMuted)
                 }
             }
         }
@@ -307,7 +304,7 @@ private fun MainMenuTopBar(greeting: String, onHowTo: () -> Unit) {
             modifier = Modifier.weight(1f),
         )
         IconButton(onClick = onHowTo, modifier = Modifier.testTag("how_to")) {
-            Icon(Icons.Outlined.HelpOutline, "How to use")
+            Icon(AppIcons.HelpOutline, "How to use")
         }
     }
 }

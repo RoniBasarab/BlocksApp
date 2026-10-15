@@ -6,16 +6,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.BarChart
-import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Insights
-import androidx.compose.material.icons.outlined.Menu
-import androidx.compose.material.icons.outlined.People
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Today
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
@@ -42,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.roni.blocks.designsystem.icons.AppIcons
 
 enum class AppTab { HOME, WEEKLY, INSIGHTS }
 
@@ -81,9 +72,9 @@ fun AppTopBar(
 }
 
 enum class MenuDestination(val label: String, val icon: ImageVector) {
-    History("History", Icons.Outlined.History),
-    Profiles("Profiles", Icons.Outlined.People),
-    Settings("Settings", Icons.Outlined.Settings),
+    History("History", AppIcons.History),
+    Profiles("Profiles", AppIcons.People),
+    Settings("Settings", AppIcons.Settings),
 }
 
 @Composable
@@ -94,7 +85,7 @@ fun AppMenuButton(
 ) {
     var open by rememberSaveable { mutableStateOf(false) }
     IconButton(onClick = { open = true }, modifier = modifier.testTag("menu_button")) {
-        Icon(Icons.Outlined.Menu, "Menu")
+        Icon(AppIcons.Menu, "Menu")
     }
     DropdownMenu(
         expanded = open,
@@ -164,7 +155,7 @@ fun WhatTheseMeanDialog(onDismiss: () -> Unit) {
 @Composable
 fun WhatTheseMeanButton(onClick: () -> Unit) {
     IconButton(onClick = onClick, modifier = Modifier.testTag("what_these_mean")) {
-        Icon(Icons.Outlined.Info, contentDescription = "What these mean")
+        Icon(AppIcons.Info, contentDescription = "What these mean")
     }
 }
 
@@ -181,7 +172,7 @@ fun BackTopBar(
         title = { Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface) },
         navigationIcon = {
             IconButton(onClick = onBack, modifier = Modifier.testTag("back_button")) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back")
+                Icon(AppIcons.ArrowBack, "Back")
             }
         },
         actions = {
@@ -210,9 +201,9 @@ fun AppBottomBar(selected: AppTab, onSelect: (AppTab) -> Unit) {
             drawLine(colors.outline, androidx.compose.ui.geometry.Offset(0f, 0f), androidx.compose.ui.geometry.Offset(size.width, 0f), 1.dp.toPx())
         },
     ) {
-        BarItem(AppTab.HOME, selected, Icons.Outlined.Today, "Home", onSelect)
-        BarItem(AppTab.WEEKLY, selected, Icons.Outlined.BarChart, "Weekly", onSelect)
-        BarItem(AppTab.INSIGHTS, selected, Icons.Outlined.Insights, "Insights", onSelect)
+        BarItem(AppTab.HOME, selected, AppIcons.Today, "Home", onSelect)
+        BarItem(AppTab.WEEKLY, selected, AppIcons.BarChart, "Weekly", onSelect)
+        BarItem(AppTab.INSIGHTS, selected, AppIcons.Insights, "Insights", onSelect)
     }
 }
 

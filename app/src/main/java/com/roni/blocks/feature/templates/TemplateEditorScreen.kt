@@ -22,15 +22,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Code
-import androidx.compose.material.icons.outlined.Event
-import androidx.compose.material.icons.outlined.FitnessCenter
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.School
-import androidx.compose.material.icons.outlined.SportsEsports
-import androidx.compose.material.icons.outlined.Weekend
-import androidx.compose.material.icons.outlined.Work
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -88,6 +79,7 @@ import com.roni.blocks.designsystem.Metrics
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.blockColors
+import com.roni.blocks.designsystem.icons.AppIcons
 import com.roni.blocks.feature.templatepicker.stripFor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -190,14 +182,14 @@ private data class EditorSheet(
 }
 
 private fun iconFor(key: String): ImageVector = when (key) {
-    "fitness" -> Icons.Outlined.FitnessCenter
-    "code" -> Icons.Outlined.Code
-    "weekend" -> Icons.Outlined.Weekend
-    "games" -> Icons.Outlined.SportsEsports
-    "work" -> Icons.Outlined.Work
-    "school" -> Icons.Outlined.School
-    "home" -> Icons.Outlined.Home
-    else -> Icons.Outlined.Event
+    "fitness" -> AppIcons.FitnessCenter
+    "code" -> AppIcons.Code
+    "weekend" -> AppIcons.Weekend
+    "games" -> AppIcons.SportsEsports
+    "work" -> AppIcons.Work
+    "school" -> AppIcons.School
+    "home" -> AppIcons.Home
+    else -> AppIcons.Event
 }
 
 /**

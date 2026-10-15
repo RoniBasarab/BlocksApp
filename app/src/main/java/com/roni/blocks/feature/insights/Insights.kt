@@ -11,11 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ArrowDownward
-import androidx.compose.material.icons.outlined.ArrowUpward
-import androidx.compose.material.icons.outlined.Insights
-import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -68,6 +63,7 @@ import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.WhatTheseMeanDialog
 import com.roni.blocks.designsystem.blockColors
 import com.roni.blocks.designsystem.formatStepsApprox
+import com.roni.blocks.designsystem.icons.AppIcons
 import com.roni.blocks.feature.weekly.formatHm
 import com.roni.blocks.feature.weekly.tabKey
 import com.roni.blocks.navigation.HistoryKey
@@ -524,7 +520,7 @@ fun InsightsScreen(state: InsightsUiState, onAction: (InsightsAction) -> Unit) {
     }
     if (!state.hasData) {
         EmptyState(
-            icon = Icons.Outlined.Insights,
+            icon = AppIcons.Insights,
             title = "Insights need a full week",
             body = "${state.daysLogged} of $DAYS_IN_WEEK days logged.",
             extra = { LoggedProgress(state.daysLogged) },
@@ -610,9 +606,9 @@ private fun Headline(state: InsightsUiState) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
             val icon = when (state.headlineKind) {
-                HeadlineKind.METRIC_MOVED -> Icons.Outlined.Insights
-                HeadlineKind.OVER_RUN -> Icons.Outlined.Insights
-                HeadlineKind.STEADY -> Icons.Outlined.Remove
+                HeadlineKind.METRIC_MOVED -> AppIcons.Insights
+                HeadlineKind.OVER_RUN -> AppIcons.Insights
+                HeadlineKind.STEADY -> AppIcons.Remove
             }
             IconCircle(
                 icon = icon,
@@ -683,9 +679,9 @@ private fun TrendPill(trend: InsightTrend) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
         Icon(
             when (trend.arrow) {
-                TrendArrow.DOWN -> Icons.Outlined.ArrowDownward
-                TrendArrow.UP -> Icons.Outlined.ArrowUpward
-                TrendArrow.FLAT -> Icons.Outlined.Remove
+                TrendArrow.DOWN -> AppIcons.ArrowDownward
+                TrendArrow.UP -> AppIcons.ArrowUpward
+                TrendArrow.FLAT -> AppIcons.Remove
             },
             contentDescription = when (trend.tone) {
                 TrendTone.GOOD -> "improving"

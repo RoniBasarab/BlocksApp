@@ -16,8 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.HourglassBottom
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +41,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.roni.blocks.designsystem.icons.AppIcons
 
 enum class TrendDirection { UP, DOWN, FLAT }
 
@@ -215,7 +214,7 @@ private fun ComponentsPreview() {
     BlocksTheme {
         Column {
             SectionHeader("Today")
-            StatTile(Icons.Outlined.HourglassBottom, Primary, "12 min", "Leak")
+            StatTile(AppIcons.HourglassBottom, Primary, "12 min", "Leak")
             TrendPill(TrendDirection.DOWN, "4 min", true)
             AppChip("Suggested", Secondary)
         }
