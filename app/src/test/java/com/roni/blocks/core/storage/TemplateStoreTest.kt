@@ -27,6 +27,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import com.roni.blocks.testing.testFailures
 
 /** Task-18 slice 3: templates are stored data, seeded from the assets 2.7.1 shipped. */
 @RunWith(AndroidJUnit4::class)
@@ -46,7 +47,7 @@ class TemplateStoreTest {
         context.getSharedPreferences(PrefsFile.SETTINGS.name.lowercase(), 0).edit().clear().commit()
     }
 
-    private fun storage() = PrefsStorage(context, UnconfinedTestDispatcher())
+    private fun storage() = PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context))
 
     private fun store() = TemplateStore(context, storage(), logger)
 
@@ -56,14 +57,14 @@ class TemplateStoreTest {
         val shipped = TemplateManager(context)
 
         TemplateId.builtIns.forEach { id ->
-            assertEquals(shipped.get(id).blocks, store.get(id).blocks)
+            assertEquals(requireNotNull(shipped.find(id)).blocks, requireNotNull(store.find(id)).blocks)
         }
-        assertEquals("Monday / Thursday", store.get(TemplateId.MON_THU).title)
-        assertEquals("Sunday / Tuesday / Wednesday", store.get(TemplateId.SUN_TUE_WED).title)
-        assertEquals("Friday / Saturday", store.get(TemplateId.FRI_SAT).title)
-        assertEquals("Off day", store.get(TemplateId.OFF).title)
+        assertEquals("Monday / Thursday", requireNotNull(store.find(TemplateId.MON_THU)).title)
+        assertEquals("Sunday / Tuesday / Wednesday", requireNotNull(store.find(TemplateId.SUN_TUE_WED)).title)
+        assertEquals("Friday / Saturday", requireNotNull(store.find(TemplateId.FRI_SAT)).title)
+        assertEquals("Off day", requireNotNull(store.find(TemplateId.OFF)).title)
 
-        val monThu = store.get(TemplateId.MON_THU).blocks
+        val monThu = requireNotNull(store.find(TemplateId.MON_THU)).blocks
         assertEquals(8, monThu.size)
         assertEquals("mon_thu.cv", monThu.first().id)
         assertEquals(BlockType.Cv, monThu.first().type)
@@ -85,7 +86,7 @@ class TemplateStoreTest {
     @Test
     fun brokenStoredTemplate_fallsBackToItsSeed() = runBlocking {
         val store = store()
-        val seed = store.get(TemplateId.MON_THU)
+        val seed = requireNotNull(store.find(TemplateId.MON_THU))
         val broken = seed.copy(
             blocks = listOf(
                 BlockSpec("a", BlockType.Cv, LocalTime(9, 0), LocalTime(10, 0)),
@@ -96,7 +97,7 @@ class TemplateStoreTest {
 
         store.load()
 
-        assertEquals(seed, store.get(TemplateId.MON_THU))
+        assertEquals(seed, store.find(TemplateId.MON_THU))
     }
 
     @Test
@@ -108,7 +109,7 @@ class TemplateStoreTest {
         val restarted = store()
         restarted.load()
 
-        assertEquals("Renamed day", restarted.get(TemplateId.MON_THU).title)
+        assertEquals("Renamed day", requireNotNull(restarted.find(TemplateId.MON_THU)).title)
     }
 
     // 3.1.0: own templates — create, save, delete, weekdays, category replacement, safe load.
@@ -166,10 +167,10 @@ class TemplateStoreTest {
         val prefs = storage()
         val seed = TemplateStore(context, prefs, logger)
         val builtIns = TemplateId.builtIns.map { id ->
-            val t = seed.get(id)
+            val t = requireNotNull(seed.find(id))
             if (id == TemplateId.MON_THU) t.copy(weekdays = setOf(4), short = "THU") else t
         }
-        val office = seed.get(TemplateId.MON_THU).copy(
+        val office = requireNotNull(seed.find(TemplateId.MON_THU)).copy(
             id = TemplateId("user_1"), title = "In-Office", weekdays = setOf(1), short = "MON",
         )
         prefs.write(PrefsFile.SETTINGS, "templates", builtIns + office, ListSerializer(StoredTemplate.serializer()))

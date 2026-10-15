@@ -33,6 +33,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import com.roni.blocks.testing.testFailures
 
 /**
  * One test per row of the Task-4 §1.2 table. The state, the timeline and `now` are built from the
@@ -45,7 +46,7 @@ class NotificationModelMapperTest {
     private val zone = TimeZone.of("Asia/Jerusalem")
     private val engine = ScheduleEngine(Clock.System, zone)
     private val context = ApplicationProvider.getApplicationContext<Application>()
-    private val prefs = PrefsStorage(context, UnconfinedTestDispatcher())
+    private val prefs = PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context))
     private val timeFormatter = TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))
     private val mapper = NotificationModelMapper(engine, zone, timeFormatter)
 

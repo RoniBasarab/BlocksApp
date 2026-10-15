@@ -34,6 +34,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import com.roni.blocks.testing.testFailures
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34])
@@ -106,7 +107,7 @@ class TemplatePickerTest {
         val context = RuntimeEnvironment.getApplication()
         context.getSharedPreferences(PrefsFile.SETTINGS.name.lowercase(), 0).edit().clear().commit()
         val ownId = runBlocking {
-            val store = TemplateStore(context, PrefsStorage(context, UnconfinedTestDispatcher()), AppLogger(context))
+            val store = TemplateStore(context, PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context)), AppLogger(context))
             val own = store.createIn(UNEMPLOYED_PROFILE.id, "Mine")
             store.edit { Profiles.setDay(it, UNEMPLOYED_PROFILE.id, 1, own.id) }
             assertEquals(own.id, todayTemplate(DayOfWeek.MONDAY))
@@ -142,7 +143,7 @@ class TemplatePickerTest {
         compose.onNodeWithTag("template_card_${ownId.key}").assertIsDisplayed()
 
         // A fresh store restores the seed so sibling tests still see the built-in suggestion.
-        TemplateStore(context, PrefsStorage(context, UnconfinedTestDispatcher()), AppLogger(context))
+        TemplateStore(context, PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context)), AppLogger(context))
     }
 
     @Test
@@ -151,7 +152,7 @@ class TemplatePickerTest {
         val context = RuntimeEnvironment.getApplication()
         context.getSharedPreferences(PrefsFile.SETTINGS.name.lowercase(), 0).edit().clear().commit()
         val state = runBlocking {
-            val store = TemplateStore(context, PrefsStorage(context, UnconfinedTestDispatcher()), AppLogger(context))
+            val store = TemplateStore(context, PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context)), AppLogger(context))
             store.createIn(UNEMPLOYED_PROFILE.id, "One")
             store.createIn(UNEMPLOYED_PROFILE.id, "Two")
             store.createIn(UNEMPLOYED_PROFILE.id, "Three")
@@ -186,7 +187,7 @@ class TemplatePickerTest {
         assertFalse("cards in different rows must never overlap", friSat.overlaps(off))
 
         // A fresh store restores the seed so sibling tests still see the built-in suggestion.
-        TemplateStore(context, PrefsStorage(context, UnconfinedTestDispatcher()), AppLogger(context))
+        TemplateStore(context, PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context)), AppLogger(context))
     }
 
     private fun setContent() {

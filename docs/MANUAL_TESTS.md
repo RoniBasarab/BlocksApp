@@ -198,3 +198,7 @@ stale — the title should become `Coding ran over` with the `Next: Free` action
 ## Check on the phone (3.4.3)
 - [ ] Let a Coding block run over (debug clock) -> the moment the red tail starts on the calendar, the card shows "Ran over" with "Next: ..." and no "Done early".
 - [ ] Edit that block before it starts so it ends earlier, let the new end pass -> the same "Ran over" card.
+
+## Check on the phone (3.5.0)
+- [ ] Everything works as in 3.4.3 (a normal day: start, Next, a walk, History, Weekly).
+- [ ] Developer tools → "Break a saved value" → the debug build crashes once; open it again → the day starts fresh, and Settings → Your data shows "1 saved item couldn't be read" → Share works.

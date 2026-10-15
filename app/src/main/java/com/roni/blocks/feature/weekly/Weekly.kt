@@ -49,10 +49,15 @@ import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DriveLog
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.WalkLog
+import com.roni.blocks.core.model.actualMinutes
 import com.roni.blocks.core.model.isWork
+import com.roni.blocks.core.model.plannedMinutes
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.TemplateManager
 import com.roni.blocks.core.storage.debtMinutes
+import com.roni.blocks.core.system.AppRescue
+import com.roni.blocks.core.system.Failures
+import com.roni.blocks.core.system.ProblemAction
 import com.roni.blocks.core.time.at
 import com.roni.blocks.designsystem.AppBottomBar
 import com.roni.blocks.designsystem.AppCard
@@ -61,6 +66,7 @@ import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.AppTopBar
 import com.roni.blocks.designsystem.AppType
 import com.roni.blocks.designsystem.EmptyState
+import com.roni.blocks.designsystem.ErrorCard
 import com.roni.blocks.designsystem.ScreenColumn
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.Spacing
@@ -84,6 +90,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
@@ -112,11 +119,13 @@ data class WeeklyUiState(
     val missedSummary: String? = null,
     val rows: ImmutableList<PlanProgressUi> = persistentListOf(),
     val stats: List<WeeklyStat> = emptyList(),
+    val failed: Boolean = false,
 )
 
 sealed interface WeeklyAction {
     data object PreviousWeek : WeeklyAction
     data object NextWeek : WeeklyAction
+    data class Problem(val action: ProblemAction) : WeeklyAction
 }
 
 @HiltViewModel
@@ -133,26 +142,37 @@ class WeeklyViewModel @Inject constructor(
     private val templates: TemplateManager,
     private val clock: Clock,
     private val zone: TimeZone,
+    private val failures: Failures,
+    private val rescue: AppRescue,
 ) : ViewModel() {
     private val currentWeek = history.weekStart(clock.now().toLocalDateTime(zone).date)
     private val _selectedWeek = MutableStateFlow(currentWeek)
     private val _state = MutableStateFlow(WeeklyUiState(hasData = false))
     val state: StateFlow<WeeklyUiState> = _state.asStateFlow()
 
+    private fun fail() = _state.update { it.copy(failed = true) }
+
     init {
-        viewModelScope.launch { reload() }
+        failures.launch(viewModelScope, "Weekly: load", onFailure = ::fail) { reload() }
+    }
+
+    fun onAction(action: WeeklyAction) {
+        when (action) {
+            is WeeklyAction.Problem -> rescue.handle(action.action)
+            else -> Unit
+        }
     }
 
     fun onPreviousWeek() {
         if (!_state.value.canGoPrevious) return
         _selectedWeek.value = _selectedWeek.value.plus(-7, kotlinx.datetime.DateTimeUnit.DAY)
-        viewModelScope.launch { reload() }
+        failures.launch(viewModelScope, "Weekly: previous week", onFailure = ::fail) { reload() }
     }
 
     fun onNextWeek() {
         if (!_state.value.canGoNext) return
         _selectedWeek.value = _selectedWeek.value.plus(7, kotlinx.datetime.DateTimeUnit.DAY)
-        viewModelScope.launch { reload() }
+        failures.launch(viewModelScope, "Weekly: next week", onFailure = ::fail) { reload() }
     }
 
     private suspend fun reload() {
@@ -167,12 +187,14 @@ class WeeklyViewModel @Inject constructor(
                 weekLabel = weekLabel(selected),
                 canGoNext = selected < currentWeek,
                 canGoPrevious = canGoPrevious,
+                failed = _state.value.failed,
             )
             return
         }
         _state.value = WeeklyUiState(
             hasData = true,
             weekLabel = weekLabel(selected),
+            failed = _state.value.failed,
             canGoNext = selected < currentWeek,
             canGoPrevious = canGoPrevious,
             plannedFraction = plannedFraction(days),
@@ -223,15 +245,15 @@ class WeeklyViewModel @Inject constructor(
     /** Work-block minutes actually worked: planned segments minus the pause that ran inside them. */
     private fun workedWorkMinutes(segments: List<com.roni.blocks.core.model.Segment>): Int {
         val pause = segments.filter { it.kind == SegmentKind.PAUSE && it.actualEnd != null }
-            .sumOf { (it.actualEnd!! - it.actualStart).inWholeMinutes }.toInt()
+            .sumOf { it.actualMinutes ?: 0 }.toInt()
         val actual = segments.filter { it.kind == SegmentKind.PLANNED && it.actualEnd != null && it.type.isWork }
-            .sumOf { (it.actualEnd!! - it.actualStart).inWholeMinutes }.toInt()
+            .sumOf { it.actualMinutes ?: 0 }.toInt()
         return (actual - pause).coerceAtLeast(0)
     }
 
     private fun plannedWorkMinutes(segments: List<com.roni.blocks.core.model.Segment>): Int =
         segments.filter { it.kind == SegmentKind.PLANNED && it.plannedStart != null && it.plannedEnd != null && it.type.isWork }
-            .sumOf { (it.plannedEnd!! - it.plannedStart!!).inWholeMinutes }.toInt()
+            .sumOf { it.plannedMinutes ?: 0 }.toInt()
 
     /**
      * Planned minutes come from each day's final plan (`plannedBlocks`, falling back to the
@@ -256,7 +278,7 @@ class WeeklyViewModel @Inject constructor(
             } else {
                 null
             }
-            val blocks = day.plannedBlocks ?: day.template?.let { templates.get(it).blocks } ?: emptyList()
+            val blocks = day.plannedBlocks ?: day.template?.let { templates.find(it)?.blocks } ?: emptyList()
             blocks.forEach { block ->
                 val start = block.start.at(day.date, zone)
                 var end = block.end.at(day.date, zone)
@@ -289,7 +311,7 @@ class WeeklyViewModel @Inject constructor(
         val missed = days.sumOf { day ->
             day.segments
                 .filter { it.missReason != null && it.plannedStart != null && it.plannedEnd != null }
-                .sumOf { (it.plannedEnd!! - it.plannedStart!!).inWholeMinutes }
+                .sumOf { it.plannedMinutes ?: 0 }
         }.toInt()
         if (missed <= 0) return null
         return "Missed: ${formatHm(missed)} of planned blocks that never happened"
@@ -305,9 +327,9 @@ class WeeklyViewModel @Inject constructor(
         val gymPlanned = days.sumOf { day -> day.segments.count { it.type == BlockType.Gym && it.kind == SegmentKind.PLANNED && it.plannedStart != null } }
         val gymDone = days.sumOf { day ->
             val pause = day.segments.filter { it.kind == SegmentKind.PAUSE && it.actualEnd != null }
-                .sumOf { (it.actualEnd!! - it.actualStart).inWholeMinutes }.toInt()
+                .sumOf { it.actualMinutes ?: 0 }.toInt()
             val gymWorked = day.segments.filter { it.type == BlockType.Gym && it.kind == SegmentKind.PLANNED && it.actualEnd != null }
-                .sumOf { (it.actualEnd!! - it.actualStart).inWholeMinutes }
+                .sumOf { it.actualMinutes ?: 0 }
             if (gymWorked - pause >= 30) 1 else 0
         }
         val total = stepTotals.sum()
@@ -376,6 +398,10 @@ private val months = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Au
 /** Content only; the top and bottom bars live in [WeeklyRoute]. */
 @Composable
 fun WeeklyScreen(state: WeeklyUiState, onAction: (WeeklyAction) -> Unit) {
+    if (state.failed) {
+        ErrorCard(onAction = { onAction(WeeklyAction.Problem(it)) }, modifier = Modifier.padding(Spacing.m))
+        return
+    }
     if (!state.hasData) {
         Column(Modifier.fillMaxSize()) {
             WeekSelector(state, onAction)
@@ -571,6 +597,7 @@ fun WeeklyRoute(onTab: (NavKey) -> Unit, onMenu: (NavKey) -> Unit, viewModel: We
                     when (action) {
                         WeeklyAction.PreviousWeek -> viewModel.onPreviousWeek()
                         WeeklyAction.NextWeek -> viewModel.onNextWeek()
+                        is WeeklyAction.Problem -> viewModel.onAction(action)
                     }
                 },
             )

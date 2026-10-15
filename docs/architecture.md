@@ -402,9 +402,11 @@ Hour height: 80dp (2.0.0, room for break labels and handles). Current block: ele
 
 ## 14. Errors and logging
 
-- Every `viewModelScope` / app scope launch uses a shared `CoroutineExceptionHandler` that logs and, for UI scopes, pushes an error slice into state.
-- Caveat: a handler catches the failure but the failed coroutine is still dead. The `DayOrchestrator` state collection and the tick flows must survive, so those also use `.catch { log; emit(fallback) }` so one bad read doesn't stop the app from firing alarms.
-- Logger: thin wrapper over `android.util.Log` + a rolling file in `filesDir` (a few files × ~1 MB). Every transition, alarm schedule/fire and notification post is logged. Settings can share the log file.
+- **Failures (3.5.0):** one class decides — `Failures` (`report`, `launch`, `attempt`, `Flow.reportFailures`), from `FailurePolicy(loud = BuildConfig.DEBUG)`: release logs and carries on, debug rethrows so it gets fixed.
+- **Unreadable data:** never overwritten. A value that can't be decoded is copied to `PrefsFile.UNREADABLE`, removed from its own file, reported and read as null; Settings → Your data can share it.
+- **Error card:** the broken part shows "Something went wrong" with **Restart app** and **Send log** (`designsystem/ErrorCard.kt` + `AppRescue`); the bars, tabs and menu keep working.
+- **Guard rails:** the `codeRules` Gradle task runs before every build and fails, with file, line and the fix, on `!!`, `GlobalScope` and `runBlocking`; the experimental-API rule turns on in 3.5.1.
+- **Logging:** `AppLogger` wraps `android.util.Log` + a rolling file in `filesDir`; every transition, alarm and notification is logged, and Settings shares the log through `AppRescue`.
 
 ---
 

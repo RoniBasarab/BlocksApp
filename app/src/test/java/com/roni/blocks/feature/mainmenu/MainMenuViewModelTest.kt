@@ -3,6 +3,8 @@ package com.roni.blocks.feature.mainmenu
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.testing.testActions
+import com.roni.blocks.testing.testFailures
+import com.roni.blocks.testing.testRescue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -40,7 +42,9 @@ class MainMenuViewModelTest {
     fun useProfile_switchesMarksAndOpensThePicker() = runBlocking {
         val rig = testActions(context)
         assertFalse("a fresh seed has not chosen", rig.store.profileChosen())
-        val viewModel = MainMenuViewModel(rig.store, rig.profiles, rig.clock, TimeZone.of("Asia/Jerusalem"))
+        val viewModel = MainMenuViewModel(
+            rig.store, rig.profiles, rig.clock, TimeZone.of("Asia/Jerusalem"), testFailures(context), testRescue(context),
+        )
         val effects = mutableListOf<MainMenuEffect>()
         val job = launch(Dispatchers.Unconfined) { viewModel.effects.collect { effects += it } }
 

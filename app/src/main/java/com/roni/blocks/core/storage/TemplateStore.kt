@@ -87,8 +87,6 @@ class TemplateStore @Inject constructor(
     /** The stored template, falling back to its built-in seed; null only for an unknown id. */
     fun find(id: TemplateId): StoredTemplate? = stored.firstOrNull { it.id == id } ?: seed.firstOrNull { it.id == id }
 
-    fun get(id: TemplateId): StoredTemplate = find(id) ?: error("Unknown template ${id.key}")
-
     /** True for the four templates 2.x shipped: they cannot be saved, deleted, or lose their seed. */
     fun isBuiltIn(id: TemplateId): Boolean = id in TemplateId.builtIns
 

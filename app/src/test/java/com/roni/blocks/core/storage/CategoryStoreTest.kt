@@ -14,6 +14,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import com.roni.blocks.testing.testFailures
 
 /** Task-19 slice 1: the category writes (3.1.0) — add, rename/recolour, delete; built-ins are protected. */
 @RunWith(AndroidJUnit4::class)
@@ -36,7 +37,7 @@ class CategoryStoreTest {
 
     @Test
     fun add_update_delete_followTheRules() = runBlocking {
-        val store = CategoryStore(PrefsStorage(context, UnconfinedTestDispatcher()))
+        val store = CategoryStore(PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context)))
         store.load()
 
         val added = store.add("Office", 0xFFE08A7A, work = true, pomodoro = false)

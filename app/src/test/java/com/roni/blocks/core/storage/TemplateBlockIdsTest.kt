@@ -55,12 +55,12 @@ class TemplateBlockIdsTest {
         )
 
         expected.forEach { (template, ids) ->
-            val blocks = templates.get(template).blocks
+            val blocks = requireNotNull(templates.find(template)).blocks
             assertEquals("$template block ids", ids, blocks.map { it.id })
             assertEquals("$template is in time order", blocks.map { it.start }, blocks.map { it.start }.sorted())
         }
 
-        val allIds = TemplateId.builtIns.flatMap { template -> templates.get(template).blocks.map { it.id } }
+        val allIds = TemplateId.builtIns.flatMap { template -> requireNotNull(templates.find(template)).blocks.map { it.id } }
         assertEquals(
             "block ids must not repeat",
             allIds.size,

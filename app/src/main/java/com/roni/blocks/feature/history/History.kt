@@ -45,10 +45,15 @@ import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.WalkLog
+import com.roni.blocks.core.model.actualMinutes
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.schedule.RecordEdit
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.debtMinutes
+import com.roni.blocks.core.system.AppRescue
+import com.roni.blocks.core.system.Failures
+import com.roni.blocks.core.system.ProblemAction
+import com.roni.blocks.core.system.reportFailures
 import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.core.time.minuteOfDay
 import com.roni.blocks.core.walk.WalkCorrection
@@ -60,6 +65,7 @@ import com.roni.blocks.designsystem.AppType
 import com.roni.blocks.designsystem.BackTopBar
 import com.roni.blocks.designsystem.BlockStrip
 import com.roni.blocks.designsystem.EmptyState
+import com.roni.blocks.designsystem.ErrorCard
 import com.roni.blocks.designsystem.Good
 import com.roni.blocks.designsystem.Leak
 import com.roni.blocks.designsystem.ScreenScaffold
@@ -88,6 +94,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.DayOfWeek
@@ -116,7 +123,13 @@ data class HistoryWeek(val header: String, val days: List<HistoryDay>)
 data class HistoryUiState(
     val hasData: Boolean,
     val weeks: List<HistoryWeek> = emptyList(),
+    val failed: Boolean = false,
 )
+
+/** What the History list can do (3.5.0): handle a failure. Tapping a day is navigation, kept in the Route. */
+sealed interface HistoryAction {
+    data class Problem(val action: ProblemAction) : HistoryAction
+}
 
 /** One logged walk as History lists it (3.4.1): its start (to open the sheet) and its line. */
 @Immutable
@@ -128,6 +141,8 @@ sealed interface HistoryDetailAction {
     data class OpenWalk(val startEpochSec: Long) : HistoryDetailAction
     /** One action inside the walk sheet, shared with Home. */
     data class Sheet(val action: BlockSheetAction) : HistoryDetailAction
+    /** The error card's Restart / Send log (3.5.0). */
+    data class Problem(val action: ProblemAction) : HistoryDetailAction
 }
 
 data class HistoryDetailUi(
@@ -140,11 +155,20 @@ data class HistoryDetailUi(
     val steps: String? = null,
     /** The walk correction sheet (3.4.1); null when it's closed. */
     val sheet: BlockSheetUi? = null,
+    /** Something failed while loading or editing (3.5.0); the card replaces the content. */
+    val failed: Boolean = false,
 )
 
 /** Content only; the top bar lives in [HistoryRoute]. */
 @Composable
-fun HistoryScreen(state: HistoryUiState, onAction: (HistoryDay) -> Unit) {
+fun HistoryScreen(state: HistoryUiState, onAction: (HistoryAction) -> Unit, onDay: (HistoryDay) -> Unit) {
+    if (state.failed) {
+        ErrorCard(
+            onAction = { onAction(HistoryAction.Problem(it)) },
+            modifier = Modifier.padding(horizontal = Spacing.l, vertical = Spacing.s),
+        )
+        return
+    }
     if (!state.hasData) {
         EmptyState(
             icon = Icons.Outlined.History,
@@ -169,7 +193,7 @@ fun HistoryScreen(state: HistoryUiState, onAction: (HistoryDay) -> Unit) {
                 HistoryHeader(week.header, isFirst = index == 0)
             }
             items(items = week.days, key = { it.date }) { day ->
-                HistoryDayRow(day = day, onClick = { onAction(day) })
+                HistoryDayRow(day = day, onClick = { onDay(day) })
             }
         }
     }
@@ -254,25 +278,35 @@ class HistoryViewModel @Inject constructor(
     private val history: HistoryManager,
     private val clock: Clock,
     private val zone: TimeZone,
+    private val failures: Failures,
+    private val rescue: AppRescue,
 ) : ViewModel() {
     private val currentWeek = history.weekStart(clock.now().toLocalDateTime(zone).date)
 
     private val _state = MutableStateFlow(HistoryUiState(hasData = false))
     val state: StateFlow<HistoryUiState> = _state.asStateFlow()
 
+    private fun fail() = _state.update { it.copy(failed = true) }
+
     init {
-        viewModelScope.launch { reload() }
+        failures.launch(viewModelScope, "History: load", onFailure = ::fail) { reload() }
+    }
+
+    fun onAction(action: HistoryAction) {
+        when (action) {
+            is HistoryAction.Problem -> rescue.handle(action.action)
+        }
     }
 
     private suspend fun reload() {
         val days = history.days()
         if (days.isEmpty()) {
-            _state.value = HistoryUiState(hasData = false)
+            _state.value = HistoryUiState(hasData = false, failed = _state.value.failed)
             return
         }
         val weeks = days.groupBy { history.weekStart(it.date) }
             .map { (weekStart, records) -> HistoryWeek(header(weekStart), records.map { dayUi(it) }) }
-        _state.value = HistoryUiState(hasData = true, weeks = weeks)
+        _state.value = HistoryUiState(hasData = true, weeks = weeks, failed = _state.value.failed)
     }
 
     private fun header(weekStart: LocalDate): String = when (weekStart) {
@@ -313,7 +347,7 @@ class HistoryViewModel @Inject constructor(
         )
         val strip = record.segments
             .filter { it.actualEnd != null && (it.kind == SegmentKind.PLANNED || it.kind == SegmentKind.SYNTHETIC_FREE) }
-            .map { segment -> blockColors(segment.type).accent to ((segment.actualEnd!! - segment.actualStart).inWholeMinutes).toFloat() }
+            .map { segment -> blockColors(segment.type).accent to (segment.actualMinutes ?: 0).toFloat() }
         val summary = if (planned == 0) "" else {
             "${done.size}/$planned blocks" + if (pauseCount > 0) " · $pauseCount pause" + (if (pauseCount > 1) "s" else "") else ""
         }
@@ -346,6 +380,8 @@ class HistoryDetailViewModel @Inject constructor(
     private val timeFormatter: TimeFormatter,
     private val clock: Clock,
     private val zone: TimeZone,
+    private val failures: Failures,
+    private val rescue: AppRescue,
 ) : ViewModel() {
     private val _state = MutableStateFlow<HistoryDetailUi?>(null)
     val state: StateFlow<HistoryDetailUi?> = _state.asStateFlow()
@@ -354,9 +390,11 @@ class HistoryDetailViewModel @Inject constructor(
     /** The walk the correction sheet edits (3.4.1); null when it's closed. */
     private var walkEdit: WalkEdit? = null
 
+    private fun fail() = _state.update { it?.copy(failed = true) }
+
     fun load(dateKey: String) {
         job?.cancel()
-        job = viewModelScope.launch {
+        job = failures.launch(viewModelScope, "History detail: load", onFailure = ::fail) {
             val date = runCatching { LocalDate.parse(dateKey) }.getOrNull() ?: return@launch
             loadedDate = date
             combine(
@@ -364,6 +402,7 @@ class HistoryDetailViewModel @Inject constructor(
                 history.observeWalks(date),
                 history.observeSteps(date),
             ) { record, logs, steps -> Triple(record, logs, steps) }
+                .reportFailures(failures, "History detail: day", onFailure = ::fail)
                 .collect { (record, logs, steps) ->
                     _state.value = record?.let {
                         HistoryDetailUi(
@@ -387,13 +426,14 @@ class HistoryDetailViewModel @Inject constructor(
         when (action) {
             is HistoryDetailAction.OpenWalk -> openWalk(action.startEpochSec)
             is HistoryDetailAction.Sheet -> onSheet(action.action)
+            is HistoryDetailAction.Problem -> rescue.handle(action.action)
         }
     }
 
     /** Opens the shared sheet over the walk starting at [startEpochSec], with the day's real bounds. */
     private fun openWalk(startEpochSec: Long) {
         val date = loadedDate ?: return
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "History detail: open walk", onFailure = ::fail) {
             val log = history.walks(date).firstOrNull { it.start.epochSeconds == startEpochSec } ?: return@launch
             val (floor, ceil) = day.walkBounds(date, log.start)
             walkEdit = WalkEdit(log, log.start.minuteOfDay(zone), log.end.minuteOfDay(zone), floor, ceil)
@@ -428,7 +468,7 @@ class HistoryDetailViewModel @Inject constructor(
         val edit = walkEdit ?: return
         val date = loadedDate ?: return
         walkEdit = null
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "History detail: save walk", onFailure = ::fail) {
             day.correctWalk(date, edit.log.start, edit.startMin, edit.endMin)
             refreshSheet()
         }
@@ -468,12 +508,12 @@ class HistoryDetailViewModel @Inject constructor(
 
     fun checkIn(pick: CheckIn) {
         val date = loadedDate ?: return
-        viewModelScope.launch { history.setCheckIn(date, pick) }
+        failures.launch(viewModelScope, "History detail: check in", onFailure = ::fail) { history.setCheckIn(date, pick) }
     }
 
     fun correct(edit: RecordEdit) {
         val date = loadedDate ?: return
-        viewModelScope.launch { history.correctDay(date, edit, zone) }
+        failures.launch(viewModelScope, "History detail: correct", onFailure = ::fail) { history.correctDay(date, edit, zone) }
     }
 }
 
@@ -488,7 +528,8 @@ fun HistoryRoute(onBack: () -> Unit, onDay: (String) -> Unit, viewModel: History
         Column(Modifier.fillMaxSize().padding(padding)) {
             HistoryScreen(
                 state = state,
-                onAction = { onDay(it.date) },
+                onAction = viewModel::onAction,
+                onDay = { onDay(it.date) },
             )
         }
     }
@@ -504,6 +545,13 @@ fun HistoryDetailRoute(date: String?, onBack: () -> Unit, viewModel: HistoryDeta
             BackTopBar(title = detail?.title.orEmpty(), onBack = onBack)
         },
     ) { padding ->
+        if (detail?.failed == true) {
+            ErrorCard(
+                onAction = { viewModel.onAction(HistoryDetailAction.Problem(it)) },
+                modifier = Modifier.padding(padding).padding(Spacing.l),
+            )
+            return@ScreenScaffold
+        }
         detail?.let { d ->
             Column(Modifier.fillMaxSize().padding(padding)) {
                 RecapList(

@@ -74,6 +74,9 @@ import com.roni.blocks.core.model.shortFor
 import com.roni.blocks.core.profiles.Profiles
 import com.roni.blocks.core.storage.ProfileActions
 import com.roni.blocks.core.storage.TemplateStore
+import com.roni.blocks.core.system.AppRescue
+import com.roni.blocks.core.system.Failures
+import com.roni.blocks.core.system.ProblemAction
 import com.roni.blocks.core.time.Ticker
 import com.roni.blocks.designsystem.AppBackground
 import com.roni.blocks.designsystem.AppCard
@@ -81,6 +84,7 @@ import com.roni.blocks.designsystem.AppChip
 import com.roni.blocks.designsystem.AppShapes
 import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.BlockStrip
+import com.roni.blocks.designsystem.ErrorCard
 import com.roni.blocks.designsystem.Metrics
 import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.blockColors
@@ -135,6 +139,7 @@ data class PickerUiState(
     val profileMenu: Boolean = false,
     val howTo: Boolean = false,
     val howToPage: Int = 0,
+    val failed: Boolean = false,
 )
 
 sealed interface PickerAction {
@@ -145,6 +150,7 @@ sealed interface PickerAction {
     data object HowTo : PickerAction
     data class HowToPage(val page: Int) : PickerAction
     data object CloseHowTo : PickerAction
+    data class Problem(val action: ProblemAction) : PickerAction
 }
 
 /** What the picker asks the screen around it to do once a pick is applied. */
@@ -168,6 +174,8 @@ class TemplatePickerViewModel @Inject constructor(
     private val ticker: Ticker,
     private val clock: Clock,
     private val zone: TimeZone,
+    private val failures: Failures,
+    private val rescue: AppRescue,
 ) : ViewModel() {
     private val _state = MutableStateFlow(PickerUiState())
     val state = _state.asStateFlow()
@@ -175,12 +183,14 @@ class TemplatePickerViewModel @Inject constructor(
     private val _effects = MutableSharedFlow<PickerEffect>()
     val effects: SharedFlow<PickerEffect> = _effects.asSharedFlow()
 
+    private fun fail() = _state.update { it.copy(failed = true) }
+
     init {
         publish()
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Picker: hour", onFailure = ::fail) {
             ticker.minutes.distinctUntilChangedBy { it / 60 }.collect { publish() }
         }
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Picker: templates", onFailure = ::fail) {
             templates.templates.collect { publish() }
         }
     }
@@ -189,17 +199,18 @@ class TemplatePickerViewModel @Inject constructor(
         when (action) {
             is PickerAction.Pick -> {
                 if (action.id == TemplateId.OFF) day.send(DayEvent.TakeOffDay) else day.send(DayEvent.StartDay(action.id))
-                viewModelScope.launch { _effects.emit(PickerEffect.Started) }
+                failures.launch(viewModelScope, "Picker: started", onFailure = ::fail) { _effects.emit(PickerEffect.Started) }
             }
             PickerAction.OpenProfileMenu -> _state.update { it.copy(profileMenu = true) }
             is PickerAction.SwitchProfile -> {
                 _state.update { it.copy(profileMenu = false) }
-                viewModelScope.launch { profiles.switchTo(action.id) }
+                failures.launch(viewModelScope, "Picker: switch profile", onFailure = ::fail) { profiles.switchTo(action.id) }
             }
             PickerAction.DismissProfileMenu -> _state.update { it.copy(profileMenu = false) }
             PickerAction.HowTo -> _state.update { it.copy(howTo = true, howToPage = 0) }
             is PickerAction.HowToPage -> _state.update { it.copy(howToPage = action.page) }
             PickerAction.CloseHowTo -> _state.update { it.copy(howTo = false) }
+            is PickerAction.Problem -> rescue.handle(action.action)
         }
     }
 
@@ -350,6 +361,14 @@ fun TemplatePickerScreen(state: PickerUiState, onAction: (PickerAction) -> Unit)
     val colors = AppTheme.colors
     AppBackground {
         AuroraBackground()
+        if (state.failed) {
+            ErrorCard(
+                onAction = { onAction(PickerAction.Problem(it)) },
+                modifier = Modifier
+                    .padding(Spacing.l)
+                    .windowInsetsPadding(WindowInsets.safeDrawing),
+            )
+        } else {
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             modifier = Modifier
@@ -420,6 +439,7 @@ fun TemplatePickerScreen(state: PickerUiState, onAction: (PickerAction) -> Unit)
                         .padding(top = Spacing.l),
                 )
             }
+        }
         }
         if (state.howTo) {
             HowToUse(state.howToPage) { howToAction ->

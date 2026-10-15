@@ -75,9 +75,13 @@ import com.roni.blocks.core.storage.ExplainerStore
 import com.roni.blocks.core.storage.ProfileActions
 import com.roni.blocks.core.storage.TemplateActions
 import com.roni.blocks.core.storage.TemplateStore
+import com.roni.blocks.core.system.AppRescue
+import com.roni.blocks.core.system.Failures
+import com.roni.blocks.core.system.ProblemAction
 import com.roni.blocks.designsystem.AppCard
 import com.roni.blocks.designsystem.AppShapes
 import com.roni.blocks.designsystem.AppTheme
+import com.roni.blocks.designsystem.ErrorCard
 import com.roni.blocks.designsystem.HintCard
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.SectionHeader
@@ -127,6 +131,7 @@ data class ProfileState(
     val error: String? = null,
     val howTo: Boolean = false,
     val howToPage: Int = 0,
+    val failed: Boolean = false,
 )
 
 sealed interface ProfileAction {
@@ -148,6 +153,7 @@ sealed interface ProfileAction {
     data object HowTo : ProfileAction
     data class HowToPage(val page: Int) : ProfileAction
     data object CloseHowTo : ProfileAction
+    data class Problem(val action: ProblemAction) : ProfileAction
 }
 
 sealed interface ProfileEffect {
@@ -165,6 +171,8 @@ class ProfileViewModel @Inject constructor(
     private val profiles: ProfileActions,
     private val templates: TemplateActions,
     private val explainers: ExplainerStore,
+    private val failures: Failures,
+    private val rescue: AppRescue,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ProfileState())
     val state: StateFlow<ProfileState> = _state.asStateFlow()
@@ -174,8 +182,10 @@ class ProfileViewModel @Inject constructor(
 
     private var profileId: String? = null
 
+    private fun fail() = _state.update { it.copy(failed = true) }
+
     init {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Profile: hints", onFailure = ::fail) {
             _state.update {
                 it.copy(
                     templatesHint = !explainers.seen(ExplainerKey.TEMPLATES),
@@ -183,7 +193,7 @@ class ProfileViewModel @Inject constructor(
                 )
             }
         }
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Profile: profiles", onFailure = ::fail) {
             store.profiles.collect { book -> if (profileId != null) refresh(book) }
         }
     }
@@ -197,11 +207,11 @@ class ProfileViewModel @Inject constructor(
         val id = profileId
         when (action) {
             is ProfileAction.Rename -> rename(action.name)
-            ProfileAction.UseThis -> if (id != null) viewModelScope.launch { profiles.switchTo(id) }
-            is ProfileAction.OpenTemplate -> if (action.id != TemplateId.OFF) viewModelScope.launch { _effects.emit(ProfileEffect.OpenTemplate(action.id)) }
-            is ProfileAction.RemoveTemplate -> if (id != null) viewModelScope.launch { profiles.removeTemplate(id, action.id) }
+            ProfileAction.UseThis -> if (id != null) failures.launch(viewModelScope, "Profile: use this", onFailure = ::fail) { profiles.switchTo(id) }
+            is ProfileAction.OpenTemplate -> if (action.id != TemplateId.OFF) failures.launch(viewModelScope, "Profile: open template", onFailure = ::fail) { _effects.emit(ProfileEffect.OpenTemplate(action.id)) }
+            is ProfileAction.RemoveTemplate -> if (id != null) failures.launch(viewModelScope, "Profile: remove template", onFailure = ::fail) { profiles.removeTemplate(id, action.id) }
             ProfileAction.AddExisting -> openAddExisting()
-            is ProfileAction.AddTemplate -> if (id != null) viewModelScope.launch {
+            is ProfileAction.AddTemplate -> if (id != null) failures.launch(viewModelScope, "Profile: add template", onFailure = ::fail) {
                 profiles.addTemplate(id, action.id)
                 _state.update { it.copy(addExisting = null) }
             }
@@ -210,7 +220,7 @@ class ProfileViewModel @Inject constructor(
             ProfileAction.CreateTemplate -> createTemplate()
             is ProfileAction.OpenDay -> openDay(action.iso)
             is ProfileAction.DismissHint -> dismissHint(action.key)
-            is ProfileAction.SetDay -> if (id != null) viewModelScope.launch {
+            is ProfileAction.SetDay -> if (id != null) failures.launch(viewModelScope, "Profile: set day", onFailure = ::fail) {
                 profiles.setDay(id, action.iso, action.id)
                 _state.update { it.copy(dayPicker = null) }
             }
@@ -222,6 +232,7 @@ class ProfileViewModel @Inject constructor(
             ProfileAction.HowTo -> _state.update { it.copy(howTo = true, howToPage = 0) }
             is ProfileAction.HowToPage -> _state.update { it.copy(howToPage = action.page) }
             ProfileAction.CloseHowTo -> _state.update { it.copy(howTo = false) }
+            is ProfileAction.Problem -> rescue.handle(action.action)
         }
     }
 
@@ -230,7 +241,7 @@ class ProfileViewModel @Inject constructor(
     }
 
     private fun dismissHint(key: ExplainerKey) {
-        viewModelScope.launch { explainers.markSeen(key) }
+        failures.launch(viewModelScope, "Profile: mark hint seen", onFailure = ::fail) { explainers.markSeen(key) }
         _state.update {
             when (key) {
                 ExplainerKey.TEMPLATES -> it.copy(templatesHint = false)
@@ -244,7 +255,7 @@ class ProfileViewModel @Inject constructor(
         val id = profileId ?: return
         val clean = name.trim()
         if (clean.isEmpty() || clean.length > Profiles.MAX_NAME) return
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Profile: rename", onFailure = ::fail) {
             when (val result = profiles.rename(id, clean)) {
                 is ProfileEdit.Refused -> _state.update { it.copy(error = refusalText(result.why)) }
                 is ProfileEdit.Ok -> _state.update { it.copy(error = null) }
@@ -256,7 +267,7 @@ class ProfileViewModel @Inject constructor(
         val id = profileId ?: return
         val name = _state.value.newTemplate?.trim() ?: return
         if (name.isEmpty() || name.length > Profiles.MAX_NAME) return
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Profile: create template", onFailure = ::fail) {
             val created = templates.createIn(id, name)
             _state.update { it.copy(newTemplate = null) }
             _effects.emit(ProfileEffect.OpenTemplate(created.id))
@@ -265,7 +276,7 @@ class ProfileViewModel @Inject constructor(
 
     private fun confirmDelete() {
         val id = profileId ?: return
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Profile: delete", onFailure = ::fail) {
             when (val result = profiles.delete(id)) {
                 is ProfileEdit.Ok -> _effects.emit(ProfileEffect.Closed)
                 is ProfileEdit.Refused -> _state.update { it.copy(confirmDelete = false, error = refusalText(result.why)) }
@@ -350,6 +361,13 @@ fun ProfileScreen(state: ProfileState, onAction: (ProfileAction) -> Unit, onBack
     val colors = AppTheme.colors
     var menuFor by remember { mutableStateOf<String?>(null) }
     ScreenScaffold(topBar = { ProfilesTopBar(title = state.name, onBack = onBack, onHowTo = { onAction(ProfileAction.HowTo) }) }) { _ ->
+        if (state.failed) {
+            ErrorCard(
+                onAction = { onAction(ProfileAction.Problem(it)) },
+                modifier = Modifier.padding(Spacing.m),
+            )
+            return@ScreenScaffold
+        }
         Box(Modifier.fillMaxSize()) {
             Column(
                 Modifier

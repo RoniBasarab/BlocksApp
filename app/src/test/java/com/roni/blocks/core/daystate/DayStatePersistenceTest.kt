@@ -16,6 +16,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import com.roni.blocks.testing.testFailures
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34])
@@ -26,7 +27,7 @@ class DayStatePersistenceTest {
     @Before
     fun setUp() {
         dayPrefs().edit().clear().commit()
-        prefs = PrefsStorage(context, UnconfinedTestDispatcher())
+        prefs = PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context))
     }
 
     @After

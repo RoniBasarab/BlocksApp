@@ -52,7 +52,7 @@ object SilentNotificationPort : NotificationPort {
 fun testActions(context: Context): TestRig {
     val zone = TimeZone.of("Asia/Jerusalem")
     val clock = MovableClock(LocalTime(9, 0).at(LocalDate(2026, 9, 27), zone))
-    val prefs = PrefsStorage(context, UnconfinedTestDispatcher())
+    val prefs = PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context))
     val logger = AppLogger(context)
     val engine = ScheduleEngine(clock, zone)
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)

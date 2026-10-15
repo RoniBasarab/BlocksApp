@@ -1,12 +1,12 @@
 # Blocks: Project Summary (handoff)
 
-Last updated: Tuesday 13 October 2026 (after 3.0.0). Written so an agent with no prior context can take over: the **planning agent** (the next Claude chat working with Roni) or the **working agent** (a coding agent in the repo). Read it fully before anything else.
+Last updated: Wednesday 14 October 2026 (after 3.4.3; the architecture overhaul is planned, see `docs/Overhaul.md`). Written so an agent with no prior context can take over: the **planning agent** (the next Claude chat working with Roni) or the **working agent** (a coding agent in the repo). Read it fully before anything else.
 
 ---
 
 ## 1. What this is
 
-**Blocks** is a personal Android app (`com.roni.blocks`), sideloaded, never on Google Play, with exactly one user: Roni. It turns his day into timed blocks (CV sending, coding study, gym, free time) around fixed childcare times, tracks when a block runs over, and stays completely silent in the evening and at night.
+**Blocks** is an Android app (`com.roni.blocks`), so far sideloaded with one user, Roni. **Since 14 Oct he is seriously considering publishing it on the Play Store**, so "this app is Roni's personal" no longer holds: it gets generalized step by step (first, personal constants in one place; later strings.xml). It turns his day into timed blocks (CV sending, coding study, gym, free time) around fixed childcare times, tracks when a block runs over, and stays completely silent in the evening and at night.
 
 Why it exists: Roni is job-hunting and his unstructured days were drifting (evenings lost to doomscrolling). The app gives structure without being rigid: it logs deviations instead of punishing them, and from 2.0.0 he can reshape today's plan as the day changes.
 
@@ -194,7 +194,14 @@ Coding uses Pomodoro 50/10, counted from the block's actual start. Phase switche
 - Task-7's first sessions were far slower than earlier 12-slice tasks and ran out of quota. The logs show why: it read the whole doc set up front (~150k characters, re-sent on every call), ran `git log` seven times between edits, kept retrying `&&` in PowerShell 5.1, and used Python one-liners to search files. Each needless call re-sends the whole context. The prompt in §18 now covers each of these.
 - When a task hands over pure logic, the planning agent compiles and tests it first and marks it *verified* (§17). Task-7's `PlanEditor` was checked against every named test plus 40,000 random edit sequences.
 
-## 9. Current state (13 Oct 2026)
+## 9. Current state (14 Oct 2026)
+
+**Released through 3.4.3** (tags v3.4.1, v3.4.2, v3.4.3). Roni's real app runs 3.4.1 with his data (upgraded from 2.6.2 on 14 Oct; migration worked). 3.4.2 and 3.4.3 were reviewed by the planning agent on 14 Oct: go for updating the release app (back up first, install over it, never uninstall). He builds the release variant in Android Studio and presses Play; **don't bring up signing unless it actually matters** (he asked).
+
+**The architecture overhaul started 14 Oct.** All of Roni's decisions are in `docs/Overhaul.md` (failures soft in release / loud in debug; unreadable data set aside and never overwritten; the error card in place of the broken part with Restart + Send log; no `!!` with a `codeRules` Gradle task; experimental APIs wrapped in designsystem; startup set + slices + bundles, no service locator; Room for history and the live day after the day-core fix; one DaySnapshot, planned times only in the plan, orchestrator split; personal constants in one place; dependencies out: core-splashscreen, the icons libraries → `AppIcons`, play-services-location together with "steps while driving", immutable collections in 4.1.0; kotlinx-datetime stays). **Binding for the whole overhaul: identical 1:1 in looks and behaviour, and every existing test stays green** (a test's setup may change, never its expectations). Order: 3.5.0 safety (Task-27) → 3.5.1 cleanup (Task-28) → 3.6.0 day core → 4.0.0 Room → 4.1.0 screens.
+
+**Older notes:**
+
 
 **Released, 2.6.2:** tag `v2.6.2`. Since 2.5.0:
 - the walk works (`WalkClock`);
@@ -311,6 +318,24 @@ Roni walks in the evenings now and likes the subtle steps counter.
 - Export/backup of history (JSON/CSV); a daily score or streaks; deeper pattern detection.
 
 ## 11. Next steps
+
+1. **Roni:** run Task-27 (3.5.0), then Task-28 (3.5.1). Prompts are in §18 and in the delivery message. Test in Blocks Debug.
+2. **Planning agent:** review each one.
+   - The shipped files are untouched.
+   - No test's expectations changed.
+   - Every `viewModelScope.launch` goes through `Failures`.
+   - The looks are identical; the icons are `AppIcons`.
+3. **Then 3.6.0 (day core):** ask Roni the remaining design questions first.
+   - The `DaySnapshot` fields.
+   - What a segment keeps.
+   - How `DayView` feeds alarms.
+   - Where the personal constants go.
+4. **Then 4.0.0 (Room):**
+   - the schema (document rows vs normalized);
+   - the import plan and its test;
+   - the backup format after Room.
+
+**Older steps (done):**
 
 1. **Roni:** run Task-19 (3.1.0): Base, then Track A and B in two agents at once, then Finish. Test in Blocks Debug only.
 2. **Planning agent:** review Task-19: `TemplateEditor`/`TemplateRules` untouched, every edit goes through `TemplateActions`/`CategoryActions`, the tracks touched only their files.

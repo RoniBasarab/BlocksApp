@@ -60,8 +60,12 @@ import com.roni.blocks.core.storage.ExplainerKey
 import com.roni.blocks.core.storage.ExplainerStore
 import com.roni.blocks.core.storage.ProfileActions
 import com.roni.blocks.core.storage.TemplateStore
+import com.roni.blocks.core.system.AppRescue
+import com.roni.blocks.core.system.Failures
+import com.roni.blocks.core.system.ProblemAction
 import com.roni.blocks.designsystem.AppCard
 import com.roni.blocks.designsystem.AppTheme
+import com.roni.blocks.designsystem.ErrorCard
 import com.roni.blocks.designsystem.HintCard
 import com.roni.blocks.designsystem.SectionHeader
 import com.roni.blocks.designsystem.ScreenScaffold
@@ -98,6 +102,7 @@ data class ProfilesState(
     val newProfile: NewProfileUi? = null,
     val howTo: Boolean = false,
     val howToPage: Int = 0,
+    val failed: Boolean = false,
 )
 
 sealed interface ProfilesAction {
@@ -112,6 +117,7 @@ sealed interface ProfilesAction {
     data object HowTo : ProfilesAction
     data class HowToPage(val page: Int) : ProfilesAction
     data object CloseHowTo : ProfilesAction
+    data class Problem(val action: ProblemAction) : ProfilesAction
 }
 
 sealed interface ProfilesEffect {
@@ -125,6 +131,8 @@ class ProfilesViewModel @Inject constructor(
     private val store: TemplateStore,
     private val actions: ProfileActions,
     private val explainers: ExplainerStore,
+    private val failures: Failures,
+    private val rescue: AppRescue,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ProfilesState())
     val state: StateFlow<ProfilesState> = _state.asStateFlow()
@@ -132,18 +140,20 @@ class ProfilesViewModel @Inject constructor(
     private val _effects = MutableSharedFlow<ProfilesEffect>()
     val effects: SharedFlow<ProfilesEffect> = _effects.asSharedFlow()
 
+    private fun fail() = _state.update { it.copy(failed = true) }
+
     init {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Profiles: hint", onFailure = ::fail) {
             _state.update { it.copy(hint = !explainers.seen(ExplainerKey.PROFILES)) }
         }
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Profiles: profiles", onFailure = ::fail) {
             store.profiles.collect { book -> _state.update { it.copy(rows = rowsOf(book)) } }
         }
     }
 
     fun onAction(action: ProfilesAction) {
         when (action) {
-            is ProfilesAction.Open -> viewModelScope.launch { _effects.emit(ProfilesEffect.OpenProfile(action.id)) }
+            is ProfilesAction.Open -> failures.launch(viewModelScope, "Profiles: open profile", onFailure = ::fail) { _effects.emit(ProfilesEffect.OpenProfile(action.id)) }
             ProfilesAction.NewProfile -> _state.update {
                 it.copy(newProfile = NewProfileUi(activeName = store.profiles.value.active.name))
             }
@@ -151,20 +161,21 @@ class ProfilesViewModel @Inject constructor(
             is ProfilesAction.CopyActive -> _state.update { it.copy(newProfile = it.newProfile?.copy(copyActive = action.copy)) }
             ProfilesAction.Create -> create()
             ProfilesAction.DismissNew -> _state.update { it.copy(newProfile = null) }
-            ProfilesAction.OpenCategories -> viewModelScope.launch { _effects.emit(ProfilesEffect.OpenCategories) }
+            ProfilesAction.OpenCategories -> failures.launch(viewModelScope, "Profiles: open categories", onFailure = ::fail) { _effects.emit(ProfilesEffect.OpenCategories) }
             ProfilesAction.DismissHint -> {
                 _state.update { it.copy(hint = false) }
-                viewModelScope.launch { explainers.markSeen(ExplainerKey.PROFILES) }
+                failures.launch(viewModelScope, "Profiles: mark hint seen", onFailure = ::fail) { explainers.markSeen(ExplainerKey.PROFILES) }
             }
             ProfilesAction.HowTo -> _state.update { it.copy(howTo = true, howToPage = 0) }
             is ProfilesAction.HowToPage -> _state.update { it.copy(howToPage = action.page) }
             ProfilesAction.CloseHowTo -> _state.update { it.copy(howTo = false) }
+            is ProfilesAction.Problem -> rescue.handle(action.action)
         }
     }
 
     private fun create() {
         val ui = _state.value.newProfile ?: return
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Profiles: create profile", onFailure = ::fail) {
             when (val result = actions.create(ui.name, ui.copyActive)) {
                 is ProfileEdit.Refused -> _state.update { it.copy(newProfile = ui.copy(error = refusalText(result.why))) }
                 is ProfileEdit.Ok -> {
@@ -216,6 +227,13 @@ fun ProfilesRoute(
 @Composable
 fun ProfilesScreen(state: ProfilesState, onAction: (ProfilesAction) -> Unit, onBack: () -> Unit) {
     ScreenScaffold(topBar = { ProfilesTopBar(onBack = onBack, onHowTo = { onAction(ProfilesAction.HowTo) }) }) { _ ->
+        if (state.failed) {
+            ErrorCard(
+                onAction = { onAction(ProfilesAction.Problem(it)) },
+                modifier = Modifier.padding(Spacing.m),
+            )
+            return@ScreenScaffold
+        }
         Box(Modifier.fillMaxSize()) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),

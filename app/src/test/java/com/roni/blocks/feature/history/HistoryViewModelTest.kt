@@ -47,6 +47,8 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import com.roni.blocks.testing.testFailures
+import com.roni.blocks.testing.testRescue
 
 /**
  * History must be the record's mirror: weeks in descending order with "This week"/"Last week"
@@ -70,7 +72,7 @@ class HistoryViewModelTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(Dispatchers.Unconfined)
-        prefs = PrefsStorage(context, UnconfinedTestDispatcher())
+        prefs = PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context))
         history = HistoryManager(prefs)
         runBlocking { history.clear() }
     }
@@ -86,6 +88,8 @@ class HistoryViewModelTest {
             override fun now(): Instant = LocalTime(10, 0).at(today, zone)
         },
         zone = zone,
+        failures = testFailures(context),
+        rescue = testRescue(context),
     )
 
     private suspend fun seedRunningDay(date: LocalDate) {
@@ -198,6 +202,8 @@ class HistoryViewModelTest {
             timeFormatter = TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)),
             clock = clock,
             zone = zone,
+            failures = testFailures(context),
+            rescue = testRescue(context),
         )
         viewModel.load(friday.toString())
         val loaded = withTimeout(5_000) { viewModel.state.first { it?.walks?.isNotEmpty() == true } }!!
