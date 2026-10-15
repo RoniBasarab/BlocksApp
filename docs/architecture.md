@@ -426,7 +426,7 @@ Hour height: 80dp (2.0.0, room for break labels and handles). Current block: ele
 
 - Unit tests: `DayStateMachine` (every legal/illegal transition), `PlanEditor` (the editing rules; compiled and checked by the planning agent before handover), `ScheduleEngine` (leak, shrink, consumed, Next slot early on work vs free blocks, pause, emergency stop, Pomodoro phases from the actual start, reboot replay), aggregate math, and ViewModels driven through `onAction`. Driven by a fake `Clock`.
 - Testing policy (`SUMMARY.md` §15): new tests are logic-level JVM tests that the task names, including one regression test per logic bug. The existing UI expectation and recomposition tests stay green; no new screenshot or geometry tests; Roni runs the device tests.
-- Performance: Macrobenchmark on Home (startup + scrolling + a minute tick), plus Compose compiler stability reports as a build-time sanity check.
+- Performance: Macrobenchmark on Home (startup + scrolling + a minute tick), plus Compose compiler stability reports as a build-time sanity check: `gradlew :app:assembleDebug -PcomposeReports` → `app/build/compose_compiler/`.
 
 ---
 

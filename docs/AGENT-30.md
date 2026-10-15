@@ -1,16 +1,16 @@
 # Working agent instructions
 
-Read this first, every session. Task-29 runs only once v3.5.1 is tagged (check `git tag`); otherwise stop and say so. The current task is named in the first paragraph.
+Read this first, every session. Task-30 runs only once v3.5.2 is tagged (check `git tag`); otherwise stop and say so. The current task is named in the first paragraph.
 
-You're the working agent for Blocks, an Android app (Kotlin, Compose, Hilt) in this repo. Implement docs/Task-29.md (target 3.5.2) exactly, on the branch task-29/v3.5.2 from master. Read docs/Overhaul.md (one page) first: the architecture overhaul and Roni's decisions. The owner's tokens are limited: be fast, decisive and brief.
+You're the working agent for Blocks, an Android app (Kotlin, Compose, Hilt) in this repo. Implement docs/Task-30.md (faster builds, no app version) exactly, on the branch task-30/build-speed from master. The owner's tokens are limited: be fast, decisive and brief.
 
 START
 0. Your session doesn't start in the repo. First: cd "C:/Blocks App" (the repo root, with the space and the quotes). Every command below runs from there; if a command ever says "not a git repository", cd there again.
-1. One command: git branch --show-current ; git log --oneline master..task-29/v3.5.2 2>$null ; git status --short
-   - No task-29/v3.5.2 branch yet: follow the task's Rules 1, then the prep commit and Slice 1. On this first run the new docs/ files show as untracked or modified: that's expected, the prep commit takes them first.
-   - Commits named "task-29 slice N" are finished slices; continue with the lowest one missing.
-   - Modified files mean a previous session stopped mid-slice: run that slice's tests; if green or a quick fix, finish and commit it; otherwise git stash push -m "partial" and redo the slice. Never stash before the "task-29 prep" commit exists: the new docs would go with it.
-2. Read docs/Task-29.md once, all of it (it is short). Open docs/CODEMAP.md when you need to find a file; docs/NOTES.md only to look up an earlier decision. Don't read SUMMARY.md or the specs.
+1. One command: git branch --show-current ; git log --oneline master..task-30/build-speed 2>$null ; git status --short
+   - No task-30/build-speed branch yet: follow the task's Rules 1, then the prep commit and Slice 1. On this first run the new docs/ files show as untracked or modified: that's expected, the prep commit takes them first.
+   - Commits named "task-30 slice N" are finished slices; continue with the lowest one missing.
+   - Modified files mean a previous session stopped mid-slice: run that slice's tests; if green or a quick fix, finish and commit it; otherwise git stash push -m "partial" and redo the slice. Never stash before the "task-30 prep" commit exists: the new docs would go with it.
+2. Read docs/Task-30.md once, all of it (it is short). Open docs/CODEMAP.md when you need to find a file; docs/NOTES.md only to look up an earlier decision. Don't read SUMMARY.md or the specs.
 
 FINDING THINGS: GREP FIRST
 - Search the repo with git grep -n "<name>" (add -- "*.kt" to narrow). It answers in a second; reading files to search, writing Python or PowerShell scripts to search, or searching the web is slower. Never do those for anything inside the repo.
@@ -43,7 +43,7 @@ EACH SLICE
 1. Read the slice. git grep what you'll change.
 2. Make all the slice's edits, code and its named tests, before building. Paste the task's code and adapt names; don't rewrite it.
 3. Build and test the slice; fix until exit=0. Then the full suite once: the same command without --tests.
-4. git add -A ; git commit -m "task-29 slice N: <title>" 2>&1 | Select-Object -First 1
+4. git add -A ; git commit -m "task-30 slice N: <title>" 2>&1 | Select-Object -First 1
 5. One line: "Slice N done: <hash>". Start the next slice at once.
 
 ALWAYS
@@ -57,4 +57,4 @@ ALWAYS
 - Real names win: if a name in the task doesn't exist, use the real one. Don't refactor beyond the slice.
 - If an edit mangles a file: git checkout -- <file>, then redo the edit.
 - Phone: only com.roni.blocks.debug. Never install over, clear, force-stop or uninstall com.roni.blocks.
-- Finish with Slice 2: final gate, merge task-29/v3.5.2 into master, tag v3.5.2, push, the short final report, then stop. Don't re-verify finished slices or close old todo lists by re-checking them; mark them done and end.
+- Finish with Slice 2: final gate, merge task-30/build-speed into master, tag build-speed-1, push, the short final report, then stop. Don't re-verify finished slices or close old todo lists by re-checking them; mark them done and end.
