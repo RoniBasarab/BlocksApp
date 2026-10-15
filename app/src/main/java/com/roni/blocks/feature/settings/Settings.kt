@@ -86,6 +86,7 @@ import com.roni.blocks.BuildConfig
 import com.roni.blocks.core.demo.DemoDataGenerator
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.daystate.DayState
+import com.roni.blocks.core.daystate.DayStateSerializer
 import com.roni.blocks.core.daystate.isDishesSlot
 import com.roni.blocks.core.logging.AppLogger
 import com.roni.blocks.core.model.TemplateId
@@ -183,6 +184,8 @@ sealed interface SettingsAction {
     data object DebugSkipDishes : SettingsAction
     /** Debug (3.4.0): logs a fake drive so History shows "about 150 while driving". */
     data object SimulateDrive : SettingsAction
+    /** Debug (3.5.0): plants an unreadable saved value so the failure path can be tried by hand. */
+    data object BreakSavedValue : SettingsAction
     data object ResetExplainers : SettingsAction
     data object ShowMainMenu : SettingsAction
     /** Your data (3.4.0): the Route opens the system pickers, then hands the uri back. */
@@ -457,6 +460,24 @@ class SettingsViewModel @Inject constructor(
         failures.launch(viewModelScope, "Settings: simulate drive", onFailure = ::fail) {
             orchestrator.simulateDrive()
             showMessage("Drive simulated")
+        }
+    }
+
+    /**
+     * Debug (3.5.0): plants a value the app can't read so the whole failure path can be tried by hand.
+     * The debug build crashes once here (the value is set aside first, then the loud report throws); the
+     * next start is a fresh day, and Settings → Your data counts the value that was kept aside.
+     */
+    fun breakSavedValue() {
+        failures.launch(viewModelScope, "Settings: break a saved value", onFailure = ::fail) {
+            // Raw on purpose: a typed write would only ever store valid JSON. "day_state" is
+            // DayOrchestrator's STATE key.
+            context.getSharedPreferences(PrefsFile.DAY.name.lowercase(), Context.MODE_PRIVATE)
+                .edit()
+                .putString("day_state", "not json")
+                .commit()
+            // Read it back so it is set aside now; a debug build crashes right here on purpose.
+            prefs.read(PrefsFile.DAY, "day_state", DayStateSerializer)
         }
     }
 
@@ -880,6 +901,9 @@ private fun DeveloperToolsDialog(
                 DebugSection("Steps") {
                     DebugButton(DebugButtonUi("Simulate a drive", null, SettingsAction.SimulateDrive), onAction, Modifier.fillMaxWidth())
                 }
+                DebugSection("Saved data") {
+                    DebugButton(DebugButtonUi("Break a saved value", null, SettingsAction.BreakSavedValue), onAction, Modifier.fillMaxWidth())
+                }
                 DebugSection("Explainers") {
                     DebugButton(DebugButtonUi("Reset explainers", null, SettingsAction.ResetExplainers), onAction, Modifier.fillMaxWidth())
                     DebugButton(DebugButtonUi("Show main menu", null, SettingsAction.ShowMainMenu), onAction, Modifier.fillMaxWidth())
@@ -1077,6 +1101,7 @@ fun SettingsRoute(
             SettingsAction.DebugKidAsleep -> viewModel.debugKidAsleep()
             SettingsAction.DebugSkipDishes -> viewModel.debugSkipDishes()
             SettingsAction.SimulateDrive -> viewModel.simulateDrive()
+            SettingsAction.BreakSavedValue -> viewModel.breakSavedValue()
             SettingsAction.ResetExplainers -> viewModel.resetExplainers()
             SettingsAction.StartBackup -> backupLauncher.launch("blocks-backup-${java.time.LocalDate.now()}.json")
             SettingsAction.StartRestore -> restoreLauncher.launch(arrayOf("application/json"))

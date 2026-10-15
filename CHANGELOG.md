@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.5.0
+- When something fails, the app keeps going and shows "Something went wrong" with Restart and Send log, instead of closing.
+- Saved data that can't be read is kept aside, never overwritten; Settings → Your data can share it.
+
 ## 3.4.3
 - Fixed: a block running over still offered "Done early" on Home.
 

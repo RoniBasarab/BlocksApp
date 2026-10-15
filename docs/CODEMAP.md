@@ -5,7 +5,9 @@ without reading everything.
 
 Paths are relative to `app/src/main/java/com/roni/blocks/`. `src/debug` holds
 `debugtools/TimeTravelReceiver.kt` (the adb front door for the debug clock); `src/main` files are
-shared with release, so anything debug-only must stay behind `BuildConfig.DEBUG`.
+shared with release, so anything debug-only must stay behind `BuildConfig.DEBUG`. `gradle/codeRules.gradle.kts`
+(3.5.0) runs from `app/build.gradle.kts` on every `preBuild` and fails the build on `!!`, `GlobalScope`
+or `runBlocking` in `src/main/java`, naming the fix (the experimental-API rule is commented out until 3.5.1).
 
 Rules that hold everywhere:
 
@@ -75,6 +77,7 @@ Rules that hold everywhere:
 | `core/model/Model.kt` | `Template`, `TemplateId`, `BlockSpec`, `TodayPlan`, `Segment`, `DayRecord` — the persisted shapes; `WalkSession`/`WalkLog` for standalone walks (2.4.0); `DriveLog` for a drive Android noticed (3.4.0); `TemplateId` is a `value class` over a String and `BlockType.Custom` carries your own kinds (3.0.0) | kotlinx.serialization |
 | `core/model/Categories.kt` | `CategoryInfo`/`CategorySet` and the `Categories.current` snapshot the pure mappers read; CV/Coding/Gym/Free defaults (3.0.0); `CategoryPalette`, the 12 colours a category can take (3.1.0) | Model |
 | `core/model/Templates.kt` | `StoredTemplate`, `Profile` (`days: Map<Int, TemplateId>?`, 3.2.0) and the built-in seed texts/icons/accents/weekdays (3.0.0); `archived`, `shortFor`/`subtitleFor`/`accentFor` and `OWN_TEMPLATE_ICONS` for your own templates (3.1.0) | Model |
+| `core/model/SegmentTime.kt` | `Segment` length helpers (3.5.0): `actualMinutes`/`plannedMinutes`/`minutesPastPlan`, each null while open or unplanned, replacing the old `actualEnd!!`/`plannedEnd!!` | Model |
 
 ## core/notifications
 
@@ -124,7 +127,7 @@ Rules that hold everywhere:
 | path | what it does | talks to |
 | --- | --- | --- |
 | `core/storage/HistoryManager.kt` | The only reader/writer of days and week aggregates; a version flow lets Home observe writes; `addWalk`/`walks`/`observeWalks` for standalone walks (2.4.0); each day's step total (2.5.0); `walksBetween` for a week's walks (3.4.0); `addDrive`/`drives`/`drivesBetween` for drives (3.4.0); `replaceWalk(date, old, new)` corrects a logged walk in place (3.4.1) | PrefsStorage, Model |
-| `core/storage/PrefsStorage.kt` | SharedPreferences wrapper split into DAY / SETTINGS / HISTORY files; `exportAll`/`replaceAll` back up and restore every key (3.4.0) | android.content.SharedPreferences |
+| `core/storage/PrefsStorage.kt` | SharedPreferences wrapper split into DAY / SETTINGS / HISTORY files; `exportAll`/`replaceAll` back up and restore every key (3.4.0); a value that can't be decoded is copied to `PrefsFile.UNREADABLE` (then removed) and reads as null, never lost (3.5.0); `unreadableCount`/`unreadable` feed Settings → Your data | android.content.SharedPreferences, Failures |
 | `core/storage/Backup.kt` | The backup file shape (3.4.0): `BackupFile` (app tag, versionCode, createdAt, every file's keys) and `Backup.encode`/`decode`/`canRestore` | Model |
 | `core/storage/Actions.kt` | The use cases the profile screens write through: `TemplateActions` (`createIn`/`save`/`delete`; a save tells a waiting day) and `CategoryActions` (update/add/delete, rewriting using blocks) (3.1.0); `ProfileActions` (create/rename/delete/switchTo/addTemplate/removeTemplate/setDay) (3.2.0) | TemplateStore, CategoryStore, DayOrchestrator |
 | `core/storage/CategoryStore.kt` | Loads/saves `CategorySet` from prefs and sets `Categories.current` (3.0.0); `update`/`add`/`delete` with `CategoryResult`, built-ins never deleted (3.1.0) | PrefsStorage, Categories |
@@ -145,6 +148,8 @@ Rules that hold everywhere:
 | path | what it does | talks to |
 | --- | --- | --- |
 | `core/system/SystemStatuses.kt` | Notification and exact-alarm permission status as the system reports it; step-counter presence and activity-recognition permission (2.5.0) | AlarmManager, NotificationManager, SensorManager |
+| `core/system/Failures.kt` | The one place a failure goes (3.5.0): `FailurePolicy(loud)` — release is quiet (logged, the screen shows its error card), debug rethrows; `report`, `launch(scope, where, onFailure)`, `attempt` and `Flow.reportFailures` | AppLogger |
+| `core/system/Problems.kt` | The ways out when something failed (3.5.0): `ProblemAction` (Restart / SendLog) and `AppRescue.handle`/`restart`/`shareLog`/`shareUnreadable`, starting activities from the application context | AppLogger, PrefsStorage |
 
 ## core/time
 
@@ -170,6 +175,7 @@ Rules that hold everywhere:
 | `designsystem/Background.kt` | Page backdrop: gradient plus two soft glows, cached | Color |
 | `designsystem/Color.kt` | Raw color values | — |
 | `designsystem/Components.kt` | Shared composables: `ScreenScaffold`, trend arrows, stat rows | Tokens, Type, Color |
+| `designsystem/ErrorCard.kt` | In place of a part that failed to load or save (3.5.0): "Something went wrong" with Restart app / Send log, the same card on every screen | ProblemAction, Tokens |
 | `designsystem/Explainer.kt` | The explainer texts and the in-screen hint (3.4.0): `ExplainerKey`→`HowToCard` (`hintTitle` + `text`), the soft `HintCard` ("Got it" only, tag `hint_<key>`) the screens show inside an `AnimatedVisibility`, and the shared texts the `HowToUse` tour reads | Compose, Tokens |
 | `designsystem/Format.kt` | `formatSteps`: the one place step counts get thousands separators (2.5.0) | — |
 | `designsystem/Motion.kt` | The app's only motion token | Compose animation |
@@ -205,4 +211,4 @@ Rules that hold everywhere:
 | `feature/templates/BlockSheet.kt` | The one block sheet (3.1.0; generic `BlockSheetUi`/`BlockSheetAction` with `AddAfter`, rows shown only when set, 3.3.0): category, start, length, Add after, Delete/Save; the template editor maps its own `EditorSheet` through it and Home's today editor uses it for a block ahead or the running block | TemplateEditor |
 | `feature/templates/CategorySection.kt` | `CategoryListViewModel` + the categories section: rows (built-ins, then yours) and the sheet that edits one (3.1.0); shows its categories `HintCard` above the rows (3.4.0) | CategoryStore, CategoryActions |
 | `feature/templates/CategorySheet.kt` | The category sheet: name, `CategoryPalette`, Pomodoro, "counts as work" and Delete (yours only) (3.1.0) | CategoryInfo |
-| `feature/settings/Settings.kt` | Settings screen, `SettingsViewModel`, developer tools in one dialog (test a day, debug clock, demo data, simulate a drive); the step-counting row and permission state (2.5.0); "Show main menu" and "Reset explainers" (3.3.0); "Your data" backs up every store to a JSON file and restores one (refusing a foreign or newer file) then restarts the app (3.4.0) | DayOrchestrator, DemoDataGenerator, SystemStatuses, DebugTimeController, PrefsStorage, Backup |
+| `feature/settings/Settings.kt` | Settings screen, `SettingsViewModel`, developer tools in one dialog (test a day, debug clock, demo data, simulate a drive, and "Break a saved value", 3.5.0); the step-counting row and permission state (2.5.0); "Show main menu" and "Reset explainers" (3.3.0); "Your data" backs up every store to a JSON file and restores one (refusing a foreign or newer file) then restarts the app (3.4.0), shows "N saved items couldn't be read" and shares them (3.5.0) | DayOrchestrator, DemoDataGenerator, SystemStatuses, DebugTimeController, PrefsStorage, Backup, AppRescue, Failures |
