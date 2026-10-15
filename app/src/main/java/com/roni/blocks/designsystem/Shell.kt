@@ -130,7 +130,6 @@ private val ExplainerTerms = listOf(
     "Off days" to "Days you picked the Off template.",
     "Missed blocks" to "Planned blocks that never happened: the day started after them, or an earlier block ran past their end.",
     "Steps" to "Estimated by the phone's step sensor. Bumps while driving can add a few; steps walked without the phone don't count.",
-    "While driving" to "Steps the phone counted while Android saw you in a car: mostly bumps taken for steps. They stay in your total; this just shows how many.",
 )
 
 @Composable

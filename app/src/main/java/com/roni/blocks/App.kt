@@ -6,7 +6,6 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.di.ApplicationScope
-import com.roni.blocks.core.steps.DriveDetector
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -15,14 +14,12 @@ import kotlinx.coroutines.launch
 @HiltAndroidApp
 class App : Application() {
     @Inject lateinit var orchestrator: DayOrchestrator
-    @Inject lateinit var driveDetector: DriveDetector
     @Inject @ApplicationScope lateinit var appScope: CoroutineScope
 
     override fun onCreate() {
         super.onCreate()
         appScope.launch {
             orchestrator.ensureRestored()
-            driveDetector.register()
         }
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             object : DefaultLifecycleObserver {

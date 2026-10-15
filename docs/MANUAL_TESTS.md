@@ -54,7 +54,6 @@ and the system DND state), so Roni runs them by hand.
 5. Insights (with two weeks of data): Walks, Walk time, Steps and Evening walks with arrows.
 6. Settings → Your data → Back up my data: a JSON file in Downloads; Restore from a backup on Blocks Debug: the app restarts with that data.
 7. Upgrade rehearsal (Roni, see the report): 2.6.2 debug → 3.4.0 debug installed over it → today, History, walks and steps are all there; no welcome screen.
-8. Developer tools → Simulate a drive: History shows "· about 150 while driving"; Weekly has the "While driving" tile. On a real drive (phone in the car): the same after you get out, a few minutes late at most.
 
 **Check on the phone (3.4.1).** Use the debug app for steps that move the clock (Settings → Developer tools).
 

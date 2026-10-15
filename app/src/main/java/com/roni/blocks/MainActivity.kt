@@ -26,7 +26,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.logging.AppLogger
-import com.roni.blocks.core.steps.DriveDetector
 import com.roni.blocks.core.storage.TemplateStore
 import com.roni.blocks.designsystem.BlocksTheme
 import com.roni.blocks.navigation.AppRoot
@@ -45,12 +44,10 @@ class MainActivity : ComponentActivity() {
             // The steps only start once Android has answered; ask the orchestrator to re-read now.
             lifecycleScope.launch {
                 orchestrator.onAppForeground()
-                driveDetector.register()
             }
         }
 
     @Inject lateinit var orchestrator: DayOrchestrator
-    @Inject lateinit var driveDetector: DriveDetector
     @Inject lateinit var logger: AppLogger
     @Inject lateinit var templates: TemplateStore
 
