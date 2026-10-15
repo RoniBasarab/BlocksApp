@@ -9,6 +9,9 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+apply(from = rootProject.file("gradle/codeRules.gradle.kts"))
+tasks.named("preBuild") { dependsOn("codeRules") }
+
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val hasReleaseKeystore = keystorePropertiesFile.exists()
 
