@@ -90,8 +90,11 @@ kotlin {
 }
 
 composeCompiler {
-    reportsDestination = layout.buildDirectory.dir("compose_compiler")
-    metricsDestination = layout.buildDirectory.dir("compose_compiler")
+    // Stability reports (architecture.md §16) cost time on every compile: only with -PcomposeReports.
+    if (providers.gradleProperty("composeReports").isPresent) {
+        reportsDestination = layout.buildDirectory.dir("compose_compiler")
+        metricsDestination = layout.buildDirectory.dir("compose_compiler")
+    }
     stabilityConfigurationFiles.add(rootProject.layout.projectDirectory.file("compose_stability.conf"))
 }
 
@@ -132,6 +135,10 @@ dependencies {
 // A hung test must fail on its own instead of stalling the whole gate.
 tasks.withType<Test>().configureEach {
     timeout.set(Duration.ofMinutes(4))
+    // Robolectric classes start slowly; run them side by side. At most 3 forks of 1 GB each, so a 16 GB PC
+    // still has room for Android Studio, the Gradle daemon (4 GB) and the Kotlin daemon (2 GB).
+    maxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 3)
+    maxHeapSize = "1g"
     testLogging {
         events("started", "passed", "failed", "skipped")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.SHORT

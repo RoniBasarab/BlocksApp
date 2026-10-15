@@ -195,3 +195,10 @@ Still-live rules first (decisions a future agent needs), then one section per ve
 ## 3.5.2 (Task-29)
 - Cause: HomeViewModel.workCategories() kept only work=true categories, so a category with "Counts as work" off (like an errand) never showed on Home; the template editor listed every category.
 - Decision: Home offers every category, like the template editor; "Counts as work" only decides what counts toward work hours, never what you can pick.
+
+## Build speed (Task-30)
+- Clean debug build: 148.32 s before, 111.13 s after.
+- Incremental (one-line edit in Home.kt): 25.67 s before, 30.62 s after - the after run pays the Kotlin daemon cold start again right after the --stop + clean, and a changed file recompiles the whole module either way.
+- Full suite (:app:testDebugUnitTest --rerun): 74.68 s before, 60.64 s after.
+- 6 cores -> maxParallelForks = (6 / 2).coerceIn(1, 3) = 3 forks of 1 GB. The full suite stayed green in parallel, so no test failed on the isolation.
+- Compose reports confirmed: :app:assembleDebug -PcomposeReports writes app/build/compose_compiler/; a normal :app:assembleDebug does not.
