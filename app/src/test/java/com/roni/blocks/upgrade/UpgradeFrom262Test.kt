@@ -34,6 +34,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import com.roni.blocks.testing.testFailures
+import com.roni.blocks.testing.testRescue
 
 /**
  * 3.4.0: a real 2.6.2 install must upgrade in place. The prefs below are written as raw strings in
@@ -98,8 +99,10 @@ class UpgradeFrom262Test {
         assertEquals(6000L, history.steps(d2))
 
         // Weekly and Insights compute without throwing on those days.
-        WeeklyViewModel(history, TemplateManager(rig.store), rig.clock, zone).state.value
-        InsightsViewModel(history, rig.clock, zone).state.value
+        val failures = testFailures(context)
+        val rescue = testRescue(context)
+        WeeklyViewModel(history, TemplateManager(rig.store), rig.clock, zone, failures, rescue).state.value
+        InsightsViewModel(history, rig.clock, zone, failures, rescue).state.value
 
         // The upgrade is not a fresh install.
         assertTrue("an upgrade must not open the welcome screen", rig.store.profileChosen())

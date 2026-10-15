@@ -75,7 +75,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import androidx.core.content.FileProvider
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -84,7 +83,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.roni.blocks.BuildConfig
-import com.roni.blocks.MainActivity
 import com.roni.blocks.core.demo.DemoDataGenerator
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.daystate.DayState
@@ -99,7 +97,10 @@ import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.system.AppRescue
+import com.roni.blocks.core.system.Failures
+import com.roni.blocks.core.system.ProblemAction
 import com.roni.blocks.core.system.SystemStatuses
+import com.roni.blocks.core.system.reportFailures
 import com.roni.blocks.core.time.DebugTimeController
 import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.core.time.minuteOfDay
@@ -107,6 +108,7 @@ import com.roni.blocks.designsystem.AppShapes
 import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.BackTopBar
 import com.roni.blocks.designsystem.CardDivider
+import com.roni.blocks.designsystem.ErrorCard
 import com.roni.blocks.designsystem.Leak
 import com.roni.blocks.designsystem.Metrics
 import com.roni.blocks.designsystem.ScreenScaffold
@@ -128,6 +130,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
@@ -154,6 +157,8 @@ data class SettingsUiState(
     val restoreConfirm: String? = null,
     /** How many saved values couldn't be read and were set aside (3.5.0); 0 hides the row. */
     val unreadable: Int = 0,
+    /** Something failed (3.5.0); the card replaces the content. */
+    val failed: Boolean = false,
 )
 
 sealed interface SettingsAction {
@@ -189,14 +194,14 @@ sealed interface SettingsAction {
     data object DismissRestore : SettingsAction
     /** Your data (3.5.0): shares the values that couldn't be read, now kept aside. */
     data object ShareUnreadable : SettingsAction
+    /** The error card's Restart / Send log (3.5.0). */
+    data class Problem(val action: ProblemAction) : SettingsAction
 }
 
 /** One-shot outcomes the screen surfaces in its snackbar. */
 sealed interface SettingsEffect {
     data class ShowMessage(val text: String) : SettingsEffect
     data object StartedTestDay : SettingsEffect
-    /** The data was replaced (3.4.0): the app restarts so every store loads fresh. */
-    data object Restart : SettingsEffect
 }
 
 private data class DebugClockUi(
@@ -247,6 +252,7 @@ class SettingsViewModel @Inject constructor(
     private val prefs: PrefsStorage,
     private val explainers: ExplainerStore,
     private val rescue: AppRescue,
+    private val failures: Failures,
 ) : ViewModel() {
     private val _notificationPermission = MutableStateFlow(statuses.notificationsEnabled())
     private val _exactAlarms = MutableStateFlow(statuses.canScheduleExactAlarms())
@@ -264,8 +270,15 @@ class SettingsViewModel @Inject constructor(
     /** Values set aside as unreadable (3.5.0); refreshed when the screen opens and after a restore. */
     private val _unreadable = MutableStateFlow(0)
 
+    /** Something failed (3.5.0); the card replaces the content. */
+    private val _failed = MutableStateFlow(false)
+
+    private fun fail() {
+        _failed.value = true
+    }
+
     init {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Settings: load", onFailure = ::fail) {
             stepRequested = prefs.read(PrefsFile.SETTINGS, STEP_REQUESTED, Boolean.serializer()) ?: false
             _stepsPermission.value = computeStepStatus()
         }
@@ -304,7 +317,16 @@ class SettingsViewModel @Inject constructor(
     }.combine(_stepsPermission) { s, steps -> s.copy(steps = steps) }
         .combine(_restorePending) { s, pending -> s.copy(restoreConfirm = pending?.label) }
         .combine(_unreadable) { s, count -> s.copy(unreadable = count) }
+        .combine(_failed) { s, failed -> s.copy(failed = failed) }
+        .reportFailures(failures, "Settings: state", onFailure = ::fail)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
+
+    fun onAction(action: SettingsAction) {
+        when (action) {
+            is SettingsAction.Problem -> rescue.handle(action.action)
+            else -> Unit
+        }
+    }
 
     fun refresh() {
         _notificationPermission.value = statuses.notificationsEnabled()
@@ -316,7 +338,9 @@ class SettingsViewModel @Inject constructor(
     /** The system permission dialog is about to show (2.5.0); remembered, but the row stays "Not set". */
     fun markStepRequested() {
         stepRequested = true
-        viewModelScope.launch { prefs.write(PrefsFile.SETTINGS, STEP_REQUESTED, true, Boolean.serializer()) }
+        failures.launch(viewModelScope, "Settings: mark step requested", onFailure = ::fail) {
+            prefs.write(PrefsFile.SETTINGS, STEP_REQUESTED, true, Boolean.serializer())
+        }
     }
 
     private fun computeStepStatus(): PermissionStatus = when {
@@ -326,7 +350,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setHourFormat(use24Hour: Boolean) {
-        viewModelScope.launch { timeFormatter.setUse24(use24Hour) }
+        failures.launch(viewModelScope, "Settings: hour format", onFailure = ::fail) { timeFormatter.setUse24(use24Hour) }
     }
 
     private fun showMessage(text: String) {
@@ -339,7 +363,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun resetToday() {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Settings: reset today", onFailure = ::fail) {
             orchestrator.resetToday()
             showMessage("Today was reset")
         }
@@ -347,14 +371,14 @@ class SettingsViewModel @Inject constructor(
 
     fun clearHistory() {
         val keepToday = clock.now().toLocalDateTime(zone).date
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Settings: clear history", onFailure = ::fail) {
             history.clear(keepToday)
             showMessage("History cleared")
         }
     }
 
     fun loadDemoData() {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Settings: load demo data", onFailure = ::fail) {
             _demoBusy.value = true
             try {
                 val days = demoData.seed(weeks = 4)
@@ -371,7 +395,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun clearDemoData() {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Settings: clear demo data", onFailure = ::fail) {
             _demoBusy.value = true
             try {
                 demoData.clear()
@@ -388,41 +412,41 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun debugClockTo(hhmm: String) {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Settings: debug clock to", onFailure = ::fail) {
             if (debugTime.setTo(hhmm)) showMessage("Clock set to $hhmm")
         }
     }
 
     fun debugClockShift(minutes: Int) {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Settings: debug clock shift", onFailure = ::fail) {
             debugTime.shiftBy(minutes)
             showMessage("Clock set to ${appClockLabel()}")
         }
     }
 
     fun debugClockRealTime() {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Settings: debug clock real time", onFailure = ::fail) {
             debugTime.useRealTime()
             showMessage("Clock set to real time")
         }
     }
 
     fun debugKidAsleep() {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Settings: debug kid asleep", onFailure = ::fail) {
             debugTime.sendKidAsleep()
             showMessage("Kid asleep sent")
         }
     }
 
     fun debugSkipDishes() {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Settings: debug skip dishes", onFailure = ::fail) {
             if (debugTime.skipDishes()) showMessage("Dishes skipped")
         }
     }
 
     /** Debug: reveals every first-visit explainer card again. */
     fun resetExplainers() {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Settings: reset explainers", onFailure = ::fail) {
             explainers.resetAll()
             showMessage("Explainers reset")
         }
@@ -430,7 +454,7 @@ class SettingsViewModel @Inject constructor(
 
     /** Debug (3.4.0): logs a fake drive so History shows "about 150 while driving" without a car. */
     fun simulateDrive() {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Settings: simulate drive", onFailure = ::fail) {
             orchestrator.simulateDrive()
             showMessage("Drive simulated")
         }
@@ -440,7 +464,7 @@ class SettingsViewModel @Inject constructor(
 
     /** Builds the backup and writes it to [uri] (the Route's "Save as" result). */
     fun backupTo(uri: Uri) {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Settings: back up", onFailure = ::fail) {
             try {
                 val files = prefs.exportAll()
                 val json = Backup.encode(BuildConfig.VERSION_CODE, clock.now(), files)
@@ -460,7 +484,7 @@ class SettingsViewModel @Inject constructor(
 
     /** Reads [uri] and, when it is a Blocks backup this app can take, asks to confirm the restore. */
     fun restoreFrom(uri: Uri) {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Settings: read restore", onFailure = ::fail) {
             val text = try {
                 context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
             } catch (e: Exception) {
@@ -476,14 +500,14 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    /** Replaces every store with the pending backup, then asks the app to restart (3.4.0). */
+    /** Replaces every store with the pending backup, then restarts the app through [AppRescue] (3.4.0). */
     fun confirmRestore() {
         val pending = _restorePending.value ?: return
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Settings: restore", onFailure = ::fail) {
             prefs.replaceAll(pending.file.files)
             _restorePending.value = null
             _unreadable.value = prefs.unreadableCount()
-            _effects.trySend(SettingsEffect.Restart)
+            rescue.restart()
         }
     }
 
@@ -497,7 +521,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun startTestDay(template: TemplateId, hhmm: String) {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Settings: start test day", onFailure = ::fail) {
             if (debugTime.testDay(template, hhmm)) {
                 _effects.trySend(SettingsEffect.StartedTestDay)
             } else {
@@ -508,8 +532,6 @@ class SettingsViewModel @Inject constructor(
 
     private fun appClockLabel(): String =
         TimeFormatter.label(clock.now().minuteOfDay(zone), timeFormatter.use24.value)
-
-    fun logFile() = logger.shareFile()
 
     fun openAlertSoundSettings(context: android.content.Context) {
         context.startActivity(
@@ -546,26 +568,25 @@ class SettingsViewModel @Inject constructor(
 
     /** Shares the values that couldn't be read (3.5.0), so they can be looked at. */
     fun shareUnreadable() {
-        viewModelScope.launch { rescue.shareUnreadable() }
+        failures.launch(viewModelScope, "Settings: share unreadable", onFailure = ::fail) { rescue.shareUnreadable() }
     }
 
-    fun shareLog(context: android.content.Context) {
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.logs", logFile())
-        context.startActivity(
-            Intent.createChooser(
-                Intent(Intent.ACTION_SEND)
-                    .setType("text/plain")
-                    .putExtra(Intent.EXTRA_STREAM, uri)
-                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
-                "Share log",
-            ),
-        )
+    /** Shares the log file (3.5.0), through [AppRescue], so this no longer takes a Context. */
+    fun shareLog() {
+        rescue.shareLog()
     }
 }
 
 /** Content only; the top bar lives in [SettingsRoute]. */
 @Composable
 fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
+    if (state.failed) {
+        ErrorCard(
+            onAction = { onAction(SettingsAction.Problem(it)) },
+            modifier = Modifier.padding(Spacing.m),
+        )
+        return
+    }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         Column(
             Modifier
@@ -1012,7 +1033,6 @@ fun SettingsRoute(
             when (effect) {
                 is SettingsEffect.ShowMessage -> snackbarHostState.showSnackbar(effect.text)
                 SettingsEffect.StartedTestDay -> onOpenHome()
-                SettingsEffect.Restart -> restartApp(context)
             }
         }
     }
@@ -1041,7 +1061,7 @@ fun SettingsRoute(
             }
             SettingsAction.OpenAlertSoundSettings -> viewModel.openAlertSoundSettings(context)
             SettingsAction.SendTestNotification -> viewModel.sendTestNotification()
-            SettingsAction.ShareLog -> viewModel.shareLog(context)
+            SettingsAction.ShareLog -> viewModel.shareLog()
             SettingsAction.ResetToday -> pending = ConfirmDialogSpec.RESET_TODAY
             SettingsAction.ClearHistory -> pending = ConfirmDialogSpec.CLEAR_HISTORY
             SettingsAction.LoadDemoData -> viewModel.loadDemoData()
@@ -1065,6 +1085,7 @@ fun SettingsRoute(
             SettingsAction.ConfirmRestore -> viewModel.confirmRestore()
             SettingsAction.DismissRestore -> viewModel.dismissRestore()
             SettingsAction.ShareUnreadable -> viewModel.shareUnreadable()
+            is SettingsAction.Problem -> viewModel.onAction(action)
             SettingsAction.ShowMainMenu -> {
                 devToolsOpen = false
                 onShowMainMenu()
@@ -1121,15 +1142,6 @@ fun SettingsRoute(
             )
         }
     }
-}
-
-/** Restarts the app after a restore (3.4.0): a fresh MainActivity, then this process exits. */
-private fun restartApp(context: Context) {
-    context.startActivity(
-        Intent(context, MainActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
-    )
-    Runtime.getRuntime().exit(0)
 }
 
 @Composable

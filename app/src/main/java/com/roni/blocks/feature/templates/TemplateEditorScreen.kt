@@ -75,10 +75,14 @@ import com.roni.blocks.core.storage.ExplainerKey
 import com.roni.blocks.core.storage.ExplainerStore
 import com.roni.blocks.core.storage.TemplateActions
 import com.roni.blocks.core.storage.TemplateStore
+import com.roni.blocks.core.system.AppRescue
+import com.roni.blocks.core.system.Failures
+import com.roni.blocks.core.system.ProblemAction
 import com.roni.blocks.core.time.TimeFormatter
 import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.BackTopBar
 import com.roni.blocks.designsystem.BlockStrip
+import com.roni.blocks.designsystem.ErrorCard
 import com.roni.blocks.designsystem.HintCard
 import com.roni.blocks.designsystem.Metrics
 import com.roni.blocks.designsystem.ScreenScaffold
@@ -120,6 +124,7 @@ data class TemplateEditorState(
     val deleted: Boolean = false,
     val hint: Boolean = false,
     val use24: Boolean = true,
+    val failed: Boolean = false,
 )
 
 /** Everything the user can do in the template editor; [Sheet] carries the block sheet's actions. */
@@ -133,6 +138,7 @@ sealed interface TemplateEditorAction {
     data object ConfirmDelete : TemplateEditorAction
     data object DismissDialog : TemplateEditorAction
     data object DismissHint : TemplateEditorAction
+    data class Problem(val action: ProblemAction) : TemplateEditorAction
 }
 
 internal val DAY_NAMES = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
@@ -207,6 +213,8 @@ class TemplateEditorViewModel @Inject constructor(
     private val timeFormatter: TimeFormatter,
     private val logger: AppLogger,
     private val explainers: ExplainerStore,
+    private val failures: Failures,
+    private val rescue: AppRescue,
 ) : ViewModel() {
     private val _state = MutableStateFlow(TemplateEditorState())
     val state: StateFlow<TemplateEditorState> = _state.asStateFlow()
@@ -216,8 +224,10 @@ class TemplateEditorViewModel @Inject constructor(
     private var editorSheet: EditorSheet? = null
     private var blocksHint: Boolean = false
 
+    private fun fail() = _state.update { it.copy(failed = true) }
+
     init {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Template editor: hint", onFailure = ::fail) {
             blocksHint = !explainers.seen(ExplainerKey.BLOCKS)
             _state.update { it.copy(hint = blocksHint) }
         }
@@ -247,6 +257,7 @@ class TemplateEditorViewModel @Inject constructor(
         TemplateEditorAction.DismissDialog -> _state.update { it.copy(confirmDelete = false) }
         TemplateEditorAction.ConfirmDelete -> confirmDelete()
         TemplateEditorAction.DismissHint -> dismissHint()
+        is TemplateEditorAction.Problem -> rescue.handle(action.action)
     }
 
     fun onSheet(action: BlockSheetAction) {
@@ -314,7 +325,7 @@ class TemplateEditorViewModel @Inject constructor(
         val s = editorSheet ?: return
         val result = s.result as? TemplateEdit.Ok ?: return
         val t = template ?: return
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Template editor: save block", onFailure = ::fail) {
             actions.save(t.copy(blocks = result.blocks.toBlockSpecs(t.blocks)))
             template = store.find(t.id)
             blocks = template?.blocks?.toPlanBlocks().orEmpty()
@@ -328,7 +339,7 @@ class TemplateEditorViewModel @Inject constructor(
         val rowId = s.id ?: return
         val result = TemplateEditor.delete(blocks, rowId) as? TemplateEdit.Ok ?: return
         val t = template ?: return
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Template editor: delete block", onFailure = ::fail) {
             actions.save(t.copy(blocks = result.blocks.toBlockSpecs(t.blocks)))
             template = store.find(t.id)
             blocks = template?.blocks?.toPlanBlocks().orEmpty()
@@ -341,7 +352,7 @@ class TemplateEditorViewModel @Inject constructor(
         val t = template ?: return
         val clean = title.trim()
         if (clean.isEmpty() || clean.length > 24 || clean == t.title) return
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Template editor: rename", onFailure = ::fail) {
             actions.save(t.copy(title = clean))
             template = store.find(t.id)
             _state.update { it.painted() }
@@ -351,7 +362,7 @@ class TemplateEditorViewModel @Inject constructor(
     private fun icon(key: String) {
         val t = template ?: return
         if (t.iconKey == key) return
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Template editor: icon", onFailure = ::fail) {
             actions.save(t.copy(iconKey = key))
             template = store.find(t.id)
             _state.update { it.painted() }
@@ -360,7 +371,7 @@ class TemplateEditorViewModel @Inject constructor(
 
     private fun confirmDelete() {
         val t = template ?: return
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Template editor: delete", onFailure = ::fail) {
             actions.delete(t.id)
             _state.update { it.copy(confirmDelete = false, deleted = true) }
         }
@@ -369,7 +380,7 @@ class TemplateEditorViewModel @Inject constructor(
     private fun dismissHint() {
         blocksHint = false
         _state.update { it.copy(hint = false) }
-        viewModelScope.launch { explainers.markSeen(ExplainerKey.BLOCKS) }
+        failures.launch(viewModelScope, "Template editor: mark hint seen", onFailure = ::fail) { explainers.markSeen(ExplainerKey.BLOCKS) }
     }
 
     /** Paint the rows and strip from the current template and blocks, keeping the screen fields. */
@@ -472,6 +483,13 @@ fun TemplateEditorRoute(id: TemplateId, onBack: () -> Unit, viewModel: TemplateE
 fun TemplateEditorScreen(state: TemplateEditorState, onAction: (TemplateEditorAction) -> Unit, onBack: () -> Unit) {
     val colors = AppTheme.colors
     ScreenScaffold(topBar = { BackTopBar(title = state.title, onBack = onBack) }) { padding ->
+        if (state.failed) {
+            ErrorCard(
+                onAction = { onAction(TemplateEditorAction.Problem(it)) },
+                modifier = Modifier.padding(padding).padding(Spacing.m),
+            )
+            return@ScreenScaffold
+        }
         Column(
             Modifier
                 .fillMaxSize()

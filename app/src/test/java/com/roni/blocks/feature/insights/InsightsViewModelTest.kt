@@ -33,6 +33,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import com.roni.blocks.testing.testFailures
+import com.roni.blocks.testing.testRescue
 
 /**
  * Insights compare the last complete week with the one before it, and the gate is strict: no full
@@ -71,6 +72,8 @@ class InsightsViewModelTest {
             override fun now(): Instant = LocalTime(10, 0).at(today, zone)
         },
         zone = zone,
+        failures = testFailures(context),
+        rescue = testRescue(context),
     )
 
     private suspend fun seedStubWeek(start: LocalDate) {

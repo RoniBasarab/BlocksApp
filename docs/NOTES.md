@@ -173,4 +173,6 @@ Still-live rules first (decisions a future agent needs), then one section per ve
 ## 3.5.0 (Task-27)
 - Slice 1: `DemoDataGenerator.replayDay` returns `Replayed`, so the task's "return early" is `?: return offDay(date)` (unknown built-in template id is unreachable in practice).
 - Slice 1: `SettingsViewModel` takes `AppRescue` here (not slice 3) because `ShareUnreadable → AppRescue.shareUnreadable()` needs it; slice 3 adds `Failures` and removes the `Context` uses.
+- Slice 3: the failure test path is the test clock: `MovableClock.throwOnNow` makes `now()` throw, so `HomeAction.StartNow`'s `failures.launch { day.startNow() }` fails at `clock.now()`, is caught by a quiet `Failures`, and sets `HomeState.failed`; the next `Next` still reaches the day (the `day.state` collector is a separate launch).
+- Slice 3: `HomeViewModel.publish` keeps `failed` across its full-state reassignment (`failed = _state.value.failed`), the same as Weekly/Insights/History; Home's card replaces the calendar and now card (the top bar stays) and every overlay is hidden while `failed`.
 

@@ -49,8 +49,12 @@ import com.roni.blocks.core.profiles.ProfileRefusal
 import com.roni.blocks.core.profiles.Profiles
 import com.roni.blocks.core.storage.ProfileActions
 import com.roni.blocks.core.storage.TemplateStore
+import com.roni.blocks.core.system.AppRescue
+import com.roni.blocks.core.system.Failures
+import com.roni.blocks.core.system.ProblemAction
 import com.roni.blocks.designsystem.AppCard
 import com.roni.blocks.designsystem.AppTheme
+import com.roni.blocks.designsystem.ErrorCard
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.feature.profiles.HowToAction
@@ -90,6 +94,7 @@ data class MainMenuState(
     val newProfile: NewProfileUi? = null,
     val howTo: Boolean = false,
     val howToPage: Int = 0,
+    val failed: Boolean = false,
 )
 
 sealed interface MainMenuAction {
@@ -103,6 +108,7 @@ sealed interface MainMenuAction {
     data object HowTo : MainMenuAction
     data class HowToPage(val page: Int) : MainMenuAction
     data object CloseHowTo : MainMenuAction
+    data class Problem(val action: ProblemAction) : MainMenuAction
 }
 
 sealed interface MainMenuEffect {
@@ -117,6 +123,8 @@ class MainMenuViewModel @Inject constructor(
     private val profiles: ProfileActions,
     private val clock: Clock,
     private val zone: TimeZone,
+    private val failures: Failures,
+    private val rescue: AppRescue,
 ) : ViewModel() {
     private val _state = MutableStateFlow(MainMenuState(greeting = "Welcome, Roni"))
     val state: StateFlow<MainMenuState> = _state.asStateFlow()
@@ -124,8 +132,10 @@ class MainMenuViewModel @Inject constructor(
     private val _effects = MutableSharedFlow<MainMenuEffect>()
     val effects: SharedFlow<MainMenuEffect> = _effects.asSharedFlow()
 
+    private fun fail() = _state.update { it.copy(failed = true) }
+
     init {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Main menu: profiles", onFailure = ::fail) {
             store.profiles.collect { book -> _state.update { it.copy(profiles = profilesOf(book)) } }
         }
     }
@@ -140,7 +150,8 @@ class MainMenuViewModel @Inject constructor(
             is MainMenuAction.CopyActive -> _state.update { it.copy(newProfile = it.newProfile?.copy(copyActive = action.copy)) }
             MainMenuAction.Create -> create()
             MainMenuAction.DismissNew -> _state.update { it.copy(newProfile = null) }
-            MainMenuAction.OpenCategories -> viewModelScope.launch { _effects.emit(MainMenuEffect.OpenCategories) }
+            is MainMenuAction.Problem -> rescue.handle(action.action)
+            MainMenuAction.OpenCategories -> failures.launch(viewModelScope, "Main menu: open categories", onFailure = ::fail) { _effects.emit(MainMenuEffect.OpenCategories) }
             MainMenuAction.HowTo -> _state.update { it.copy(howTo = true, howToPage = 0) }
             is MainMenuAction.HowToPage -> _state.update { it.copy(howToPage = action.page) }
             MainMenuAction.CloseHowTo -> _state.update { it.copy(howTo = false) }
@@ -148,7 +159,7 @@ class MainMenuViewModel @Inject constructor(
     }
 
     private fun useProfile(id: String) {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Main menu: use profile", onFailure = ::fail) {
             profiles.switchTo(id)
             store.markProfileChosen()
             _effects.emit(MainMenuEffect.OpenPicker)
@@ -157,7 +168,7 @@ class MainMenuViewModel @Inject constructor(
 
     private fun create() {
         val ui = _state.value.newProfile ?: return
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Main menu: create profile", onFailure = ::fail) {
             when (val result = profiles.create(ui.name, ui.copyActive)) {
                 is ProfileEdit.Refused -> _state.update { it.copy(newProfile = ui.copy(error = refusalText(result.why))) }
                 is ProfileEdit.Ok -> {
@@ -218,6 +229,13 @@ fun MainMenuRoute(
 fun MainMenuScreen(state: MainMenuState, onAction: (MainMenuAction) -> Unit) {
     val colors = AppTheme.colors
     ScreenScaffold(topBar = { MainMenuTopBar(state.greeting) { onAction(MainMenuAction.HowTo) } }) { _ ->
+        if (state.failed) {
+            ErrorCard(
+                onAction = { onAction(MainMenuAction.Problem(it)) },
+                modifier = Modifier.padding(horizontal = Spacing.m, vertical = Spacing.s),
+            )
+            return@ScreenScaffold
+        }
         Column(
             Modifier
                 .fillMaxSize()

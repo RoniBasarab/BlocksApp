@@ -25,6 +25,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import com.roni.blocks.testing.testFailures
+import com.roni.blocks.testing.testRescue
 
 /**
  * Task-19a: the category editor's ViewModel against the real stores from [testActions], driven the
@@ -52,7 +53,7 @@ class CategoryListViewModelTest {
     @Test
     fun newCategory_appearsWithItsColour() = runBlocking {
         val (_, categories) = testActions(context)
-        val viewModel = CategoryListViewModel(categories, explainers())
+        val viewModel = CategoryListViewModel(categories, explainers(), testFailures(context), testRescue(context))
 
         viewModel.onAction(CategoryAction.New)
         viewModel.onAction(CategoryAction.Name("Office"))
@@ -67,7 +68,7 @@ class CategoryListViewModelTest {
     @Test
     fun nameTaken_showsTheError() = runBlocking {
         val (_, categories) = testActions(context)
-        val viewModel = CategoryListViewModel(categories, explainers())
+        val viewModel = CategoryListViewModel(categories, explainers(), testFailures(context), testRescue(context))
 
         viewModel.onAction(CategoryAction.New)
         viewModel.onAction(CategoryAction.Name("coding"))
@@ -95,7 +96,7 @@ class CategoryListViewModelTest {
                 ),
             ),
         )
-        val viewModel = CategoryListViewModel(categories, explainers())
+        val viewModel = CategoryListViewModel(categories, explainers(), testFailures(context), testRescue(context))
 
         viewModel.onAction(CategoryAction.Open("cat_1"))
         viewModel.onAction(CategoryAction.Delete)
@@ -112,7 +113,7 @@ class CategoryListViewModelTest {
     fun cancelDelete_keepsTheSheetOpen() = runBlocking {
         val (_, categories) = testActions(context)
         categories.add("Office", 0xFFE08A7A, work = true, pomodoro = false)
-        val viewModel = CategoryListViewModel(categories, explainers())
+        val viewModel = CategoryListViewModel(categories, explainers(), testFailures(context), testRescue(context))
 
         viewModel.onAction(CategoryAction.Open("cat_1"))
         viewModel.onAction(CategoryAction.Delete)

@@ -9,6 +9,7 @@ import com.roni.blocks.core.schedule.BlockEdit
 import com.roni.blocks.core.schedule.Edge
 import com.roni.blocks.core.schedule.PomodoroSlot
 import com.roni.blocks.core.schedule.TimelinePhase
+import com.roni.blocks.core.system.ProblemAction
 import com.roni.blocks.feature.templates.BlockSheetAction
 import com.roni.blocks.feature.templates.BlockSheetUi
 import kotlinx.collections.immutable.ImmutableList
@@ -137,6 +138,7 @@ data class HomeState(
     val calendarStartMin: Int = DAY_START_MIN,
     /** A standalone walk that ended within the last 30 minutes (3.4.1); null when there is nothing to fix. */
     val walkFix: WalkFixUi? = null,
+    val failed: Boolean = false,
 )
 
 sealed interface HomeAction {
@@ -180,6 +182,9 @@ sealed interface HomeAction {
     data class LockedBlockTapped(val id: String) : HomeAction
     /** The calendar's real text heights (2.6.1), measured per font scale and used for the layout. */
     data class TextMeasured(val metrics: TextMetrics) : HomeAction
+
+    /** One action inside the error card (3.5.0). */
+    data class Problem(val action: ProblemAction) : HomeAction
 
     val affectsOverlays: Boolean
         get() = this is ChooseEvening || this is PickEvening || this is DismissEveningSheet ||

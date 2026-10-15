@@ -118,6 +118,10 @@ import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
+import com.roni.blocks.core.system.AppRescue
+import com.roni.blocks.core.system.Failures
+import com.roni.blocks.core.system.ProblemAction
+import com.roni.blocks.core.system.reportFailures
 import com.roni.blocks.core.time.DebugTimeController
 import com.roni.blocks.core.time.Ticker
 import com.roni.blocks.core.time.TimeFormatter
@@ -134,6 +138,7 @@ import com.roni.blocks.designsystem.AppShapes
 import com.roni.blocks.designsystem.AppTab
 import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.AppType
+import com.roni.blocks.designsystem.ErrorCard
 import com.roni.blocks.designsystem.Metrics
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.Spacing
@@ -164,6 +169,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.LocalTime
@@ -192,9 +198,13 @@ private val day: DayOrchestrator,
     private val prefs: PrefsStorage,
     private val timeFormatter: TimeFormatter,
     private val debugTime: DebugTimeController,
+    private val failures: Failures,
+    private val rescue: AppRescue,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeState())
     val state: StateFlow<HomeState> = _state.asStateFlow()
+
+    private fun fail() = _state.update { it.copy(failed = true) }
     private var recap: DayRecapUi? = null
     private var endedRecord: DayRecord? = null
     /** Today's standalone walks (2.5.0), the only walks_<date> log entries; drawn as markers. */
@@ -243,59 +253,68 @@ private val day: DayOrchestrator,
     val correctingRow: StateFlow<RecapRow?> = _correctingRow.asStateFlow()
 
     val minuteOfDay: StateFlow<Int> =
-        ticker.minutes.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+        ticker.minutes
+            .reportFailures(failures, "Home: minutes", onFailure = ::fail)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     private val secondOfDay: StateFlow<Int> =
-        ticker.seconds().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+        ticker.seconds()
+            .reportFailures(failures, "Home: seconds", onFailure = ::fail)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     val countdownText: StateFlow<String> =
         combine(_state, minuteOfDay, secondOfDay) { s, minute, second -> countdown(s, minute, second) }
+            .reportFailures(failures, "Home: countdown", onFailure = ::fail)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
 
     val progress: StateFlow<Float> =
         combine(_state, minuteOfDay) { s, minute -> progressOf(s, minute) }
+            .reportFailures(failures, "Home: progress", onFailure = ::fail)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0f)
 
     /** The walk card's clock (2.6.0): one [WalkView] with text, progress and phase, refreshed every second. */
     val walkView: StateFlow<WalkView?> =
         combine(_state, secondOfDay) { s, _ ->
             s.walkCard?.let { WalkClock.view(it.startSec, it.endSec, clock.now().epochSeconds) }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        }
+            .reportFailures(failures, "Home: walk clock", onFailure = ::fail)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** "5,240 steps" for the top bar (2.5.0): the saved total plus the live reading; never written. */
     val stepsLabel: StateFlow<String?> =
         combine(day.todaySteps, day.liveSteps) { saved, live -> (live ?: saved)?.let { "about ${formatStepsApprox(it)} steps" } }
+            .reportFailures(failures, "Home: steps", onFailure = ::fail)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Home: day state", onFailure = ::fail) {
             day.state.collect { state -> publish(state) }
         }
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Home: segments", onFailure = ::fail) {
             // The orchestrator sets the state before the segments, so a publish on the state alone
             // can miss a just-added evening segment.
             day.segments.collect { publish(day.state.value) }
         }
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Home: walk session", onFailure = ::fail) {
             // Turn back and End walk only move the walk session, not the state or the segments.
             day.walkSession.collect { publish(day.state.value) }
         }
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Home: evening choice", onFailure = ::fail) {
             // Picking during Dishes only moves the pending choice, not the state or the segments (2.5.0).
             day.pendingEvening.collect { publish(day.state.value) }
         }
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Home: start", onFailure = ::fail) {
             // The first block's start is written in persist(), after the state and the segments
             // (2.7.0), so it needs its own collector to flip Home into the waiting card.
             day.startsAt.collect { publish(day.state.value) }
         }
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Home: walks", onFailure = ::fail) {
             history.observeWalks(clock.now().toLocalDateTime(zone).date).collect { logs ->
                 walkLogs = logs
                 publish(day.state.value)
             }
         }
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Home: day record", onFailure = ::fail) {
             history.observeDay(clock.now().toLocalDateTime(zone).date).collect { record ->
                 endedRecord = record?.takeIf { it.date == clock.now().toLocalDateTime(zone).date }
                 recap = endedRecord?.let { DayRecapMapper.map(it, timeFormatter.use24.value) }
@@ -303,12 +322,18 @@ private val day: DayOrchestrator,
             }
         }
         // The real day (3.3.0) moves with the minute: every tick re-publishes so the tail grows.
-        viewModelScope.launch { minuteOfDay.collect { publish(day.state.value) } }
-        viewModelScope.launch { timeFormatter.use24.collect { publish(day.state.value) } }
-        if (BuildConfig.DEBUG) {
-            viewModelScope.launch { debugTime.offsetMinutes.collect { publish(day.state.value) } }
+        failures.launch(viewModelScope, "Home: minutes", onFailure = ::fail) {
+            minuteOfDay.collect { publish(day.state.value) }
         }
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Home: 24-hour clock", onFailure = ::fail) {
+            timeFormatter.use24.collect { publish(day.state.value) }
+        }
+        if (BuildConfig.DEBUG) {
+            failures.launch(viewModelScope, "Home: debug clock", onFailure = ::fail) {
+                debugTime.offsetMinutes.collect { publish(day.state.value) }
+            }
+        }
+        failures.launch(viewModelScope, "Home: suppressed confirmations", onFailure = ::fail) {
             val stored = prefs.read(
                 PrefsFile.SETTINGS,
                 SUPPRESSED_CONFIRMATIONS,
@@ -322,7 +347,7 @@ private val day: DayOrchestrator,
         if (button in _suppressedConfirmations.value) return
         val updated = _suppressedConfirmations.value + button
         _suppressedConfirmations.value = updated
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Home: suppress confirmation", onFailure = ::fail) {
             prefs.write(
                 PrefsFile.SETTINGS,
                 SUPPRESSED_CONFIRMATIONS,
@@ -336,7 +361,7 @@ private val day: DayOrchestrator,
         if (button !in _suppressedConfirmations.value) return
         val updated = _suppressedConfirmations.value - button
         _suppressedConfirmations.value = updated
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Home: ask again", onFailure = ::fail) {
             if (updated.isEmpty()) {
                 prefs.remove(PrefsFile.SETTINGS, SUPPRESSED_CONFIRMATIONS)
             } else {
@@ -352,17 +377,18 @@ private val day: DayOrchestrator,
 
     fun onAction(action: HomeAction) {
         when (action) {
+            is HomeAction.Problem -> rescue.handle(action.action)
             HomeAction.Next -> day.send(DayEvent.Next(_state.value.currentBlockId.orEmpty()))
             HomeAction.Pause -> day.send(DayEvent.Pause)
             HomeAction.Emergency -> day.send(DayEvent.EndDay(EndReason.EMERGENCY))
             HomeAction.Resume -> day.send(DayEvent.Resume)
-            HomeAction.StartNow -> viewModelScope.launch {
+            HomeAction.StartNow -> failures.launch(viewModelScope, "Home: start now", onFailure = ::fail) {
                 day.startNow()
                 publish(day.state.value)
             }
             HomeAction.KidAsleep -> day.send(DayEvent.KidAsleep)
             HomeAction.ChooseEvening -> eveningSheetOpen = true
-            HomeAction.SkipDishes -> viewModelScope.launch {
+            HomeAction.SkipDishes -> failures.launch(viewModelScope, "Home: skip dishes", onFailure = ::fail) {
                 val started = day.skipDishes()
                 if (!started) eveningSheetOpen = true
                 publish(day.state.value)
@@ -376,11 +402,11 @@ private val day: DayOrchestrator,
                 walkSheet = null
                 publish(day.state.value)
             }
-            HomeAction.TurnBack -> viewModelScope.launch {
+            HomeAction.TurnBack -> failures.launch(viewModelScope, "Home: turn back", onFailure = ::fail) {
                 day.turnBack()
                 publish(day.state.value)
             }
-            HomeAction.EndWalk -> viewModelScope.launch {
+            HomeAction.EndWalk -> failures.launch(viewModelScope, "Home: end walk", onFailure = ::fail) {
                 day.endWalk()
                 publish(day.state.value)
             }
@@ -441,7 +467,7 @@ private val day: DayOrchestrator,
     }
 
     private fun commitEdit(edit: PlanEdit) {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Home: edit plan", onFailure = ::fail) {
             day.editPlan(edit)
             preview = null
             draggingId = null
@@ -457,7 +483,7 @@ private val day: DayOrchestrator,
 
     /** The Dishes block lives in the segments, not the plan (2.5.0), so its resize goes to the day. */
     private fun resizeDishes(toMin: Int) {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Home: resize dishes", onFailure = ::fail) {
             day.resizeDishesTo(toMin)
             preview = null
             draggingId = null
@@ -604,7 +630,7 @@ private val day: DayOrchestrator,
             val type = ui.type
             val length = ui.lengthMin ?: original.length
             dismissSheet()
-            viewModelScope.launch {
+            failures.launch(viewModelScope, "Home: save running block", onFailure = ::fail) {
                 if (type != original.type) day.editPlan(PlanEdit.Retype(original.id, type))
                 if (length != original.length) day.editPlan(PlanEdit.Resize(original.id, Edge.BOTTOM, original.startMin + length))
                 publish(day.state.value)
@@ -615,7 +641,7 @@ private val day: DayOrchestrator,
         val length = ui.lengthMin ?: return
         val type = ui.type
         dismissSheet()
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Home: save block", onFailure = ::fail) {
             day.placeBlock(id, type, start, length)
             publish(day.state.value)
         }
@@ -624,7 +650,7 @@ private val day: DayOrchestrator,
     private fun deleteSheetBlock() {
         val id = sheetId ?: return
         dismissSheet()
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Home: delete block", onFailure = ::fail) {
             day.editPlan(PlanEdit.Retype(id, BlockType.Free))
             publish(day.state.value)
         }
@@ -644,7 +670,7 @@ private val day: DayOrchestrator,
     /** "Fix the time": opens the shared sheet over the latest logged walk, with the day's real bounds. */
     private fun openWalkFix() {
         val log = latestWalkLog() ?: return
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Home: open walk fix", onFailure = ::fail) {
             val date = clock.now().toLocalDateTime(zone).date
             val (floor, ceil) = day.walkBounds(date, log.start)
             walkEdit = WalkEdit(log, log.start.minuteOfDay(zone), log.end.minuteOfDay(zone), floor, ceil)
@@ -686,7 +712,7 @@ private val day: DayOrchestrator,
         val date = clock.now().toLocalDateTime(zone).date
         walkEdit = null
         sheet = null
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Home: save walk", onFailure = ::fail) {
             day.correctWalk(date, edit.log.start, edit.startMin, edit.endMin)
             publish(day.state.value)
         }
@@ -797,7 +823,7 @@ private val day: DayOrchestrator,
 
     fun correctRecord(edit: RecordEdit) {
         val date = clock.now().toLocalDateTime(zone).date
-        viewModelScope.launch { history.correctDay(date, edit, zone) }
+        failures.launch(viewModelScope, "Home: correct record", onFailure = ::fail) { history.correctDay(date, edit, zone) }
     }
 
     /**
@@ -806,7 +832,7 @@ private val day: DayOrchestrator,
      * is the case until the day ends (and history has it from then on).
      */
     fun correctPast(edit: RecordEdit) {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Home: correct past", onFailure = ::fail) {
             val open = _correctingRow.value
             val changed = day.correctPast(edit)
             if (changed && open != null) {
@@ -840,7 +866,7 @@ private val day: DayOrchestrator,
         val minutes = walkSheet?.minutes ?: return
         walkSheet = null
         publish(day.state.value)
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Home: start walk", onFailure = ::fail) {
             day.startWalk(minutes)
             publish(day.state.value)
         }
@@ -875,7 +901,7 @@ private val day: DayOrchestrator,
 
     fun checkIn(pick: CheckIn) {
         val date = clock.now().toLocalDateTime(zone).date
-        viewModelScope.launch { history.setCheckIn(date, pick) }
+        failures.launch(viewModelScope, "Home: check in", onFailure = ::fail) { history.setCheckIn(date, pick) }
     }
 
     private fun publish(dayState: DayState) {
@@ -1094,6 +1120,7 @@ private val day: DayOrchestrator,
             use24 = timeFormatter.use24.value,
             calendarStartMin = calendarStartMin,
             walkFix = walkFix,
+            failed = _state.value.failed,
         )
     }
 
@@ -1577,7 +1604,13 @@ fun HomeScreen(
                 onAction = onAction,
             )
             val recap = state.recap
-            if (recap != null) {
+            if (state.failed) {
+                // 3.5.0: the card takes the place of the calendar and the now card; the top bar stays.
+                ErrorCard(
+                    onAction = { onAction(HomeAction.Problem(it)) },
+                    modifier = Modifier.padding(Spacing.l),
+                )
+            } else if (recap != null) {
                 // A standalone walk (2.4.0) shows its card above an ended day's recap list.
                 Column(Modifier.weight(1f)) {
                     state.walkCard?.let { ui ->
@@ -1631,7 +1664,7 @@ fun HomeScreen(
                 }
             }
         }
-        if (state.recap == null) {
+        if (!state.failed && state.recap == null) {
             state.walkCard?.let { ui ->
                 WalkCard(
                     ui = ui,
@@ -1658,34 +1691,36 @@ fun HomeScreen(
         }
     }
 
-    if (state.eveningSheetOpen) {
-        EveningChoiceSheet(
-            onPick = { onAction(HomeAction.PickEvening(it)) },
-            onDismiss = { onAction(HomeAction.DismissEveningSheet) },
-        )
-    }
-    state.sheet?.let { ui ->
-        BlockSheet(
-            ui = ui,
-            use24 = state.use24,
-            onAction = { onAction(HomeAction.Sheet(it)) },
-        )
-    }
-    state.walkSheet?.let { sheet ->
-        WalkSheet(
-            ui = sheet,
-            onStep = { onAction(HomeAction.WalkStep(it)) },
-            onStart = { onAction(HomeAction.StartWalk) },
-            onDismiss = { onAction(HomeAction.DismissWalkSheet) },
-        )
-    }
-    correcting?.let { row ->
-        CorrectBlockSheet(
-            row = row,
-            use24 = state.use24,
-            onEdit = onCorrect,
-            onDismiss = { correcting = null },
-        )
+    if (!state.failed) {
+        if (state.eveningSheetOpen) {
+            EveningChoiceSheet(
+                onPick = { onAction(HomeAction.PickEvening(it)) },
+                onDismiss = { onAction(HomeAction.DismissEveningSheet) },
+            )
+        }
+        state.sheet?.let { ui ->
+            BlockSheet(
+                ui = ui,
+                use24 = state.use24,
+                onAction = { onAction(HomeAction.Sheet(it)) },
+            )
+        }
+        state.walkSheet?.let { sheet ->
+            WalkSheet(
+                ui = sheet,
+                onStep = { onAction(HomeAction.WalkStep(it)) },
+                onStart = { onAction(HomeAction.StartWalk) },
+                onDismiss = { onAction(HomeAction.DismissWalkSheet) },
+            )
+        }
+        correcting?.let { row ->
+            CorrectBlockSheet(
+                row = row,
+                use24 = state.use24,
+                onEdit = onCorrect,
+                onDismiss = { correcting = null },
+            )
+        }
     }
 }
 

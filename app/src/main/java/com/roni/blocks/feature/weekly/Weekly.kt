@@ -55,6 +55,9 @@ import com.roni.blocks.core.model.plannedMinutes
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.TemplateManager
 import com.roni.blocks.core.storage.debtMinutes
+import com.roni.blocks.core.system.AppRescue
+import com.roni.blocks.core.system.Failures
+import com.roni.blocks.core.system.ProblemAction
 import com.roni.blocks.core.time.at
 import com.roni.blocks.designsystem.AppBottomBar
 import com.roni.blocks.designsystem.AppCard
@@ -63,6 +66,7 @@ import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.AppTopBar
 import com.roni.blocks.designsystem.AppType
 import com.roni.blocks.designsystem.EmptyState
+import com.roni.blocks.designsystem.ErrorCard
 import com.roni.blocks.designsystem.ScreenColumn
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.Spacing
@@ -86,6 +90,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
@@ -114,11 +119,13 @@ data class WeeklyUiState(
     val missedSummary: String? = null,
     val rows: ImmutableList<PlanProgressUi> = persistentListOf(),
     val stats: List<WeeklyStat> = emptyList(),
+    val failed: Boolean = false,
 )
 
 sealed interface WeeklyAction {
     data object PreviousWeek : WeeklyAction
     data object NextWeek : WeeklyAction
+    data class Problem(val action: ProblemAction) : WeeklyAction
 }
 
 @HiltViewModel
@@ -135,26 +142,37 @@ class WeeklyViewModel @Inject constructor(
     private val templates: TemplateManager,
     private val clock: Clock,
     private val zone: TimeZone,
+    private val failures: Failures,
+    private val rescue: AppRescue,
 ) : ViewModel() {
     private val currentWeek = history.weekStart(clock.now().toLocalDateTime(zone).date)
     private val _selectedWeek = MutableStateFlow(currentWeek)
     private val _state = MutableStateFlow(WeeklyUiState(hasData = false))
     val state: StateFlow<WeeklyUiState> = _state.asStateFlow()
 
+    private fun fail() = _state.update { it.copy(failed = true) }
+
     init {
-        viewModelScope.launch { reload() }
+        failures.launch(viewModelScope, "Weekly: load", onFailure = ::fail) { reload() }
+    }
+
+    fun onAction(action: WeeklyAction) {
+        when (action) {
+            is WeeklyAction.Problem -> rescue.handle(action.action)
+            else -> Unit
+        }
     }
 
     fun onPreviousWeek() {
         if (!_state.value.canGoPrevious) return
         _selectedWeek.value = _selectedWeek.value.plus(-7, kotlinx.datetime.DateTimeUnit.DAY)
-        viewModelScope.launch { reload() }
+        failures.launch(viewModelScope, "Weekly: previous week", onFailure = ::fail) { reload() }
     }
 
     fun onNextWeek() {
         if (!_state.value.canGoNext) return
         _selectedWeek.value = _selectedWeek.value.plus(7, kotlinx.datetime.DateTimeUnit.DAY)
-        viewModelScope.launch { reload() }
+        failures.launch(viewModelScope, "Weekly: next week", onFailure = ::fail) { reload() }
     }
 
     private suspend fun reload() {
@@ -169,12 +187,14 @@ class WeeklyViewModel @Inject constructor(
                 weekLabel = weekLabel(selected),
                 canGoNext = selected < currentWeek,
                 canGoPrevious = canGoPrevious,
+                failed = _state.value.failed,
             )
             return
         }
         _state.value = WeeklyUiState(
             hasData = true,
             weekLabel = weekLabel(selected),
+            failed = _state.value.failed,
             canGoNext = selected < currentWeek,
             canGoPrevious = canGoPrevious,
             plannedFraction = plannedFraction(days),
@@ -378,6 +398,10 @@ private val months = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Au
 /** Content only; the top and bottom bars live in [WeeklyRoute]. */
 @Composable
 fun WeeklyScreen(state: WeeklyUiState, onAction: (WeeklyAction) -> Unit) {
+    if (state.failed) {
+        ErrorCard(onAction = { onAction(WeeklyAction.Problem(it)) }, modifier = Modifier.padding(Spacing.m))
+        return
+    }
     if (!state.hasData) {
         Column(Modifier.fillMaxSize()) {
             WeekSelector(state, onAction)
@@ -573,6 +597,7 @@ fun WeeklyRoute(onTab: (NavKey) -> Unit, onMenu: (NavKey) -> Unit, viewModel: We
                     when (action) {
                         WeeklyAction.PreviousWeek -> viewModel.onPreviousWeek()
                         WeeklyAction.NextWeek -> viewModel.onNextWeek()
+                        is WeeklyAction.Problem -> viewModel.onAction(action)
                     }
                 },
             )

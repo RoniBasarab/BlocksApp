@@ -25,6 +25,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import com.roni.blocks.testing.testFailures
+import com.roni.blocks.testing.testRescue
 
 /** 3.2.0: one profile's page against the real stores from [testActions]. */
 @RunWith(AndroidJUnit4::class)
@@ -49,7 +50,7 @@ class ProfileViewModelTest {
     fun daysHint_neverBlocksTheDaySheet() = runBlocking {
         val rig = testActions(context)
         rig.store.load()
-        val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates, explainers())
+        val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates, explainers(), testFailures(context), testRescue(context))
 
         viewModel.load("unemployed")
         assertTrue("fresh prefs show the days hint", viewModel.state.value.daysHint)
@@ -66,7 +67,7 @@ class ProfileViewModelTest {
     fun setDay_changesTheSuggestion() = runBlocking {
         val rig = testActions(context)
         rig.store.load()
-        val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates, explainers())
+        val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates, explainers(), testFailures(context), testRescue(context))
 
         viewModel.load("unemployed")
         viewModel.onAction(ProfileAction.SetDay(1, TemplateId.MON_THU))
@@ -82,7 +83,7 @@ class ProfileViewModelTest {
         val own = rig.templates.createIn(rig.store.activeProfileId(), "Mine")
         rig.profiles.create("Empty", copyActive = false)
         val empty = rig.store.profiles.value.profiles.first { it.name == "Empty" }
-        val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates, explainers())
+        val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates, explainers(), testFailures(context), testRescue(context))
 
         viewModel.load(empty.id)
         viewModel.onAction(ProfileAction.AddExisting)
@@ -106,7 +107,7 @@ class ProfileViewModelTest {
     fun offDay_opensNothing() = runBlocking {
         val rig = testActions(context)
         rig.store.load()
-        val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates, explainers())
+        val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates, explainers(), testFailures(context), testRescue(context))
         val effects = mutableListOf<ProfileEffect>()
         val job = launch(Dispatchers.Unconfined) { viewModel.effects.collect { effects += it } }
 
@@ -123,7 +124,7 @@ class ProfileViewModelTest {
         rig.store.load()
         rig.profiles.create("Other", copyActive = false)
         val other = rig.store.profiles.value.profiles.first { it.name == "Other" }
-        val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates, explainers())
+        val viewModel = ProfileViewModel(rig.store, rig.profiles, rig.templates, explainers(), testFailures(context), testRescue(context))
 
         viewModel.load("unemployed")
         assertFalse(viewModel.state.value.canDelete)

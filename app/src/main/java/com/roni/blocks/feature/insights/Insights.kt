@@ -48,6 +48,9 @@ import com.roni.blocks.core.model.minutesPastPlan
 import com.roni.blocks.core.model.plannedMinutes
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.debtMinutes
+import com.roni.blocks.core.system.AppRescue
+import com.roni.blocks.core.system.Failures
+import com.roni.blocks.core.system.ProblemAction
 import com.roni.blocks.designsystem.AppBottomBar
 import com.roni.blocks.designsystem.AppShapes
 import com.roni.blocks.designsystem.AppTab
@@ -55,6 +58,7 @@ import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.AppTopBar
 import com.roni.blocks.designsystem.CardDivider
 import com.roni.blocks.designsystem.EmptyState
+import com.roni.blocks.designsystem.ErrorCard
 import com.roni.blocks.designsystem.IconCircle
 import com.roni.blocks.designsystem.Metrics
 import com.roni.blocks.designsystem.ScreenColumn
@@ -76,6 +80,7 @@ import kotlin.time.Clock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
@@ -109,10 +114,12 @@ data class InsightsUiState(
     val headlineAccent: Color = Color.Unspecified,
     val rows: List<InsightRow> = emptyList(),
     val worst: List<OverrunStat> = emptyList(),
+    val failed: Boolean = false,
 )
 
 sealed interface InsightsAction {
     data object DismissProgressNudge : InsightsAction
+    data class Problem(val action: ProblemAction) : InsightsAction
 }
 
 private const val DAYS_IN_WEEK = 7
@@ -129,14 +136,25 @@ class InsightsViewModel @Inject constructor(
     private val history: HistoryManager,
     private val clock: Clock,
     private val zone: TimeZone,
+    private val failures: Failures,
+    private val rescue: AppRescue,
 ) : ViewModel() {
     private val lastCompleteWeek = history.weekStart(clock.now().toLocalDateTime(zone).date).minus(7, DateTimeUnit.DAY)
 
     private val _state = MutableStateFlow(InsightsUiState(hasData = false))
     val state: StateFlow<InsightsUiState> = _state.asStateFlow()
 
+    private fun fail() = _state.update { it.copy(failed = true) }
+
     init {
-        viewModelScope.launch { reload() }
+        failures.launch(viewModelScope, "Insights: load", onFailure = ::fail) { reload() }
+    }
+
+    fun onAction(action: InsightsAction) {
+        when (action) {
+            is InsightsAction.Problem -> rescue.handle(action.action)
+            else -> Unit
+        }
     }
 
     private suspend fun reload() {
@@ -145,7 +163,7 @@ class InsightsViewModel @Inject constructor(
         val subjectDays = days.filter { history.weekStart(it.date) == lastCompleteWeek }
         val previousDays = days.filter { history.weekStart(it.date) == previous }
         if (previousDays.size < DAYS_IN_WEEK) {
-            _state.value = InsightsUiState(hasData = false, daysLogged = previousDays.size)
+            _state.value = InsightsUiState(hasData = false, daysLogged = previousDays.size, failed = _state.value.failed)
             return
         }
         val nowMetrics = metricsOf(
@@ -172,6 +190,7 @@ class InsightsViewModel @Inject constructor(
             headlineAccent = worst.firstOrNull()?.accent ?: blockColors(BlockType.Coding).accent,
             rows = scorecardRows(nowMetrics, prevMetrics),
             worst = worst.map { it.copy(fraction = fractionOf(it, worst)) },
+            failed = _state.value.failed,
         )
     }
 }
@@ -499,6 +518,10 @@ private fun row(
 /** Content only; the top and bottom bars live in [InsightsRoute]. */
 @Composable
 fun InsightsScreen(state: InsightsUiState, onAction: (InsightsAction) -> Unit) {
+    if (state.failed) {
+        ErrorCard(onAction = { onAction(InsightsAction.Problem(it)) }, modifier = Modifier.padding(Spacing.m))
+        return
+    }
     if (!state.hasData) {
         EmptyState(
             icon = Icons.Outlined.Insights,
@@ -715,7 +738,7 @@ fun InsightsRoute(onTab: (NavKey) -> Unit, onMenu: (NavKey) -> Unit, viewModel: 
         bottomBar = { AppBottomBar(AppTab.INSIGHTS) { onTab(tabKey(it)) } },
     ) { padding ->
         Column(Modifier.fillMaxWidth().padding(padding)) {
-            InsightsScreen(state = state, onAction = {})
+            InsightsScreen(state = state, onAction = viewModel::onAction)
         }
     }
     if (explain) WhatTheseMeanDialog(onDismiss = { explain = false })

@@ -38,6 +38,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import com.roni.blocks.testing.testFailures
+import com.roni.blocks.testing.testRescue
 
 /**
  * The week picker and the numbers a week shows must come from the records that week is made of:
@@ -78,6 +79,8 @@ class WeeklyViewModelTest {
         templates = TemplateManager(context),
         clock = clock,
         zone = zone,
+        failures = testFailures(context),
+        rescue = testRescue(context),
     )
 
     private class MovableClock(var now: Instant) : Clock {

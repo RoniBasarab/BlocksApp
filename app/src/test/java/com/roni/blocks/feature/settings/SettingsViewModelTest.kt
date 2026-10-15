@@ -123,6 +123,7 @@ class SettingsViewModelTest {
         prefs = prefs,
         explainers = ExplainerStore(prefs),
         rescue = AppRescue(context, logger, prefs),
+        failures = testFailures(context),
     )
 
     @After

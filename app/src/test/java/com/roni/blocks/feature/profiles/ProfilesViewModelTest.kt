@@ -21,6 +21,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import com.roni.blocks.testing.testFailures
+import com.roni.blocks.testing.testRescue
 
 /** 3.2.0: the Profiles list's ViewModel against the real stores from [testActions]. */
 @RunWith(AndroidJUnit4::class)
@@ -44,7 +45,7 @@ class ProfilesViewModelTest {
     @Test
     fun newProfile_copy_opensIt() = runBlocking {
         val rig = testActions(context)
-        val viewModel = ProfilesViewModel(rig.store, rig.profiles, explainers())
+        val viewModel = ProfilesViewModel(rig.store, rig.profiles, explainers(), testFailures(context), testRescue(context))
         val effects = mutableListOf<ProfilesEffect>()
         val job = launch(Dispatchers.Unconfined) { viewModel.effects.collect { effects += it } }
 
@@ -65,13 +66,13 @@ class ProfilesViewModelTest {
     @Test
     fun hint_untilGotIt() = runBlocking {
         val rig = testActions(context)
-        val viewModel = ProfilesViewModel(rig.store, rig.profiles, explainers())
+        val viewModel = ProfilesViewModel(rig.store, rig.profiles, explainers(), testFailures(context), testRescue(context))
         assertTrue("fresh prefs show the hint", viewModel.state.value.hint)
 
         viewModel.onAction(ProfilesAction.DismissHint)
         assertFalse(viewModel.state.value.hint)
 
-        val fresh = ProfilesViewModel(rig.store, rig.profiles, explainers())
+        val fresh = ProfilesViewModel(rig.store, rig.profiles, explainers(), testFailures(context), testRescue(context))
         assertFalse("seen stays across ViewModels", fresh.state.value.hint)
     }
 }

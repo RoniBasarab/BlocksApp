@@ -40,7 +40,11 @@ import com.roni.blocks.core.storage.CategoryActions
 import com.roni.blocks.core.storage.CategoryResult
 import com.roni.blocks.core.storage.ExplainerKey
 import com.roni.blocks.core.storage.ExplainerStore
+import com.roni.blocks.core.system.AppRescue
+import com.roni.blocks.core.system.Failures
+import com.roni.blocks.core.system.ProblemAction
 import com.roni.blocks.designsystem.AppTheme
+import com.roni.blocks.designsystem.ErrorCard
 import com.roni.blocks.designsystem.HintCard
 import com.roni.blocks.designsystem.SectionHeader
 import com.roni.blocks.designsystem.Spacing
@@ -70,6 +74,7 @@ data class CategoryListState(
     val categories: CategorySet,
     val hint: Boolean = false,
     val sheet: CategorySheetUi? = null,
+    val failed: Boolean = false,
 )
 
 /** Everything the category editor can do, sent to [CategoryListViewModel.onAction]. */
@@ -86,6 +91,7 @@ sealed interface CategoryAction {
     data object CancelDelete : CategoryAction
     data object Dismiss : CategoryAction
     data object DismissHint : CategoryAction
+    data class Problem(val action: ProblemAction) : CategoryAction
 }
 
 /**
@@ -96,12 +102,16 @@ sealed interface CategoryAction {
 class CategoryListViewModel @Inject constructor(
     private val actions: CategoryActions,
     private val explainers: ExplainerStore,
+    private val failures: Failures,
+    private val rescue: AppRescue,
 ) : ViewModel() {
     private val _state = MutableStateFlow(CategoryListState(Categories.current))
     val state: StateFlow<CategoryListState> = _state.asStateFlow()
 
+    private fun fail() = _state.update { it.copy(failed = true) }
+
     init {
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Categories: hint", onFailure = ::fail) {
             _state.update { it.copy(hint = !explainers.seen(ExplainerKey.CATEGORIES)) }
         }
     }
@@ -121,8 +131,9 @@ class CategoryListViewModel @Inject constructor(
             CategoryAction.Dismiss -> _state.update { it.copy(sheet = null) }
             CategoryAction.DismissHint -> {
                 _state.update { it.copy(hint = false) }
-                viewModelScope.launch { explainers.markSeen(ExplainerKey.CATEGORIES) }
+                failures.launch(viewModelScope, "Categories: mark hint seen", onFailure = ::fail) { explainers.markSeen(ExplainerKey.CATEGORIES) }
             }
+            is CategoryAction.Problem -> rescue.handle(action.action)
         }
     }
 
@@ -143,7 +154,7 @@ class CategoryListViewModel @Inject constructor(
 
     private fun save() {
         val ui = _state.value.sheet ?: return
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Categories: save", onFailure = ::fail) {
             val result = if (ui.id == null) {
                 actions.add(ui.name, ui.colorArgb, ui.work, ui.pomodoro)
             } else {
@@ -160,7 +171,7 @@ class CategoryListViewModel @Inject constructor(
 
     private fun confirmDelete() {
         val id = _state.value.sheet?.id ?: return
-        viewModelScope.launch {
+        failures.launch(viewModelScope, "Categories: delete", onFailure = ::fail) {
             actions.delete(id)
             _state.update { it.copy(categories = Categories.current, sheet = null) }
         }
@@ -177,6 +188,10 @@ class CategoryListViewModel @Inject constructor(
 @Composable
 fun CategorySection(viewModel: CategoryListViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    if (state.failed) {
+        ErrorCard(onAction = { viewModel.onAction(CategoryAction.Problem(it)) })
+        return
+    }
     SectionHeader("Categories")
     AnimatedVisibility(
         visible = state.hint,

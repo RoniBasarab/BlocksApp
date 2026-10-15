@@ -64,6 +64,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import com.roni.blocks.testing.testFailures
+import com.roni.blocks.testing.testRescue
 
 /**
  * Drives real [HomeViewModel.onAction] against a real [DayOrchestrator] (fake clock, in-memory
@@ -123,6 +124,8 @@ class HomeViewModelTest {
         prefs = prefs,
         timeFormatter = TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)),
         debugTime = DebugTimeController(DebugClock(context).apply { setOffsetMinutes(0) }, day, logger, zone),
+        failures = testFailures(context),
+        rescue = testRescue(context),
     )
 
     @After
@@ -244,6 +247,8 @@ class HomeViewModelTest {
             prefs = prefs,
             timeFormatter = TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)),
             debugTime = debugCtrl,
+            failures = testFailures(context),
+            rescue = testRescue(context),
         )
         orchestrator.send(DayEvent.StartDay(TemplateId.MON_THU))
         withTimeout(5_000) { orchestrator.state.first { it == DayState.KidTime } }
@@ -644,6 +649,37 @@ class HomeViewModelTest {
         assertEquals(15 * 60 + 40, pm.endMin)
     }
 
+    @Test
+    fun aFailure_showsTheCard_andHomeKeepsWorking() = runBlocking {
+        startDayInsideCoding()
+        // A quiet Failures: the failure is reported and Home marks its part, without crashing.
+        viewModel = HomeViewModel(
+            day = orchestrator,
+            templates = TemplateManager(context),
+            history = history,
+            ticker = Ticker(clock, zone),
+            clock = clock,
+            zone = zone,
+            prefs = prefs,
+            timeFormatter = TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)),
+            debugTime = DebugTimeController(DebugClock(context).apply { setOffsetMinutes(0) }, orchestrator, logger, zone),
+            failures = testFailures(context, loud = false),
+            rescue = testRescue(context),
+        )
+
+        // The test clock throws while a flag is set: one Home launch fails and is caught (3.5.0).
+        clock.throwOnNow = true
+        viewModel.onAction(HomeAction.StartNow)
+        withTimeout(5_000) { viewModel.state.first { it.failed } }
+        clock.throwOnNow = false
+        assertTrue(viewModel.state.value.failed)
+
+        // The scope is alive: the next action still reaches the day and Home re-publishes.
+        viewModel.onAction(HomeAction.Next)
+        withTimeout(5_000) { viewModel.state.first { it.nowCard?.chip == "Done early" } }
+        assertEquals("Free time", viewModel.state.value.nowCard?.title)
+    }
+
     private suspend fun startDayInsideCoding() {
         orchestrator.send(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
         awaitRunningOrPaused { it.blockIndex() == 1 }
@@ -664,7 +700,13 @@ class HomeViewModelTest {
     }
 
     private class MovableClock(var now: Instant) : Clock {
-        override fun now(): Instant = now
+        /** Set to make [now] throw, so a test can fail one Home launch on purpose (3.5.0). */
+        var throwOnNow = false
+
+        override fun now(): Instant {
+            if (throwOnNow) error("test clock")
+            return now
+        }
     }
 
     private object SilentNotificationPort : NotificationPort {

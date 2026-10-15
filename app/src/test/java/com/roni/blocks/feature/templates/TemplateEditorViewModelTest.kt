@@ -34,6 +34,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import com.roni.blocks.testing.testFailures
+import com.roni.blocks.testing.testRescue
 
 /**
  * Drives [TemplateEditorViewModel.onAction] against the real store and [TemplateActions] from
@@ -65,6 +66,8 @@ class TemplateEditorViewModelTest {
             ),
             logger = AppLogger(context),
             explainers = ExplainerStore(PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context))),
+            failures = testFailures(context),
+            rescue = testRescue(context),
         )
     }
 

@@ -7,6 +7,8 @@ import com.roni.blocks.core.time.Ticker
 import com.roni.blocks.core.time.at
 import com.roni.blocks.testing.TestRig
 import com.roni.blocks.testing.testActions
+import com.roni.blocks.testing.testFailures
+import com.roni.blocks.testing.testRescue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.resetMain
@@ -49,6 +51,8 @@ class TemplatePickerViewModelTest {
         ticker = Ticker(rig.clock, zone),
         clock = rig.clock,
         zone = zone,
+        failures = testFailures(context),
+        rescue = testRescue(context),
     )
 
     @Test
