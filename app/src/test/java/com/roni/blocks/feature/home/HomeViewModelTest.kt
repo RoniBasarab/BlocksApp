@@ -11,6 +11,8 @@ import com.roni.blocks.core.daystate.DayStateSerializer
 import com.roni.blocks.core.daystate.EndReason
 import com.roni.blocks.core.logging.AppLogger
 import com.roni.blocks.core.model.BlockType
+import com.roni.blocks.core.model.Categories
+import com.roni.blocks.core.model.CategorySet
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.EVENING_CHOICE_ID
@@ -27,6 +29,7 @@ import com.roni.blocks.core.notifications.NotificationModelMapper
 import com.roni.blocks.core.notifications.NotificationPort
 import com.roni.blocks.core.schedule.Edge
 import com.roni.blocks.core.schedule.ScheduleEngine
+import com.roni.blocks.core.storage.CategoryStore
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
@@ -131,6 +134,7 @@ class HomeViewModelTest {
     @After
     fun tearDown() {
         Dispatchers.resetMain()
+        Categories.current = CategorySet.DEFAULT
     }
 
     @Test
@@ -376,6 +380,34 @@ class HomeViewModelTest {
         assertEquals(false, sheet.canDelete)
         assertEquals(true, sheet.canAddAfter)
         assertTrue(sheet.categories.isNotEmpty())
+    }
+
+    @Test
+    fun aNonWorkCategory_isOfferedOnHome() = runBlocking {
+        CategoryStore(prefs).add("Errands", 0xFF6FBFAF, work = false, pomodoro = false)
+        startDayInsideCoding()
+        val errands = BlockType.Custom("cat_1", "Errands", 0xFF6FBFAF, work = false, pomodoro = false)
+
+        // A block ahead offers every category, the custom one included, with Free last.
+        val pmId = orchestrator.todayPlan.value!!.blocks.first { it.type == BlockType.Coding && it.start.hour == 14 }.id
+        viewModel.onAction(HomeAction.OpenBlock(pmId))
+        val ahead = withTimeout(5_000) { viewModel.state.first { it.sheet != null } }.sheet!!
+        assertTrue(ahead.categories.contains(errands))
+        assertEquals(BlockType.Free, ahead.categories.last())
+
+        // Add after on the running block: the new sheet's categories contain it too.
+        viewModel.onAction(HomeAction.Sheet(BlockSheetAction.Dismiss))
+        viewModel.onAction(HomeAction.OpenBlock(firstBlockId))
+        viewModel.onAction(HomeAction.Sheet(BlockSheetAction.AddAfter))
+        val added = withTimeout(5_000) { viewModel.state.first { it.sheet != null && it.sheetId == null } }.sheet!!
+        assertTrue(added.categories.contains(errands))
+
+        // Retyping the running block (END_AND_TYPE): contains it, and no Free.
+        viewModel.onAction(HomeAction.Sheet(BlockSheetAction.Dismiss))
+        viewModel.onAction(HomeAction.OpenBlock(firstBlockId))
+        val running = withTimeout(5_000) { viewModel.state.first { it.sheet != null } }.sheet!!
+        assertTrue(running.categories.contains(errands))
+        assertTrue(running.categories.none { it == BlockType.Free })
     }
 
     @Test
