@@ -20,8 +20,8 @@ Rules that hold everywhere:
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `App.kt` | Hilt application; warms the orchestrator, registers the drive detector after restore (3.4.0), and registers a `ProcessLifecycleOwner` foreground observer (2.2.0) | DayOrchestrator, DriveDetector, Hilt |
-| `MainActivity.kt` | The single activity; hosts the Compose graph; asks for notifications and physical-activity permission in one request at launch, then re-reads the day and registers the drive detector (2.6.0, 3.4.0) | AppNav, NotificationPort, DayOrchestrator, DriveDetector |
+| `App.kt` | Hilt application; warms the orchestrator and registers a `ProcessLifecycleOwner` foreground observer (2.2.0) | DayOrchestrator, Hilt |
+| `MainActivity.kt` | The single activity; hosts the Compose graph; asks for notifications and physical-activity permission in one request at launch, then re-reads the day; holds the platform splash screen until the day is restored (3.5.1) | AppNav, NotificationPort, DayOrchestrator |
 | `navigation/AppNav.kt` | Serializable nav keys and the top-level graph; `StartDestination` (3.3.0) picks from the day state and `TemplateStore.profileChosen()` (NotStarted → MAIN_MENU or TEMPLATE_PICKER, else HOME); the first-visit `FirstVisit` wrappers are gone (3.4.0), each screen owns its hint | feature routes |
 | `app/src/main/res/layout/widget_now.xml` | The widget layout (`<ImageView>` accent — RemoteViews can't inflate a plain `<View>`) | R.layout.widget_now |
 
@@ -30,13 +30,13 @@ Rules that hold everywhere:
 | path | what it does | talks to |
 | --- | --- | --- |
 | `core/alarms/AlarmScheduler.kt` | Owns the single exact alarm that ends the current block | AlarmManager, SystemTimeMapper, AlarmReceiver |
-| `core/alarms/Receivers.kt` | `AlarmReceiver` (a block ended), `SystemEventsReceiver` (boot, app replaced, clock/timezone moved; registers the drive detector on boot/replace, 3.4.0) and `DriveTransitionReceiver` (Android says a car drive started or ended, 3.4.0) | DayOrchestrator, DriveDetector, AppLogger |
+| `core/alarms/Receivers.kt` | `AlarmReceiver` (a block ended) and `SystemEventsReceiver` (boot, app replaced, clock/timezone moved) | DayOrchestrator, AppLogger |
 
 ## core/daystate
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `core/daystate/DayOrchestrator.kt` | Single writer of the day's state: owns today's plan, applies events and plan edits, persists, pushes alarm/notification/history; `liveRecord()`/`correctPast()`/`onAppForeground()` (2.2.0); standalone walks `walkSession`/`walkPreview`/`startWalk`/`turnBack`/`endWalk` (2.4.0); step checkpoints and the evening flow `pendingEvening`/`switchEvening`/`skipDishes`/`resizeDishesTo` (2.5.0); a day picked before its first block waits: `startsAt`, `startNow()`, quiet until that block starts by itself (2.7.0); `placeBlock(id?, type, startMin, lengthMin)` for Home's sheet and the shared `commitPlan` (3.3.0); Dishes no longer ends itself (it ends on `skipDishes`/Next) and its reminders are quiet; drives: `onDrive(enter, at)` logs a `DriveLog` (steps shown, never subtracted, missed exits closed after 4h) and `simulateDrive()` (3.4.0); fixes a logged walk's times: `correctWalk(date, oldStart, newStartMin, newEndMin)` and the sheet's `walkBounds(date, oldStart)` (3.4.1) | DayStateMachine, ScheduleEngine, HistoryManager, PrefsStorage |
+| `core/daystate/DayOrchestrator.kt` | Single writer of the day's state: owns today's plan, applies events and plan edits, persists, pushes alarm/notification/history; `liveRecord()`/`correctPast()`/`onAppForeground()` (2.2.0); standalone walks `walkSession`/`walkPreview`/`startWalk`/`turnBack`/`endWalk` (2.4.0); step checkpoints and the evening flow `pendingEvening`/`switchEvening`/`skipDishes`/`resizeDishesTo` (2.5.0); a day picked before its first block waits: `startsAt`, `startNow()`, quiet until that block starts by itself (2.7.0); `placeBlock(id?, type, startMin, lengthMin)` for Home's sheet and the shared `commitPlan` (3.3.0); Dishes no longer ends itself (it ends on `skipDishes`/Next) and its reminders are quiet; fixes a logged walk's times: `correctWalk(date, oldStart, newStartMin, newEndMin)` and the sheet's `walkBounds(date, oldStart)` (3.4.1) | DayStateMachine, ScheduleEngine, HistoryManager, PrefsStorage |
 | `core/daystate/DayState.kt` | `DayState` and `DayEvent` — the persisted vocabulary of a day | Model, ScheduleEngine |
 | `core/daystate/DayStateMachine.kt` | Every legal transition as one pure function | DayState, DayEvent |
 | `core/daystate/NotificationActionMapping.kt` | Maps notification buttons onto day events; new actions fail to compile unmapped | NotificationModel, DayStateMachine |
@@ -74,7 +74,7 @@ Rules that hold everywhere:
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `core/model/Model.kt` | `Template`, `TemplateId`, `BlockSpec`, `TodayPlan`, `Segment`, `DayRecord` — the persisted shapes; `WalkSession`/`WalkLog` for standalone walks (2.4.0); `DriveLog` for a drive Android noticed (3.4.0); `TemplateId` is a `value class` over a String and `BlockType.Custom` carries your own kinds (3.0.0) | kotlinx.serialization |
+| `core/model/Model.kt` | `Template`, `TemplateId`, `BlockSpec`, `TodayPlan`, `Segment`, `DayRecord` — the persisted shapes; `WalkSession`/`WalkLog` for standalone walks (2.4.0); `TemplateId` is a `value class` over a String and `BlockType.Custom` carries your own kinds (3.0.0) | kotlinx.serialization |
 | `core/model/Categories.kt` | `CategoryInfo`/`CategorySet` and the `Categories.current` snapshot the pure mappers read; CV/Coding/Gym/Free defaults (3.0.0); `CategoryPalette`, the 12 colours a category can take (3.1.0) | Model |
 | `core/model/Templates.kt` | `StoredTemplate`, `Profile` (`days: Map<Int, TemplateId>?`, 3.2.0) and the built-in seed texts/icons/accents/weekdays (3.0.0); `archived`, `shortFor`/`subtitleFor`/`accentFor` and `OWN_TEMPLATE_ICONS` for your own templates (3.1.0) | Model |
 | `core/model/SegmentTime.kt` | `Segment` length helpers (3.5.0): `actualMinutes`/`plannedMinutes`/`minutesPastPlan`, each null while open or unplanned, replacing the old `actualEnd!!`/`plannedEnd!!` | Model |
@@ -120,13 +120,12 @@ Rules that hold everywhere:
 | `core/steps/StepBook.kt` | The pure step arithmetic and `StepState` (2.5.0): reads the cumulative sensor, keeps the day's baseline, computes today's steps and a walk's steps | PrefsStorage |
 | `core/steps/StepStateSerializer.kt` | Stores `StepState` in prefs (2.5.0) | PrefsStorage, StepState |
 | `core/steps/StepSensor.kt` | `StepSensor` port plus `AndroidStepSensor`, the only reader of `Sensor.TYPE_STEP_COUNTER` (2.5.0) | Android SensorManager |
-| `core/steps/DriveDetector.kt` | Registers Play Services' activity-transition updates for "in a car" (3.4.0): `register()` only when activity recognition is granted, every failure logged | ActivityRecognition, DriveTransitionReceiver, AppLogger |
 
 ## core/storage
 
 | path | what it does | talks to |
 | --- | --- | --- |
-| `core/storage/HistoryManager.kt` | The only reader/writer of days and week aggregates; a version flow lets Home observe writes; `addWalk`/`walks`/`observeWalks` for standalone walks (2.4.0); each day's step total (2.5.0); `walksBetween` for a week's walks (3.4.0); `addDrive`/`drives`/`drivesBetween` for drives (3.4.0); `replaceWalk(date, old, new)` corrects a logged walk in place (3.4.1) | PrefsStorage, Model |
+| `core/storage/HistoryManager.kt` | The only reader/writer of days and week aggregates; a version flow lets Home observe writes; `addWalk`/`walks`/`observeWalks` for standalone walks (2.4.0); each day's step total (2.5.0); `walksBetween` for a week's walks (3.4.0); `replaceWalk(date, old, new)` corrects a logged walk in place (3.4.1) | PrefsStorage, Model |
 | `core/storage/PrefsStorage.kt` | SharedPreferences wrapper split into DAY / SETTINGS / HISTORY files; `exportAll`/`replaceAll` back up and restore every key (3.4.0); a value that can't be decoded is copied to `PrefsFile.UNREADABLE` (then removed) and reads as null, never lost (3.5.0); `unreadableCount`/`unreadable` feed Settings → Your data | android.content.SharedPreferences, Failures |
 | `core/storage/Backup.kt` | The backup file shape (3.4.0): `BackupFile` (app tag, versionCode, createdAt, every file's keys) and `Backup.encode`/`decode`/`canRestore` | Model |
 | `core/storage/Actions.kt` | The use cases the profile screens write through: `TemplateActions` (`createIn`/`save`/`delete`; a save tells a waiting day) and `CategoryActions` (update/add/delete, rewriting using blocks) (3.1.0); `ProfileActions` (create/rename/delete/switchTo/addTemplate/removeTemplate/setDay) (3.2.0) | TemplateStore, CategoryStore, DayOrchestrator |
@@ -185,6 +184,8 @@ Rules that hold everywhere:
 | `designsystem/Theme.kt` | Material color scheme and typography wiring | Color, Type |
 | `designsystem/Tokens.kt` | `Spacing`, `AppShapes`, `Metrics` | Compose units |
 | `designsystem/Type.kt` | Corner radii and the type scale | Compose units |
+| `designsystem/Wrappers.kt` | Wraps the still-experimental Material APIs so feature code needs no `@OptIn` (3.5.1): `AppSheet` (the one bottom sheet), `AppTimePicker`, `AppDropdown` | AppShapes, Theme |
+| `designsystem/icons/AppIcons.kt` | The 50 icons the app draws, generated from Google's outlined Material Icons (Apache 2.0); replaces the material-icons-core/-extended libraries (3.5.1) | Compose graphics |
 
 ## feature
 
@@ -198,9 +199,9 @@ Rules that hold everywhere:
 | `feature/home/CalendarMapper.kt` | Pure model→view mapping for the calendar; no clock, no context | DayCalendar |
 | `feature/home/CalendarLayout.kt` | Pure geometry (2.6.0): `fit(blocks, ticks, dayStartMin)` returns each block's `TextFit`/sliver and the pill rows, so no text overlaps | — |
 | `feature/home/DayCalendar.kt` | The Home calendar grid; draws exactly what `CalendarLayout.fit` returns — slivers, block text, walk ticks and the pill rows (2.6.0); the real day (3.3.0): a red striped overrun tail, a next block shrinking from the top, grey pause stripes, faded "Missed" blocks and the "Coding · missed" pill | designsystem, CalendarLayout |
-| `feature/history/History.kt` | History list and the day-detail recap, plus both ViewModels; day detail shows "Walks" section for standalone walks (2.4.0) and each day's steps (2.5.0); each day shows the profile it started under (3.2.0); the steps line adds "· about N while driving" when the day had drives (3.4.0) | HistoryManager, DayRecapMapper |
-| `feature/weekly/Weekly.kt` | Weekly screen: planned vs actual per type as bars, week navigation; the week's step total tile (2.5.0); a Walks tile and a Steps-from-walks tile (3.4.0), plus a While-driving tile when a drive has steps | HistoryManager |
-| `feature/insights/Insights.kt` | Insights screen: last complete week vs the one before; the `Dishes` row ("N of M evenings over 20 min", average overrun) when any evening ran over (3.3.0); Walks, Walk time, Steps and Evening walks rows, plus a While-driving row when the week had drives (3.4.0) | HistoryManager |
+| `feature/history/History.kt` | History list and the day-detail recap, plus both ViewModels; day detail shows "Walks" section for standalone walks (2.4.0) and each day's steps (2.5.0); each day shows the profile it started under (3.2.0) | HistoryManager, DayRecapMapper |
+| `feature/weekly/Weekly.kt` | Weekly screen: planned vs actual per type as bars, week navigation; the week's step total tile (2.5.0); a Walks tile and a Steps-from-walks tile (3.4.0) | HistoryManager |
+| `feature/insights/Insights.kt` | Insights screen: last complete week vs the one before; the `Dishes` row ("N of M evenings over 20 min", average overrun) when any evening ran over (3.3.0); Walks, Walk time, Steps and Evening walks rows (3.4.0) | HistoryManager |
 | `feature/mainmenu/MainMenuScreen.kt` | The first-run main menu (3.3.0): `MainMenuViewModel` and big profile cards (templates and their days), + New profile, Categories explained, "Use this profile" → the picker; shown only until a profile was chosen and re-openable from Developer tools | TemplateStore, ProfileActions, DayOrchestrator |
 | `feature/profiles/ProfilesScreen.kt` | The Profiles list (3.2.0): `ProfilesViewModel` (rows follow `store.profiles`, New profile with Start empty / Copy, Categories entry) and `ProfilesRoute`/`ProfilesScreen`; "+ New profile" is now a full-width button on top, the Categories row explains itself, and a first visit shows the in-screen `HintCard` (3.4.0, replacing the old "New here?" line) | TemplateStore, ProfileActions, ExplainerStore |
 | `feature/profiles/ProfileScreen.kt` | One profile (3.2.0): `ProfileViewModel` (rename, Use this, the 7 day rows, the profile's templates with remove, + New template / + Add existing, Delete profile) and the stateless `ProfileScreen`; Off day is no longer clickable, "Built-in" stays on one line; the templates and days hints are `HintCard`s that never block the day sheet (3.4.0) | TemplateStore, ProfileActions, TemplateActions, ExplainerStore |
@@ -211,4 +212,4 @@ Rules that hold everywhere:
 | `feature/templates/BlockSheet.kt` | The one block sheet (3.1.0; generic `BlockSheetUi`/`BlockSheetAction` with `AddAfter`, rows shown only when set, 3.3.0): category, start, length, Add after, Delete/Save; the template editor maps its own `EditorSheet` through it and Home's today editor uses it for a block ahead or the running block | TemplateEditor |
 | `feature/templates/CategorySection.kt` | `CategoryListViewModel` + the categories section: rows (built-ins, then yours) and the sheet that edits one (3.1.0); shows its categories `HintCard` above the rows (3.4.0) | CategoryStore, CategoryActions |
 | `feature/templates/CategorySheet.kt` | The category sheet: name, `CategoryPalette`, Pomodoro, "counts as work" and Delete (yours only) (3.1.0) | CategoryInfo |
-| `feature/settings/Settings.kt` | Settings screen, `SettingsViewModel`, developer tools in one dialog (test a day, debug clock, demo data, simulate a drive, and "Break a saved value", 3.5.0); the step-counting row and permission state (2.5.0); "Show main menu" and "Reset explainers" (3.3.0); "Your data" backs up every store to a JSON file and restores one (refusing a foreign or newer file) then restarts the app (3.4.0), shows "N saved items couldn't be read" and shares them (3.5.0) | DayOrchestrator, DemoDataGenerator, SystemStatuses, DebugTimeController, PrefsStorage, Backup, AppRescue, Failures |
+| `feature/settings/Settings.kt` | Settings screen, `SettingsViewModel`, developer tools in one dialog (test a day, debug clock, demo data, and "Break a saved value", 3.5.0); the step-counting row and permission state (2.5.0); "Show main menu" and "Reset explainers" (3.3.0); "Your data" backs up every store to a JSON file and restores one (refusing a foreign or newer file) then restarts the app (3.4.0), shows "N saved items couldn't be read" and shares them (3.5.0) | DayOrchestrator, DemoDataGenerator, SystemStatuses, DebugTimeController, PrefsStorage, Backup, AppRescue, Failures |

@@ -10,6 +10,12 @@ With a phone attached, run them with:
 These four cannot be automated reliably (they depend on the launcher, the reboot flow, the keyguard
 and the system DND state), so Roni runs them by hand.
 
+**Check on the phone (3.5.1).** Use the debug app for steps that move the clock (Settings → Developer tools).
+
+1. Open every screen and every sheet: same look as 3.5.0, icons included (bottom tabs, menu, category icons, walk icon, arrows).
+2. Cold start: the splash shows the same way and leaves when the day is ready.
+3. History, Weekly, Insights: no "while driving" line; everything else unchanged.
+
 **Check on the phone (3.1.0).** Use the debug app for steps that move the clock (Settings -> Developer tools).
 
 1. Templates tab: the four templates and the four categories.

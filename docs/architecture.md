@@ -29,8 +29,12 @@ Each section states the decision, then why. Rejected alternatives are collected 
 | Time | kotlinx-datetime + injected `Clock` | Testable time; clean `LocalTime` / `Instant` split. |
 | Scheduling | AlarmManager exact alarms | Block ends must fire on the minute. |
 | Collections in state | kotlinx.collections.immutable | Makes list-typed state stable for Compose. |
+| Icons | Our own `AppIcons` (generated from Google's outlined Material Icons, Apache 2.0) | No `material-icons-core` / `-extended` (3.5.1); names match the old `Icons.Outlined.X`. |
+| Splash screen | The platform splash screen (`android:windowSplashScreen*`, minSdk 34) | No `core-splashscreen` (3.5.1); held until the day is restored, capped at 3 s. |
 | Logging | Thin wrapper + rolling file on device | Post-mortem of "why didn't it fire at 14:00" without a cable attached. |
 | Build | Version catalog, R8 minify on release | Given. |
+
+No Google Play services at all: `play-services-location` went with the removed "steps while driving" feature (3.5.1).
 
 ---
 
