@@ -8,22 +8,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
@@ -36,8 +25,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.time.TimeFormatter
-import com.roni.blocks.designsystem.AppShapes
+import com.roni.blocks.designsystem.AppDropdown
+import com.roni.blocks.designsystem.AppSheet
 import com.roni.blocks.designsystem.AppTheme
+import com.roni.blocks.designsystem.AppTimePicker
 import com.roni.blocks.designsystem.Spacing
 import kotlinx.collections.immutable.ImmutableList
 
@@ -84,7 +75,6 @@ sealed interface BlockSheetAction {
  * The shared block sheet (3.3.0): category, start and length with the caller's live result line, plus
  * Add after / Delete / Save. Home and the template editor both map their state into [BlockSheetUi].
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BlockSheet(
     ui: BlockSheetUi,
@@ -92,13 +82,7 @@ fun BlockSheet(
     onAction: (BlockSheetAction) -> Unit,
 ) {
     val colors = AppTheme.colors
-    ModalBottomSheet(
-        onDismissRequest = { onAction(BlockSheetAction.Dismiss) },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        shape = AppShapes.sheet,
-        containerColor = colors.surface,
-        dragHandle = null,
-    ) {
+    AppSheet(onDismiss = { onAction(BlockSheetAction.Dismiss) }) {
         Column(
             Modifier.fillMaxWidth().padding(Spacing.l),
             verticalArrangement = Arrangement.spacedBy(Spacing.m),
@@ -163,34 +147,15 @@ fun BlockSheet(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CategoryMenu(selected: BlockType, categories: ImmutableList<BlockType>, onAction: (BlockSheetAction) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    val colors = AppTheme.colors
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-        OutlinedTextField(
-            value = blockName(selected),
-            onValueChange = {},
-            readOnly = true,
-            label = { Text("Category") },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier
-                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                .fillMaxWidth(),
-        )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            categories.forEach { type ->
-                DropdownMenuItem(
-                    text = { Text(blockName(type)) },
-                    onClick = {
-                        onAction(BlockSheetAction.Type(type))
-                        expanded = false
-                    },
-                )
-            }
-        }
-    }
+    AppDropdown(
+        value = blockName(selected),
+        label = "Category",
+        options = categories,
+        optionLabel = { blockName(it) },
+        onSelect = { onAction(BlockSheetAction.Type(it)) },
+    )
     Spacer(Modifier.height(Spacing.xs))
 }
 
@@ -218,7 +183,7 @@ private fun StartRow(startMin: Int, use24: Boolean, onAction: (BlockSheetAction)
         StepButton("+15", "sheet_start_plus15", Modifier.weight(1f)) { onAction(BlockSheetAction.StartBy(15)) }
     }
     if (picker) {
-        TimePickerDialog(
+        AppTimePicker(
             initialMin = startMin,
             use24 = use24,
             onDismiss = { picker = false },
@@ -251,25 +216,4 @@ private fun LengthRow(lengthMin: Int, onAction: (BlockSheetAction) -> Unit) {
 @Composable
 private fun StepButton(label: String, tag: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     TextButton(onClick = onClick, modifier = modifier.testTag(tag)) { Text(label) }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun TimePickerDialog(initialMin: Int, use24: Boolean, onDismiss: () -> Unit, onConfirm: (Int) -> Unit) {
-    val state = rememberTimePickerState(
-        initialHour = initialMin / 60,
-        initialMinute = initialMin % 60,
-        is24Hour = use24,
-    )
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Start time") },
-        text = { TimePicker(state = state) },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(state.hour * 60 + state.minute) }) {
-                Text("OK")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
 }

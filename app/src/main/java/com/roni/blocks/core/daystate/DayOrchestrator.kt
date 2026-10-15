@@ -8,7 +8,6 @@ import com.roni.blocks.core.model.CategoryInfo
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
-import com.roni.blocks.core.model.DriveLog
 import com.roni.blocks.core.model.InstantSerializer
 import com.roni.blocks.core.model.LocalDateSerializer
 import com.roni.blocks.core.model.Segment
@@ -84,13 +83,6 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.nullable
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.Serializable
-
-/** A drive Android saw start and hasn't seen end yet (3.4.0); [startCounter] is the counter then. */
-@Serializable
-data class OpenDrive(
-    @Serializable(with = InstantSerializer::class) val start: Instant,
-    val startCounter: Long?,
-)
 
 /**
  * The single writer of the day's state: it applies events, persists the result, and pushes the
@@ -171,8 +163,6 @@ class DayOrchestrator @Inject constructor(
     private var steps = StepState()
     /** The counter reading when the open walk started (2.5.0), for the walk's own step total. */
     private var walkStartCounter: Long? = null
-    /** A drive Android saw start but not end yet (3.4.0); survives the rollover and a restart. */
-    private var openDrive: OpenDrive? = null
     private val _todaySteps = MutableStateFlow<Long?>(null)
 
     /** Today's steps so far (2.5.0); null until a reading has ever worked. */
@@ -1416,8 +1406,8 @@ class DayOrchestrator @Inject constructor(
         else prefs.read(PrefsFile.DAY, REACTED_AT, InstantSerializer.nullable)
         // A standalone walk survives the rollover: it is read and kept whatever the stored date.
         standaloneWalk = prefs.read(PrefsFile.DAY, STANDALONE_WALK, WalkSession.serializer().nullable)
-        // A drive also survives the rollover; it is logged on the date it started (3.4.0).
-        openDrive = prefs.read(PrefsFile.DAY, OPEN_DRIVE, OpenDrive.serializer().nullable)
+        // 3.5.1: the "steps while driving" feature is gone; drop its leftover key once.
+        prefs.remove(PrefsFile.DAY, OPEN_DRIVE)
         pendingChoice = prefs.read(PrefsFile.DAY, PENDING_EVENING, Choice.serializer().nullable)
         dayProfileName = prefs.read(PrefsFile.DAY, PROFILE_NAME, String.serializer().nullable)
         steps = prefs.read(PrefsFile.DAY, STEP_STATE, StepStateSerializer) ?: StepState()
@@ -1562,68 +1552,10 @@ class DayOrchestrator @Inject constructor(
     }
 
     /**
-     * Android's activity recognition reports entering or leaving a car (3.4.0). The steps the
-     * counter moved in between are logged as a drive, on the date it started; they stay in the day's
-     * total, never subtracted. A drive left open past [DRIVE_MAX] (a missed exit) is closed at its
-     * start plus the cap with no step total.
-     */
-    suspend fun onDrive(enter: Boolean, at: Instant) {
-        ensureRestored()
-        closeStaleDrive(at)
-        if (enter) {
-            openDrive?.let { closeDrive(it, at) }
-            openDrive = OpenDrive(at, checkpointCounter())
-            persistDrive()
-            logger.info("drive started at $at")
-        } else {
-            val open = openDrive ?: return
-            closeDrive(open, at)
-        }
-    }
-
-    /**
-     * Debug (3.4.0): logs a fake drive so History shows "about 150 while driving" without a car. The
-     * drive started 20 minutes ago with a counter 150 below the current reading, then closes now.
-     */
-    suspend fun simulateDrive() {
-        ensureRestored()
-        val counter = checkpointCounter()
-        openDrive = OpenDrive(clock.now() - 20.minutes, counter?.minus(150))
-        persistDrive()
-        onDrive(enter = false, at = clock.now())
-    }
-
-    /** Closes a drive open longer than [DRIVE_MAX] (a missed exit) at its start plus the cap. */
-    private suspend fun closeStaleDrive(now: Instant) {
-        val open = openDrive ?: return
-        if (now - open.start > DRIVE_MAX) {
-            history.addDrive(open.start.toLocalDateTime(zone).date, DriveLog(open.start, open.start + DRIVE_MAX, null))
-            openDrive = null
-            persistDrive()
-            logger.info("closed a stale drive that started at ${open.start}")
-        }
-    }
-
-    private suspend fun closeDrive(open: OpenDrive, end: Instant) {
-        history.addDrive(
-            open.start.toLocalDateTime(zone).date,
-            DriveLog(open.start, end, walkSteps(open.startCounter, checkpointCounter())),
-        )
-        openDrive = null
-        persistDrive()
-        logger.info("drive ended at $end")
-    }
-
-    private suspend fun persistDrive() {
-        prefs.write(PrefsFile.DAY, OPEN_DRIVE, openDrive, OpenDrive.serializer().nullable)
-    }
-
-    /**
      * Reads the step counter once and moves the day's total forward (2.5.0): each day that just
      * closed is written to history, and [todaySteps] republishes. Called at every checkpoint.
      */
     suspend fun stepCheckpoint() {
-        closeStaleDrive(clock.now())
         checkpointCounter()
     }
 
@@ -1699,8 +1631,5 @@ class DayOrchestrator @Inject constructor(
 
         /** The last minute of a day (3.4.1): a walk with no walk after it may end here. */
         const val LAST_MINUTE = 23 * 60 + 59
-
-        /** A drive open longer than this (a missed exit) is closed with no step total (3.4.0). */
-        val DRIVE_MAX = 4.hours
     }
 }

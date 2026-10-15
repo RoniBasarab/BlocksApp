@@ -12,24 +12,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
-import androidx.compose.material.icons.outlined.Code
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.SportsEsports
-import androidx.compose.material.icons.outlined.WbTwilight
-import androidx.compose.material.icons.outlined.Weekend
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.ModalBottomSheetProperties
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,11 +33,13 @@ import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.schedule.RecordEdit
 import com.roni.blocks.core.schedule.RowFix
+import com.roni.blocks.designsystem.AppSheet
 import com.roni.blocks.designsystem.AppShapes
 import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.Metrics
 import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.blockColors
+import com.roni.blocks.designsystem.icons.AppIcons
 
 private fun Modifier.blockSheetDrags(): Modifier = pointerInput(Unit) {
     detectVerticalDragGestures(
@@ -59,7 +50,6 @@ private fun Modifier.blockSheetDrags(): Modifier = pointerInput(Unit) {
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EveningChoiceSheet(onPick: (Choice) -> Unit, onDismiss: () -> Unit = {}) {
     val colors = AppTheme.colors
@@ -69,17 +59,7 @@ fun EveningChoiceSheet(onPick: (Choice) -> Unit, onDismiss: () -> Unit = {}) {
         Choice.READ to "Read",
         Choice.CHILL to "Chill",
     )
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        shape = AppShapes.sheet,
-        containerColor = colors.surface,
-        dragHandle = null,
-        properties = ModalBottomSheetProperties(
-            shouldDismissOnBackPress = true,
-            shouldDismissOnClickOutside = true,
-        ),
-    ) {
+    AppSheet(onDismiss = onDismiss) {
         Column(
             Modifier
                 .fillMaxWidth()
@@ -147,10 +127,10 @@ private fun RowScope.EveningTile(
 }
 
 private fun eveningIcon(choice: Choice): ImageVector = when (choice) {
-    Choice.GAME -> Icons.Outlined.SportsEsports
-    Choice.PROJECT -> Icons.Outlined.Code
-    Choice.READ -> Icons.AutoMirrored.Outlined.MenuBook
-    Choice.CHILL -> Icons.Outlined.Weekend
+    Choice.GAME -> AppIcons.SportsEsports
+    Choice.PROJECT -> AppIcons.Code
+    Choice.READ -> AppIcons.MenuBook
+    Choice.CHILL -> AppIcons.Weekend
 }
 
 private const val CORRECT_SNAP = 5
@@ -161,7 +141,6 @@ private val correctableTypes = listOf(BlockType.Cv, BlockType.Coding, BlockType.
  * Corrects one block of a past day (2.1.0). [RowFix.END_AND_TYPE] fixes when a done block ended and what it
  * became; [RowFix.MARK_DONE] marks a missed block as happened. Each tap commits at once through [onEdit].
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CorrectBlockSheet(
     row: RecapRow,
@@ -170,13 +149,7 @@ fun CorrectBlockSheet(
     onDismiss: () -> Unit,
 ) {
     val index = row.segmentIndex ?: return
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        shape = AppShapes.sheet,
-        containerColor = AppTheme.colors.surface,
-        dragHandle = null,
-    ) {
+    AppSheet(onDismiss = onDismiss) {
         Column(
             Modifier.fillMaxWidth().padding(Spacing.l),
             verticalArrangement = Arrangement.spacedBy(Spacing.s),
@@ -257,7 +230,6 @@ private fun CorrectMissingBody(
  * Starts a walk (2.3.0): pick how long, see when to turn back and be home, then go. The -5/+5
  * limits and every label come from [WalkSheetUi], built from the same preview the walk commits with.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WalkSheet(
     ui: WalkSheetUi,
@@ -266,13 +238,7 @@ fun WalkSheet(
     onDismiss: () -> Unit,
 ) {
     val colors = AppTheme.colors
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        shape = AppShapes.sheet,
-        containerColor = colors.surface,
-        dragHandle = null,
-    ) {
+    AppSheet(onDismiss = onDismiss) {
         Column(
             Modifier.fillMaxWidth().padding(Spacing.l),
             verticalArrangement = Arrangement.spacedBy(Spacing.s),
@@ -293,9 +259,9 @@ fun WalkSheet(
                 )
                 WalkStepButton("+5", ui.canGrow, Modifier.weight(1f)) { onStep(5) }
             }
-            WalkSheetRow(Icons.Outlined.WbTwilight, "Turn back at ${ui.turnBackAt}")
+            WalkSheetRow(AppIcons.WbTwilight, "Turn back at ${ui.turnBackAt}")
             WalkSheetRow(
-                Icons.Outlined.Home,
+                AppIcons.Home,
                 if (ui.cappedByKidTime) "Home by ${ui.homeAt}, before kid time" else "Home by ${ui.homeAt}",
             )
             ui.afterTitle?.let { after ->

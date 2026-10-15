@@ -6,6 +6,8 @@ import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.View
+import android.view.ViewTreeObserver
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -21,12 +23,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.core.content.ContextCompat
-import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.roni.blocks.core.daystate.DayOrchestrator
 import com.roni.blocks.core.logging.AppLogger
-import com.roni.blocks.core.steps.DriveDetector
 import com.roni.blocks.core.storage.TemplateStore
 import com.roni.blocks.designsystem.BlocksTheme
 import com.roni.blocks.navigation.AppRoot
@@ -45,22 +45,25 @@ class MainActivity : ComponentActivity() {
             // The steps only start once Android has answered; ask the orchestrator to re-read now.
             lifecycleScope.launch {
                 orchestrator.onAppForeground()
-                driveDetector.register()
             }
         }
 
     @Inject lateinit var orchestrator: DayOrchestrator
-    @Inject lateinit var driveDetector: DriveDetector
     @Inject lateinit var logger: AppLogger
     @Inject lateinit var templates: TemplateStore
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        val splash = installSplashScreen()
         super.onCreate(savedInstanceState)
         val shownAt = SystemClock.uptimeMillis()
-        splash.setKeepOnScreenCondition {
-            !orchestrator.isRestored.value && SystemClock.uptimeMillis() - shownAt < SPLASH_CAP_MS
-        }
+        // 3.5.1: the platform splash screen (minSdk 34), held by the first draw instead of core-splashscreen.
+        val content = findViewById<View>(android.R.id.content)
+        content.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                val ready = orchestrator.isRestored.value || SystemClock.uptimeMillis() - shownAt >= SPLASH_CAP_MS
+                if (ready) content.viewTreeObserver.removeOnPreDrawListener(this)
+                return ready
+            }
+        })
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),

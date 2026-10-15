@@ -11,11 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ArrowDownward
-import androidx.compose.material.icons.outlined.ArrowUpward
-import androidx.compose.material.icons.outlined.Insights
-import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -39,7 +34,6 @@ import androidx.lifecycle.viewModelScope
 import androidx.navigation3.runtime.NavKey
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.DayFlag
-import com.roni.blocks.core.model.DriveLog
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.WalkLog
 import com.roni.blocks.core.model.actualMinutes
@@ -68,6 +62,7 @@ import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.WhatTheseMeanDialog
 import com.roni.blocks.designsystem.blockColors
 import com.roni.blocks.designsystem.formatStepsApprox
+import com.roni.blocks.designsystem.icons.AppIcons
 import com.roni.blocks.feature.weekly.formatHm
 import com.roni.blocks.feature.weekly.tabKey
 import com.roni.blocks.navigation.HistoryKey
@@ -170,13 +165,11 @@ class InsightsViewModel @Inject constructor(
             subjectDays,
             history.walksBetween(lastCompleteWeek, lastCompleteWeek.plus(6, DateTimeUnit.DAY)),
             subjectDays.mapNotNull { history.steps(it.date) },
-            history.drivesBetween(lastCompleteWeek, lastCompleteWeek.plus(6, DateTimeUnit.DAY)),
         )
         val prevMetrics = metricsOf(
             previousDays,
             history.walksBetween(previous, previous.plus(6, DateTimeUnit.DAY)),
             previousDays.mapNotNull { history.steps(it.date) },
-            history.drivesBetween(previous, previous.plus(6, DateTimeUnit.DAY)),
         )
         val worst = worstOverruns(nowMetrics)
         val headline = headline(nowMetrics, prevMetrics, worst)
@@ -217,8 +210,6 @@ internal data class WeekMetrics(
     val walkMinutes: Int = 0,
     val avgSteps: Int = 0,
     val eveningWalks: Int = 0,
-    /** Steps the counter counted in the car (3.4.0); shown, never subtracted. */
-    val driveSteps: Int = 0,
     val overruns: List<OverrunStat> = emptyList(),
 )
 
@@ -226,7 +217,6 @@ internal fun metricsOf(
     days: List<com.roni.blocks.core.model.DayRecord>,
     walks: Map<LocalDate, List<WalkLog>> = emptyMap(),
     stepTotals: List<Long> = emptyList(),
-    drives: Map<LocalDate, List<DriveLog>> = emptyMap(),
 ): WeekMetrics {
     var leakMinutes = 0
     var codingWorked = 0
@@ -340,7 +330,6 @@ internal fun metricsOf(
         walkMinutes = allWalks.sumOf { (it.end - it.start).inWholeMinutes.toInt() },
         avgSteps = avgSteps,
         eveningWalks = eveningWalks(days, walks),
-        driveSteps = drives.values.flatten().mapNotNull { it.steps }.sum().toInt(),
         overruns = overruns,
     )
 }
@@ -460,9 +449,6 @@ internal fun scorecardRows(now: WeekMetrics, prev: WeekMetrics): List<InsightRow
         add(row("Walks", "${now.walks}", "Walks this week", now.walks, prev.walks, Direction.HIGHER))
         add(row("Walk time", formatHm(now.walkMinutes), "Time spent walking", now.walkMinutes, prev.walkMinutes, Direction.HIGHER))
         add(row("Steps", "≈ ${formatStepsApprox(now.avgSteps.toLong())} a day", "Average over days with steps", now.avgSteps, prev.avgSteps, Direction.HIGHER))
-        if (now.driveSteps > 0) {
-            add(row("While driving", "≈ ${formatStepsApprox(now.driveSteps.toLong())}", "Steps counted in the car", now.driveSteps, prev.driveSteps, Direction.LOWER))
-        }
         add(row("Evening walks", "${now.eveningWalks}", "Walks after kid time", now.eveningWalks, prev.eveningWalks, Direction.HIGHER))
         // Dishes (3.3.0): only for a week that had evenings with Dishes.
         if (now.dishesEvenings > 0) {
@@ -524,7 +510,7 @@ fun InsightsScreen(state: InsightsUiState, onAction: (InsightsAction) -> Unit) {
     }
     if (!state.hasData) {
         EmptyState(
-            icon = Icons.Outlined.Insights,
+            icon = AppIcons.Insights,
             title = "Insights need a full week",
             body = "${state.daysLogged} of $DAYS_IN_WEEK days logged.",
             extra = { LoggedProgress(state.daysLogged) },
@@ -610,9 +596,9 @@ private fun Headline(state: InsightsUiState) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
             val icon = when (state.headlineKind) {
-                HeadlineKind.METRIC_MOVED -> Icons.Outlined.Insights
-                HeadlineKind.OVER_RUN -> Icons.Outlined.Insights
-                HeadlineKind.STEADY -> Icons.Outlined.Remove
+                HeadlineKind.METRIC_MOVED -> AppIcons.Insights
+                HeadlineKind.OVER_RUN -> AppIcons.Insights
+                HeadlineKind.STEADY -> AppIcons.Remove
             }
             IconCircle(
                 icon = icon,
@@ -683,9 +669,9 @@ private fun TrendPill(trend: InsightTrend) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
         Icon(
             when (trend.arrow) {
-                TrendArrow.DOWN -> Icons.Outlined.ArrowDownward
-                TrendArrow.UP -> Icons.Outlined.ArrowUpward
-                TrendArrow.FLAT -> Icons.Outlined.Remove
+                TrendArrow.DOWN -> AppIcons.ArrowDownward
+                TrendArrow.UP -> AppIcons.ArrowUpward
+                TrendArrow.FLAT -> AppIcons.Remove
             },
             contentDescription = when (trend.tone) {
                 TrendTone.GOOD -> "improving"

@@ -32,9 +32,6 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -88,6 +85,7 @@ import com.roni.blocks.designsystem.ErrorCard
 import com.roni.blocks.designsystem.Metrics
 import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.blockColors
+import com.roni.blocks.designsystem.icons.AppIcons
 import com.roni.blocks.designsystem.templateDisplay
 import com.roni.blocks.feature.profiles.HowToAction
 import com.roni.blocks.feature.profiles.HowToUse
@@ -396,7 +394,7 @@ fun TemplatePickerScreen(state: PickerUiState, onAction: (PickerAction) -> Unit)
                                         text = { Text(name) },
                                         onClick = { onAction(PickerAction.SwitchProfile(id)) },
                                         trailingIcon = if (name == state.profileName) {
-                                            { Icon(Icons.Outlined.Check, "Active") }
+                                            { Icon(AppIcons.Check, "Active") }
                                         } else null,
                                     )
                                 }
@@ -404,7 +402,7 @@ fun TemplatePickerScreen(state: PickerUiState, onAction: (PickerAction) -> Unit)
                         }
                         Spacer(Modifier.weight(1f))
                         IconButton(onClick = { onAction(PickerAction.HowTo) }, modifier = Modifier.testTag("how_to")) {
-                            Icon(Icons.Outlined.HelpOutline, "How to use")
+                            Icon(AppIcons.HelpOutline, "How to use")
                         }
                     }
                     Text(

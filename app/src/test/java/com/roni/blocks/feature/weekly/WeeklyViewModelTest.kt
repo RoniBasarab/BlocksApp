@@ -9,7 +9,6 @@ import com.roni.blocks.core.model.DayFlag
 import com.roni.blocks.core.model.DayRecord
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
-import com.roni.blocks.core.model.DriveLog
 import com.roni.blocks.core.model.WalkLog
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsStorage
@@ -296,18 +295,6 @@ class WeeklyViewModelTest {
         assertTrue(tile.hint.contains("About 2,050 of your steps came from walks"))
     }
 
-    @Test
-    fun whileDriving_tile() = runBlocking {
-        seedDay(today, workedMin = 60, plannedMin = 100)
-        history.setSteps(today, 20_000)
-        drive(today, 300)
-        drive(today, 800)
-
-        val tile = build().state.value.stats.first { it.label == "While driving" }
-        assertEquals("≈ 1,100", tile.value)
-        assertTrue(tile.hint.contains("6%"))
-    }
-
     private fun hmToMinutes(text: String): Int {
         val hours = Regex("(\\d+)h").find(text)?.groupValues?.get(1)?.toInt() ?: 0
         val minutes = Regex("(\\d+)m").find(text)?.groupValues?.get(1)?.toInt() ?: 0
@@ -341,10 +328,5 @@ class WeeklyViewModelTest {
     private suspend fun walk(date: LocalDate, minutes: Int, steps: Long? = null) {
         val start = LocalTime(9, 0).at(date, zone)
         history.addWalk(date, WalkLog(start = start, end = start + minutes.minutes, steps = steps))
-    }
-
-    private suspend fun drive(date: LocalDate, steps: Long) {
-        val start = LocalTime(9, 0).at(date, zone)
-        history.addDrive(date, DriveLog(start = start, end = start + 20.minutes, steps = steps))
     }
 }

@@ -11,13 +11,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
@@ -26,7 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.roni.blocks.designsystem.AppShapes
+import com.roni.blocks.designsystem.AppSheet
 import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.HowToCards
 import com.roni.blocks.designsystem.Spacing
@@ -40,7 +37,6 @@ sealed interface HowToAction {
 /** The count of tour cards; useful for tests. */
 val HOW_TO_PAGES: Int get() = HowToCards.size
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HowToUse(page: Int, onAction: (HowToAction) -> Unit) {
     val colors = AppTheme.colors
@@ -49,13 +45,7 @@ fun HowToUse(page: Int, onAction: (HowToAction) -> Unit) {
     LaunchedEffect(pager) {
         snapshotFlow { pager.currentPage }.collect { current -> if (current != page) onAction(HowToAction.Page(current)) }
     }
-    ModalBottomSheet(
-        onDismissRequest = { onAction(HowToAction.Close) },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        shape = AppShapes.sheet,
-        containerColor = colors.surface,
-        dragHandle = null,
-    ) {
+    AppSheet(onDismiss = { onAction(HowToAction.Close) }) {
         Column(
             Modifier.fillMaxWidth().padding(Spacing.l),
             horizontalAlignment = Alignment.CenterHorizontally,

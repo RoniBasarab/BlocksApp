@@ -16,7 +16,6 @@ import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.CategoryInfo
 import com.roni.blocks.core.model.Choice
 import com.roni.blocks.core.model.DayFlag
-import com.roni.blocks.core.model.DriveLog
 import com.roni.blocks.core.model.InstantSerializer
 import com.roni.blocks.core.model.Segment
 import com.roni.blocks.core.model.SegmentKind
@@ -1295,50 +1294,6 @@ class DayOrchestratorTest {
         orchestrator.onAlarm()
 
         assertEquals("no 5-minute warning before Dishes ends", false, alerts.last())
-    }
-
-    @Test
-    fun drive_stepsBetweenEnterAndExit() = runBlocking {
-        stepSensor.next = 1_000
-        orchestrator.onDrive(enter = true, at = LocalTime(8, 0).at(date, zone))
-        stepSensor.next = 1_180
-        orchestrator.onDrive(enter = false, at = LocalTime(8, 25).at(date, zone))
-
-        val drive = history.drives(date).single()
-        assertEquals(LocalTime(8, 0).at(date, zone), drive.start)
-        assertEquals(LocalTime(8, 25).at(date, zone), drive.end)
-        assertEquals(180L, drive.steps)
-        // The drive is only shown: nothing was subtracted, and no step total was rewritten.
-        assertEquals(180L, orchestrator.todaySteps.value)
-    }
-
-    @Test
-    fun drive_missedExit_closesAfterFourHours() = runBlocking {
-        stepSensor.next = 1_000
-        orchestrator.onDrive(enter = true, at = LocalTime(8, 0).at(date, zone))
-
-        clock.now = LocalTime(12, 30).at(date, zone)
-        orchestrator.stepCheckpoint()
-
-        val drive = history.drives(date).single()
-        assertEquals(LocalTime(8, 0).at(date, zone), drive.start)
-        assertEquals(LocalTime(12, 0).at(date, zone), drive.end)
-        assertEquals(null, drive.steps)
-
-        // Nothing is left open: a later exit changes nothing.
-        orchestrator.onDrive(enter = false, at = LocalTime(12, 31).at(date, zone))
-        assertEquals(1, history.drives(date).size)
-    }
-
-    @Test
-    fun drive_rebootInBetween_hasNoSteps() = runBlocking {
-        stepSensor.next = 5_000
-        orchestrator.onDrive(enter = true, at = LocalTime(8, 0).at(date, zone))
-
-        stepSensor.next = 200 // the phone restarted
-        orchestrator.onDrive(enter = false, at = LocalTime(8, 25).at(date, zone))
-
-        assertEquals(null, history.drives(date).single().steps)
     }
 
     private suspend fun awaitBlockIndex(expected: Int) {

@@ -20,8 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -74,6 +72,7 @@ import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.TextSecondary
 import com.roni.blocks.designsystem.blockColors
 import com.roni.blocks.designsystem.formatStepsApprox
+import com.roni.blocks.designsystem.icons.AppIcons
 import com.roni.blocks.designsystem.templateDisplay
 import com.roni.blocks.feature.home.CorrectBlockSheet
 import com.roni.blocks.feature.home.DayRecapMapper
@@ -171,7 +170,7 @@ fun HistoryScreen(state: HistoryUiState, onAction: (HistoryAction) -> Unit, onDa
     }
     if (!state.hasData) {
         EmptyState(
-            icon = Icons.Outlined.History,
+            icon = AppIcons.History,
             title = "No history yet",
             body = "Finished days are listed here.",
         )
@@ -410,11 +409,7 @@ class HistoryDetailViewModel @Inject constructor(
                             recap = DayRecapMapper.map(it, timeFormatter.use24.value, checkInTitle = "How was this day?"),
                             use24 = timeFormatter.use24.value,
                             walks = logs.map { log -> WalkRowUi(log.start.epochSeconds, walkLine(log)) }.toPersistentList(),
-                            steps = steps?.let { value ->
-                                val driveSteps = history.drives(date).mapNotNull { it.steps }.sum()
-                                "About ${formatStepsApprox(value)} steps" +
-                                    if (driveSteps > 0) " · about ${formatStepsApprox(driveSteps)} while driving" else ""
-                            },
+                            steps = steps?.let { value -> "About ${formatStepsApprox(value)} steps" },
                             sheet = walkSheetUi(),
                         )
                     }

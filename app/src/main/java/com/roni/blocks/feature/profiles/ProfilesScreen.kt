@@ -22,15 +22,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.HelpOutline
-import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,11 +58,13 @@ import com.roni.blocks.core.system.Failures
 import com.roni.blocks.core.system.ProblemAction
 import com.roni.blocks.designsystem.AppCard
 import com.roni.blocks.designsystem.AppTheme
+import com.roni.blocks.designsystem.BackTopBar
 import com.roni.blocks.designsystem.ErrorCard
 import com.roni.blocks.designsystem.HintCard
 import com.roni.blocks.designsystem.SectionHeader
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.Spacing
+import com.roni.blocks.designsystem.icons.AppIcons
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.collections.immutable.ImmutableList
@@ -294,7 +289,7 @@ fun ProfilesScreen(state: ProfilesState, onAction: (ProfilesAction) -> Unit, onB
                         modifier = Modifier.fillMaxWidth().testTag("categories_row"),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Outlined.Palette, null, tint = AppTheme.colors.textPrimary)
+                            Icon(AppIcons.Palette, null, tint = AppTheme.colors.textPrimary)
                             Spacer(Modifier.width(Spacing.m))
                             Column(Modifier.weight(1f)) {
                                 Text("Categories", style = MaterialTheme.typography.titleMedium, color = AppTheme.colors.textPrimary)
@@ -304,7 +299,7 @@ fun ProfilesScreen(state: ProfilesState, onAction: (ProfilesAction) -> Unit, onB
                                     color = AppTheme.colors.textSecondary,
                                 )
                             }
-                            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = AppTheme.colors.textMuted)
+                            Icon(AppIcons.KeyboardArrowRight, null, tint = AppTheme.colors.textMuted)
                         }
                     }
                 }
@@ -324,26 +319,16 @@ fun ProfilesScreen(state: ProfilesState, onAction: (ProfilesAction) -> Unit, onB
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ProfilesTopBar(title: String = "Profiles", onBack: () -> Unit, onHowTo: () -> Unit) {
-    CenterAlignedTopAppBar(
-        title = { Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface) },
-        navigationIcon = {
-            IconButton(onClick = onBack, modifier = Modifier.testTag("back_button")) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back")
-            }
-        },
+    BackTopBar(
+        title = title,
+        onBack = onBack,
         actions = {
             IconButton(onClick = onHowTo, modifier = Modifier.testTag("how_to")) {
-                Icon(Icons.Outlined.HelpOutline, "How to use")
+                Icon(AppIcons.HelpOutline, "How to use")
             }
         },
-        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-            containerColor = Color.Transparent,
-            scrolledContainerColor = Color.Transparent,
-        ),
-        modifier = Modifier.testTag("top_bar"),
     )
 }
 

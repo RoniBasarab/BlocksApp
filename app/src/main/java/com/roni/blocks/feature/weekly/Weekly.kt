@@ -17,10 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -46,7 +42,6 @@ import androidx.lifecycle.viewModelScope
 import androidx.navigation3.runtime.NavKey
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.DayFlag
-import com.roni.blocks.core.model.DriveLog
 import com.roni.blocks.core.model.SegmentKind
 import com.roni.blocks.core.model.WalkLog
 import com.roni.blocks.core.model.actualMinutes
@@ -73,6 +68,7 @@ import com.roni.blocks.designsystem.Spacing
 import com.roni.blocks.designsystem.WhatTheseMeanDialog
 import com.roni.blocks.designsystem.blockColors
 import com.roni.blocks.designsystem.formatStepsApprox
+import com.roni.blocks.designsystem.icons.AppIcons
 import com.roni.blocks.navigation.HistoryKey
 import com.roni.blocks.navigation.HomeKey
 import com.roni.blocks.navigation.InsightsKey
@@ -205,7 +201,6 @@ class WeeklyViewModel @Inject constructor(
                 days,
                 days.mapNotNull { history.steps(it.date) },
                 history.walksBetween(selected, selected.plus(6, DateTimeUnit.DAY)),
-                history.drivesBetween(selected, selected.plus(6, DateTimeUnit.DAY)),
             ),
         )
     }
@@ -321,7 +316,6 @@ class WeeklyViewModel @Inject constructor(
         days: List<com.roni.blocks.core.model.DayRecord>,
         stepTotals: List<Long>,
         walks: Map<LocalDate, List<WalkLog>>,
-        drives: Map<LocalDate, List<DriveLog>>,
     ): List<WeeklyStat> {
         val leak = days.sumOf { debtMinutes(it.segments) }
         val gymPlanned = days.sumOf { day -> day.segments.count { it.type == BlockType.Gym && it.kind == SegmentKind.PLANNED && it.plannedStart != null } }
@@ -356,22 +350,10 @@ class WeeklyViewModel @Inject constructor(
         } else {
             null
         }
-        val driveSteps = drives.values.flatten().mapNotNull { it.steps }.sum()
-        val driving = if (stepTotals.isNotEmpty() && driveSteps > 0) {
-            val percent = (driveSteps * 100.0 / total).roundToInt()
-            WeeklyStat(
-                "While driving",
-                "≈ ${formatStepsApprox(driveSteps)}",
-                "Steps counted in the car ($percent% of your steps)",
-            )
-        } else {
-            null
-        }
         return listOfNotNull(
             steps,
             walksTile,
             fromWalks,
-            driving,
             WeeklyStat("Ran over", formatHm(leak), "Time past block ends"),
             WeeklyStat("Gym sessions", "${gymDone.coerceAtLeast(0)} / $gymPlanned", "Done of planned"),
             WeeklyStat("Off days", days.count { DayFlag.OFF_DAY in it.flags }.toString(), "Days with no schedule"),
@@ -406,7 +388,7 @@ fun WeeklyScreen(state: WeeklyUiState, onAction: (WeeklyAction) -> Unit) {
         Column(Modifier.fillMaxSize()) {
             WeekSelector(state, onAction)
             EmptyState(
-                icon = Icons.Outlined.BarChart,
+                icon = AppIcons.BarChart,
                 title = "No data for this week",
                 body = "Use the arrows to see other weeks.",
                 modifier = Modifier.weight(1f),
@@ -508,7 +490,7 @@ private fun WeekSelector(state: WeeklyUiState, onAction: (WeeklyAction) -> Unit)
             ) {
                 IconButton(onClick = { onAction(WeeklyAction.PreviousWeek) }, enabled = state.canGoPrevious) {
                     Icon(
-                        Icons.AutoMirrored.Outlined.KeyboardArrowLeft,
+                        AppIcons.KeyboardArrowLeft,
                         contentDescription = "Previous week",
                         tint = AppTheme.colors.textSecondary,
                     )
@@ -520,7 +502,7 @@ private fun WeekSelector(state: WeeklyUiState, onAction: (WeeklyAction) -> Unit)
                 )
                 IconButton(onClick = { onAction(WeeklyAction.NextWeek) }, enabled = state.canGoNext) {
                     Icon(
-                        Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                        AppIcons.KeyboardArrowRight,
                         contentDescription = "Next week",
                         tint = AppTheme.colors.textMuted,
                     )

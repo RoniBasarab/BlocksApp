@@ -15,14 +15,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.roni.blocks.core.model.CategoryPalette
+import com.roni.blocks.designsystem.AppSheet
 import com.roni.blocks.designsystem.AppShapes
 import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.Leak
@@ -39,20 +37,13 @@ import com.roni.blocks.designsystem.Spacing
  * The category editor's sheet (3.1.0): name, a 12-colour palette, Pomodoro and (yours only) "counts
  * as work". [CategorySheet] takes plain values and callbacks so it holds no state of its own.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CategorySheet(
     ui: CategorySheetUi,
     onAction: (CategoryAction) -> Unit,
 ) {
     val colors = AppTheme.colors
-    ModalBottomSheet(
-        onDismissRequest = { onAction(CategoryAction.Dismiss) },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        shape = AppShapes.sheet,
-        containerColor = colors.surface,
-        dragHandle = null,
-    ) {
+    AppSheet(onDismiss = { onAction(CategoryAction.Dismiss) }) {
         Column(
             Modifier.fillMaxWidth().padding(Spacing.l),
             verticalArrangement = Arrangement.spacedBy(Spacing.m),

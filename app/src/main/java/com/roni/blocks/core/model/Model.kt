@@ -192,15 +192,6 @@ data class WalkLog(
     val steps: Long? = null,
 )
 
-/** A drive Android noticed (3.4.0), stored per date in history; its steps stay in the day's total. */
-@Serializable
-data class DriveLog(
-    @Serializable(with = InstantSerializer::class) val start: Instant,
-    @Serializable(with = InstantSerializer::class) val end: Instant,
-    /** Steps the counter moved between entering and leaving the car; null when a reading is missing. */
-    val steps: Long? = null,
-)
-
 object LocalTimeSerializer : KSerializer<LocalTime> {
     override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("LocalTime", PrimitiveKind.STRING)
 

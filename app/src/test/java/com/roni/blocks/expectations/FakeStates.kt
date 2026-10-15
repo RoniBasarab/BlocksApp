@@ -1,10 +1,5 @@
 package com.roni.blocks.expectations
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Code
-import androidx.compose.material.icons.outlined.FitnessCenter
-import androidx.compose.material.icons.outlined.Today
-import androidx.compose.material.icons.outlined.Weekend
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.TemplateId
 import com.roni.blocks.designsystem.Good
@@ -12,6 +7,7 @@ import com.roni.blocks.designsystem.Lavender
 import com.roni.blocks.designsystem.Leak
 import com.roni.blocks.designsystem.TextSecondary
 import com.roni.blocks.designsystem.blockColors
+import com.roni.blocks.designsystem.icons.AppIcons
 import com.roni.blocks.feature.history.HistoryChip
 import com.roni.blocks.feature.history.HistoryDay
 import com.roni.blocks.feature.history.HistoryUiState

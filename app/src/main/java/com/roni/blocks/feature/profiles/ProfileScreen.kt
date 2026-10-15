@@ -21,29 +21,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Code
-import androidx.compose.material.icons.outlined.Event
-import androidx.compose.material.icons.outlined.FitnessCenter
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material.icons.outlined.School
-import androidx.compose.material.icons.outlined.SportsEsports
-import androidx.compose.material.icons.outlined.Weekend
-import androidx.compose.material.icons.outlined.Work
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -79,6 +66,7 @@ import com.roni.blocks.core.system.AppRescue
 import com.roni.blocks.core.system.Failures
 import com.roni.blocks.core.system.ProblemAction
 import com.roni.blocks.designsystem.AppCard
+import com.roni.blocks.designsystem.AppSheet
 import com.roni.blocks.designsystem.AppShapes
 import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.ErrorCard
@@ -86,6 +74,7 @@ import com.roni.blocks.designsystem.HintCard
 import com.roni.blocks.designsystem.ScreenScaffold
 import com.roni.blocks.designsystem.SectionHeader
 import com.roni.blocks.designsystem.Spacing
+import com.roni.blocks.designsystem.icons.AppIcons
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.collections.immutable.ImmutableList
@@ -355,7 +344,6 @@ fun ProfileRoute(
 }
 
 /** The stateless profile page; [ProfileRoute] owns the ViewModel. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(state: ProfileState, onAction: (ProfileAction) -> Unit, onBack: () -> Unit) {
     val colors = AppTheme.colors
@@ -526,7 +514,7 @@ private fun TemplateCard(
             if (template.removable) {
                 Box {
                     IconButton(onClick = onMenu, modifier = Modifier.testTag("template_menu_${template.id.key}")) {
-                        Icon(Icons.Outlined.MoreVert, "More")
+                        Icon(AppIcons.MoreVert, "More")
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = onMenu, shape = AppShapes.card) {
                         DropdownMenuItem(
@@ -540,16 +528,9 @@ private fun TemplateCard(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DayPickerSheet(state: ProfileState, iso: Int, onAction: (ProfileAction) -> Unit) {
-    ModalBottomSheet(
-        onDismissRequest = { onAction(ProfileAction.DismissSheet) },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        shape = AppShapes.sheet,
-        containerColor = AppTheme.colors.surface,
-        dragHandle = null,
-    ) {
+    AppSheet(onDismiss = { onAction(ProfileAction.DismissSheet) }) {
         Column(Modifier.fillMaxWidth().padding(Spacing.l), verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
             Text(DAY_NAMES[iso - 1], style = MaterialTheme.typography.titleLarge, color = AppTheme.colors.textPrimary)
             state.templates.forEach { template ->
@@ -560,16 +541,9 @@ private fun DayPickerSheet(state: ProfileState, iso: Int, onAction: (ProfileActi
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddExistingSheet(rows: ImmutableList<ProfileTemplateUi>, onAction: (ProfileAction) -> Unit) {
-    ModalBottomSheet(
-        onDismissRequest = { onAction(ProfileAction.DismissSheet) },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        shape = AppShapes.sheet,
-        containerColor = AppTheme.colors.surface,
-        dragHandle = null,
-    ) {
+    AppSheet(onDismiss = { onAction(ProfileAction.DismissSheet) }) {
         Column(Modifier.fillMaxWidth().padding(Spacing.l), verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
             Text("Add existing", style = MaterialTheme.typography.titleLarge, color = AppTheme.colors.textPrimary)
             if (rows.isEmpty()) {
@@ -646,12 +620,12 @@ private fun Tag(text: String) {
 }
 
 private fun iconFor(key: String): ImageVector = when (key) {
-    "fitness" -> Icons.Outlined.FitnessCenter
-    "code" -> Icons.Outlined.Code
-    "weekend" -> Icons.Outlined.Weekend
-    "games" -> Icons.Outlined.SportsEsports
-    "work" -> Icons.Outlined.Work
-    "school" -> Icons.Outlined.School
-    "home" -> Icons.Outlined.Home
-    else -> Icons.Outlined.Event
+    "fitness" -> AppIcons.FitnessCenter
+    "code" -> AppIcons.Code
+    "weekend" -> AppIcons.Weekend
+    "games" -> AppIcons.SportsEsports
+    "work" -> AppIcons.Work
+    "school" -> AppIcons.School
+    "home" -> AppIcons.Home
+    else -> AppIcons.Event
 }

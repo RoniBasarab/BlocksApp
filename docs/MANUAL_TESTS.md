@@ -10,6 +10,12 @@ With a phone attached, run them with:
 These four cannot be automated reliably (they depend on the launcher, the reboot flow, the keyguard
 and the system DND state), so Roni runs them by hand.
 
+**Check on the phone (3.5.1).** Use the debug app for steps that move the clock (Settings → Developer tools).
+
+1. Open every screen and every sheet: same look as 3.5.0, icons included (bottom tabs, menu, category icons, walk icon, arrows).
+2. Cold start: the splash shows the same way and leaves when the day is ready.
+3. History, Weekly, Insights: no "while driving" line; everything else unchanged.
+
 **Check on the phone (3.1.0).** Use the debug app for steps that move the clock (Settings -> Developer tools).
 
 1. Templates tab: the four templates and the four categories.
@@ -54,7 +60,6 @@ and the system DND state), so Roni runs them by hand.
 5. Insights (with two weeks of data): Walks, Walk time, Steps and Evening walks with arrows.
 6. Settings → Your data → Back up my data: a JSON file in Downloads; Restore from a backup on Blocks Debug: the app restarts with that data.
 7. Upgrade rehearsal (Roni, see the report): 2.6.2 debug → 3.4.0 debug installed over it → today, History, walks and steps are all there; no welcome screen.
-8. Developer tools → Simulate a drive: History shows "· about 150 while driving"; Weekly has the "While driving" tile. On a real drive (phone in the car): the same after you get out, a few minutes late at most.
 
 **Check on the phone (3.4.1).** Use the debug app for steps that move the clock (Settings → Developer tools).
 
