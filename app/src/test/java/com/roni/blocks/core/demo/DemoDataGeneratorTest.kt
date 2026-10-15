@@ -23,6 +23,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import com.roni.blocks.testing.testFailures
 
 /**
  * Demo days must be indistinguishable from real ones in shape: 28 days before today, exactly one
@@ -43,7 +44,7 @@ class DemoDataGeneratorTest {
 
     @Before
     fun setUp() = runBlocking {
-        val prefs = PrefsStorage(context, UnconfinedTestDispatcher())
+        val prefs = PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context))
         history = HistoryManager(prefs)
         history.clear()
         generator = DemoDataGenerator(

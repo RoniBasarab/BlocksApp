@@ -66,7 +66,8 @@ object DayTimeline {
 
     private fun done(b: PlanBlock, ran: List<SegmentSpan>, pauses: List<SegmentSpan>, floor: Int): TimelineBlock {
         val start = maxOf(ran.minOf { it.startMin }, floor)
-        val end = maxOf(ran.maxOf { it.endMin!! }, start)
+        // A past block's segments are closed; if storage ever holds an open one, it counts as no time (3.5.0).
+        val end = maxOf(ran.mapNotNull { it.endMin }.maxOrNull() ?: start, start)
         return TimelineBlock(
             b.id, b.type, start, end, TimelinePhase.DONE,
             overrunFromMin = b.endMin.takeIf { end > it && it >= start },

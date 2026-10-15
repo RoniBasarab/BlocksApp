@@ -1,6 +1,8 @@
 package com.roni.blocks.core.di
 
-import com.roni.blocks.core.logging.AppLogger
+import com.roni.blocks.BuildConfig
+import com.roni.blocks.core.system.FailurePolicy
+import com.roni.blocks.core.system.Failures
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -13,6 +15,10 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 object AppModule {
     @Provides
     @Singleton
-    fun exceptionHandler(logger: AppLogger): CoroutineExceptionHandler =
-        CoroutineExceptionHandler { _, error -> logger.error("coroutine", error) }
+    fun failurePolicy(): FailurePolicy = FailurePolicy(loud = BuildConfig.DEBUG)
+
+    @Provides
+    @Singleton
+    fun exceptionHandler(failures: Failures): CoroutineExceptionHandler =
+        CoroutineExceptionHandler { _, error -> failures.report("app scope", error) }
 }

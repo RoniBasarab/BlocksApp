@@ -20,6 +20,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import com.roni.blocks.testing.testFailures
 
 /** 3.2.0: the Profiles list's ViewModel against the real stores from [testActions]. */
 @RunWith(AndroidJUnit4::class)
@@ -38,7 +39,7 @@ class ProfilesViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun explainers() = ExplainerStore(PrefsStorage(context, UnconfinedTestDispatcher()))
+    private fun explainers() = ExplainerStore(PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context)))
 
     @Test
     fun newProfile_copy_opensIt() = runBlocking {

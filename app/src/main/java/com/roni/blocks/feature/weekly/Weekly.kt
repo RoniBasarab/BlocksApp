@@ -256,7 +256,7 @@ class WeeklyViewModel @Inject constructor(
             } else {
                 null
             }
-            val blocks = day.plannedBlocks ?: day.template?.let { templates.get(it).blocks } ?: emptyList()
+            val blocks = day.plannedBlocks ?: day.template?.let { templates.find(it)?.blocks } ?: emptyList()
             blocks.forEach { block ->
                 val start = block.start.at(day.date, zone)
                 var end = block.end.at(day.date, zone)

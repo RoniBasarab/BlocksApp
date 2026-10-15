@@ -49,6 +49,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import com.roni.blocks.testing.testFailures
 
 /**
  * Process death is what Android does to this app whenever it is killed mid-day, and it is the one
@@ -76,7 +77,7 @@ class DayOrchestratorProcessDeathTest {
     @Before
     fun setUp() {
         context.getSharedPreferences(PrefsFile.DAY.name.lowercase(), 0).edit().clear().commit()
-        prefs = PrefsStorage(context, UnconfinedTestDispatcher())
+        prefs = PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context))
         File(context.filesDir, "logs/blocks.log").delete()
     }
 

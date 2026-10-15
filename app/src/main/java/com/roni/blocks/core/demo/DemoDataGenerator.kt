@@ -112,7 +112,7 @@ open class DemoDataGenerator @Inject constructor(
         extendCodingAmTo: LocalTime? = null,
     ): Replayed {
         val templateId = templateFor(date.dayOfWeek)
-        val loaded = templates.get(templateId)
+        val loaded = templates.find(templateId) ?: return offDay(date)
         val edited = extendCodingAmTo?.let { editedTemplate(loaded, it) }
         val template = edited ?: loaded
         var state: DayState = DayState.NotStarted

@@ -24,6 +24,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import com.roni.blocks.testing.testFailures
 
 /**
  * Task-19a: the category editor's ViewModel against the real stores from [testActions], driven the
@@ -46,7 +47,7 @@ class CategoryListViewModelTest {
         context.getSharedPreferences(PrefsFile.SETTINGS.name.lowercase(), 0).edit().clear().commit()
     }
 
-    private fun explainers() = ExplainerStore(PrefsStorage(context, UnconfinedTestDispatcher()))
+    private fun explainers() = ExplainerStore(PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context)))
 
     @Test
     fun newCategory_appearsWithItsColour() = runBlocking {
@@ -101,7 +102,7 @@ class CategoryListViewModelTest {
         viewModel.onAction(CategoryAction.ConfirmDelete)
 
         assertTrue(viewModel.state.value.categories.customs.none { it.id == "cat_1" })
-        val stored = PrefsStorage(context, UnconfinedTestDispatcher())
+        val stored = PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context))
             .read(PrefsFile.SETTINGS, "templates", ListSerializer(StoredTemplate.serializer()))
         val freed = requireNotNull(stored?.firstOrNull { it.id == created.id })
         assertEquals(BlockType.Free, freed.blocks.first().type)

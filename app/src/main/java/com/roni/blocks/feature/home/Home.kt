@@ -884,8 +884,8 @@ private val day: DayOrchestrator,
         val id = dayState.templateId()
         val todayPlan = day.todayPlan.value
         val template = todayPlan?.let { plan ->
-            runCatching { templates.get(plan.templateId) }.getOrNull()?.let { Template(it.id, it.name, plan.blocks) }
-        } ?: id?.let { runCatching { templates.get(it) }.getOrNull() }
+            templates.find(plan.templateId)?.let { Template(it.id, it.name, plan.blocks) }
+        } ?: id?.let { templates.find(it) }
         val segments = day.segments.value
         val openAny = segments.lastOrNull { it.actualEnd == null }
         val open = segments.lastOrNull { it.kind == SegmentKind.PLANNED && it.actualEnd == null }

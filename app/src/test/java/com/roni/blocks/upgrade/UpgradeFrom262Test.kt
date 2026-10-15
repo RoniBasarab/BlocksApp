@@ -33,6 +33,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import com.roni.blocks.testing.testFailures
 
 /**
  * 3.4.0: a real 2.6.2 install must upgrade in place. The prefs below are written as raw strings in
@@ -72,7 +73,7 @@ class UpgradeFrom262Test {
         rig.clock.now = LocalTime(11, 45).at(today, zone)
         rig.store.load()
         rig.day.ensureRestored()
-        val history = HistoryManager(PrefsStorage(context, UnconfinedTestDispatcher()))
+        val history = HistoryManager(PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context)))
 
         // Today continues: still Running, MON_THU, block 2, the same segments and plan.
         val state = rig.day.state.value

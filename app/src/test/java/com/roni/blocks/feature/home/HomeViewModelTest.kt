@@ -63,6 +63,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import com.roni.blocks.testing.testFailures
 
 /**
  * Drives real [HomeViewModel.onAction] against a real [DayOrchestrator] (fake clock, in-memory
@@ -92,7 +93,7 @@ class HomeViewModelTest {
         Dispatchers.setMain(Dispatchers.Unconfined)
         clock = MovableClock(LocalTime(10, 0).at(date, zone))
         logger = AppLogger(context)
-        prefs = PrefsStorage(context, UnconfinedTestDispatcher())
+        prefs = PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context))
         history = HistoryManager(prefs)
         orchestrator = buildOrchestrator()
         viewModel = buildViewModel(orchestrator)
@@ -580,7 +581,7 @@ class HomeViewModelTest {
         // Force the drift the way it can reach Home after a process death: storage holds an open
         // Coding segment whose planned end is 30 min later than today's plan. The card must follow
         // the plan (the calendar already does), so 10 min past the plan end it says "Ran over".
-        val template = TemplateManager(context).get(TemplateId.SUN_TUE_WED)
+        val template = requireNotNull(TemplateManager(context).find(TemplateId.SUN_TUE_WED))
         val cv = template.blocks.first { it.id == "sun_tue_wed.cv" }
         val coding = template.blocks.first { it.id == firstBlockId }
         val planEnd = coding.end.at(date, zone)

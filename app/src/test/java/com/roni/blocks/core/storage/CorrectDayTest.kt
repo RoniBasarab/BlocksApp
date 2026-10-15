@@ -30,6 +30,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import com.roni.blocks.testing.testFailures
 
 /**
  * Correcting a past day through storage: RecordEditor runs on the stored rows, the corrected
@@ -50,7 +51,7 @@ class CorrectDayTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(Dispatchers.Unconfined)
-        val prefs = PrefsStorage(context, UnconfinedTestDispatcher())
+        val prefs = PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context))
         history = HistoryManager(prefs)
         runBlocking { history.clear() }
     }

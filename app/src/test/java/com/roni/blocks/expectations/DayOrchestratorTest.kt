@@ -67,6 +67,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import com.roni.blocks.testing.testFailures
 
 /**
  * The orchestrator owns the rules a notification button cannot enforce on its own: a tap that
@@ -103,7 +104,7 @@ class DayOrchestratorTest {
     @Before
     fun setUp() {
         clock = MovableClock(LocalTime(9, 0).at(date, zone))
-        prefs = PrefsStorage(context, UnconfinedTestDispatcher())
+        prefs = PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context))
         logger = AppLogger(context)
         engine = ScheduleEngine(clock, zone)
         history = HistoryManager(prefs)
@@ -582,7 +583,7 @@ class DayOrchestratorTest {
         orchestrator.handle(DayEvent.StartDay(TemplateId.SUN_TUE_WED))
 
         val plan = requireNotNull(orchestrator.todayPlan.value)
-        val template = TemplateManager(context).get(TemplateId.SUN_TUE_WED)
+        val template = requireNotNull(TemplateManager(context).find(TemplateId.SUN_TUE_WED))
         assertEquals(TemplateId.SUN_TUE_WED, plan.templateId)
         assertEquals(template.blocks.map { it.id }, plan.blocks.map { it.id })
         assertEquals(false, plan.edited)

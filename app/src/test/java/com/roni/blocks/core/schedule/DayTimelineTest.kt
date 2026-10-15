@@ -140,4 +140,16 @@ class DayTimelineTest {
             }
         }
     }
+
+    @Test
+    fun aPastBlockWithAnOpenSegment_doesNotCrash() {
+        // Bad storage (3.5.0): Cv is past but its segment was never closed. It draws from its start with no length.
+        val segs = listOf(seg("cv", t(9, 0), null), seg("coding_am", t(9, 30), null))
+        val out = DayTimeline.build(plan, segs, currentId = "coding_am", nowMin = t(10, 0))
+        val cv = out.first { it.id == "cv" }
+        assertEquals(DONE, cv.phase)
+        assertEquals(t(9, 0), cv.startMin)
+        assertEquals(t(9, 0), cv.endMin)
+        assertEquals(NOW, out.first { it.id == "coding_am" }.phase)
+    }
 }

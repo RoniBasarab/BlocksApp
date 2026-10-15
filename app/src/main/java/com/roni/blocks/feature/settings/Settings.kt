@@ -44,6 +44,7 @@ import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Upload
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -97,6 +98,7 @@ import com.roni.blocks.core.storage.ExplainerStore
 import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
+import com.roni.blocks.core.system.AppRescue
 import com.roni.blocks.core.system.SystemStatuses
 import com.roni.blocks.core.time.DebugTimeController
 import com.roni.blocks.core.time.TimeFormatter
@@ -150,6 +152,8 @@ data class SettingsUiState(
     val inDishes: Boolean = false,
     /** The backup date label while a restore waits for confirmation (3.4.0); null hides the dialog. */
     val restoreConfirm: String? = null,
+    /** How many saved values couldn't be read and were set aside (3.5.0); 0 hides the row. */
+    val unreadable: Int = 0,
 )
 
 sealed interface SettingsAction {
@@ -183,6 +187,8 @@ sealed interface SettingsAction {
     data class RestoreFrom(val uri: Uri) : SettingsAction
     data object ConfirmRestore : SettingsAction
     data object DismissRestore : SettingsAction
+    /** Your data (3.5.0): shares the values that couldn't be read, now kept aside. */
+    data object ShareUnreadable : SettingsAction
 }
 
 /** One-shot outcomes the screen surfaces in its snackbar. */
@@ -240,6 +246,7 @@ class SettingsViewModel @Inject constructor(
     private val debugTime: DebugTimeController,
     private val prefs: PrefsStorage,
     private val explainers: ExplainerStore,
+    private val rescue: AppRescue,
 ) : ViewModel() {
     private val _notificationPermission = MutableStateFlow(statuses.notificationsEnabled())
     private val _exactAlarms = MutableStateFlow(statuses.canScheduleExactAlarms())
@@ -253,6 +260,9 @@ class SettingsViewModel @Inject constructor(
 
     /** A decoded backup waiting for "Replace everything?" (3.4.0). */
     private val _restorePending = MutableStateFlow<PendingRestore?>(null)
+
+    /** Values set aside as unreadable (3.5.0); refreshed when the screen opens and after a restore. */
+    private val _unreadable = MutableStateFlow(0)
 
     init {
         viewModelScope.launch {
@@ -293,12 +303,14 @@ class SettingsViewModel @Inject constructor(
         )
     }.combine(_stepsPermission) { s, steps -> s.copy(steps = steps) }
         .combine(_restorePending) { s, pending -> s.copy(restoreConfirm = pending?.label) }
+        .combine(_unreadable) { s, count -> s.copy(unreadable = count) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
     fun refresh() {
         _notificationPermission.value = statuses.notificationsEnabled()
         _exactAlarms.value = statuses.canScheduleExactAlarms()
         _stepsPermission.value = computeStepStatus()
+        _unreadable.value = prefs.unreadableCount()
     }
 
     /** The system permission dialog is about to show (2.5.0); remembered, but the row stays "Not set". */
@@ -470,6 +482,7 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             prefs.replaceAll(pending.file.files)
             _restorePending.value = null
+            _unreadable.value = prefs.unreadableCount()
             _effects.trySend(SettingsEffect.Restart)
         }
     }
@@ -529,6 +542,11 @@ class SettingsViewModel @Inject constructor(
                 .setData(android.net.Uri.parse("package:${context.packageName}"))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
+    }
+
+    /** Shares the values that couldn't be read (3.5.0), so they can be looked at. */
+    fun shareUnreadable() {
+        viewModelScope.launch { rescue.shareUnreadable() }
     }
 
     fun shareLog(context: android.content.Context) {
@@ -664,6 +682,19 @@ fun SettingsScreen(state: SettingsUiState, onAction: (SettingsAction) -> Unit) {
                     trailing = { Chevron() },
                     onClick = { onAction(SettingsAction.StartRestore) },
                 )
+                if (state.unreadable > 0) {
+                    CardDivider()
+                    SettingsRow(
+                        icon = Icons.Outlined.WarningAmber,
+                        title = "${state.unreadable} saved item(s) couldn't be read",
+                        subtitle = "Kept aside so nothing is lost. Share it to get it looked at.",
+                        trailing = {
+                            TextButton(onClick = { onAction(SettingsAction.ShareUnreadable) }) {
+                                Text("Share", style = MaterialTheme.typography.labelLarge)
+                            }
+                        },
+                    )
+                }
             }
 
             if (BuildConfig.DEBUG) {
@@ -1033,6 +1064,7 @@ fun SettingsRoute(
             is SettingsAction.RestoreFrom -> viewModel.restoreFrom(action.uri)
             SettingsAction.ConfirmRestore -> viewModel.confirmRestore()
             SettingsAction.DismissRestore -> viewModel.dismissRestore()
+            SettingsAction.ShareUnreadable -> viewModel.shareUnreadable()
             SettingsAction.ShowMainMenu -> {
                 devToolsOpen = false
                 onShowMainMenu()

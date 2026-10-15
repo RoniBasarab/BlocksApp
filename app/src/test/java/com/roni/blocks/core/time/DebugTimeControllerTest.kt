@@ -32,6 +32,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import com.roni.blocks.testing.testFailures
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34])
@@ -46,7 +47,7 @@ class DebugTimeControllerTest {
     @Before
     fun setUp() {
         clock = DebugClock(context).apply { setOffsetMinutes(0) }
-        val prefs = PrefsStorage(context, UnconfinedTestDispatcher())
+        val prefs = PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context))
         val logger = AppLogger(context)
         val engine = ScheduleEngine(clock, zone)
         orchestrator = DayOrchestrator(

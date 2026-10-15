@@ -1,4 +1,4 @@
-﻿package com.roni.blocks.feature.templates
+package com.roni.blocks.feature.templates
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.roni.blocks.core.logging.AppLogger
@@ -33,6 +33,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import com.roni.blocks.testing.testFailures
 
 /**
  * Drives [TemplateEditorViewModel.onAction] against the real store and [TemplateActions] from
@@ -59,11 +60,11 @@ class TemplateEditorViewModelTest {
             actions = actions,
             store = store,
             timeFormatter = TimeFormatter(
-                PrefsStorage(context, UnconfinedTestDispatcher()),
+                PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context)),
                 CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
             ),
             logger = AppLogger(context),
-            explainers = ExplainerStore(PrefsStorage(context, UnconfinedTestDispatcher())),
+            explainers = ExplainerStore(PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context))),
         )
     }
 

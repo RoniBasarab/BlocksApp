@@ -169,3 +169,8 @@ Still-live rules first (decisions a future agent needs), then one section per ve
 - Slice 1: tripwire, not a fix. `DayOrchestrator.warnOnPlanSegmentDrift` (called from `sideEffects`) logs `plan/segment end drift: <blockId> segment=<..> plan=<..> state=<..>` once per block when the open PLANNED segment's `plannedEnd` differs from today's plan end; `AppLogger.warn` added. Removing the duplication belongs to the architecture round.
 - Slice 1 tests: added `HomeViewModelTest.runningOver_cardSaysRanOver` (storage restored with the open Coding segment 30 min past the plan end; 10 min past the plan end the card says "Ran over" and "Next: ...", with no "Done early"); `HomeViewModelTest` setup split into `buildOrchestrator`/`buildViewModel`. The task's `DayOrchestratorTest.openSegment_followsThePlan` was not added: there is no drift path to make the segment follow the plan through.
 - Slice 2: version 3.4.3 (versionCode 30403); no schema change. `keystore.properties` absent, so no release APK.
+
+## 3.5.0 (Task-27)
+- Slice 1: `DemoDataGenerator.replayDay` returns `Replayed`, so the task's "return early" is `?: return offDay(date)` (unknown built-in template id is unreachable in practice).
+- Slice 1: `SettingsViewModel` takes `AppRescue` here (not slice 3) because `ShareUnreadable → AppRescue.shareUnreadable()` needs it; slice 3 adds `Failures` and removes the `Context` uses.
+

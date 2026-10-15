@@ -18,6 +18,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import com.roni.blocks.testing.testFailures
 
 /** 3.4.0: a backup copies every file exactly, and a newer backup is refused. */
 @RunWith(AndroidJUnit4::class)
@@ -35,7 +36,7 @@ class BackupTest {
         clearAll()
     }
 
-    private fun storage() = PrefsStorage(context, UnconfinedTestDispatcher())
+    private fun storage() = PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context))
 
     private fun clearAll() {
         PrefsFile.entries.forEach { context.getSharedPreferences(it.name.lowercase(), 0).edit().clear().commit() }

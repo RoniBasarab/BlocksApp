@@ -13,6 +13,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import com.roni.blocks.testing.testFailures
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34])
@@ -25,7 +26,7 @@ class ConfirmationSuppressionPersistenceTest {
             .edit().clear().commit()
     }
 
-    private fun storage() = PrefsStorage(RuntimeEnvironment.getApplication(), UnconfinedTestDispatcher())
+    private fun storage() = PrefsStorage(RuntimeEnvironment.getApplication(), UnconfinedTestDispatcher(), testFailures(RuntimeEnvironment.getApplication()))
 
     private fun readSuppressed(prefs: PrefsStorage): Set<NowButtonId> = runBlocking {
         val stored = prefs.read(

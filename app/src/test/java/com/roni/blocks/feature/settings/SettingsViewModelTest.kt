@@ -20,6 +20,7 @@ import com.roni.blocks.core.storage.HistoryManager
 import com.roni.blocks.core.storage.PrefsFile
 import com.roni.blocks.core.storage.PrefsStorage
 import com.roni.blocks.core.storage.TemplateManager
+import com.roni.blocks.core.system.AppRescue
 import com.roni.blocks.core.system.SystemStatuses
 import com.roni.blocks.core.time.DebugClock
 import com.roni.blocks.core.time.DebugTimeController
@@ -52,6 +53,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import com.roni.blocks.testing.testFailures
 
 /**
  * Every Settings action must have an observable effect: the status rows reflect the system only
@@ -84,7 +86,7 @@ class SettingsViewModelTest {
         Dispatchers.setMain(Dispatchers.Unconfined)
         clock = MovableClock(LocalTime(10, 0).at(date, zone))
         logger = AppLogger(context)
-        prefs = PrefsStorage(context, UnconfinedTestDispatcher())
+        prefs = PrefsStorage(context, UnconfinedTestDispatcher(), testFailures(context))
         history = HistoryManager(prefs)
         timeFormatter = TimeFormatter(prefs, CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))
         port = FakeNotificationPort()
@@ -120,6 +122,7 @@ class SettingsViewModelTest {
         zone = zone,
         prefs = prefs,
         explainers = ExplainerStore(prefs),
+        rescue = AppRescue(context, logger, prefs),
     )
 
     @After
