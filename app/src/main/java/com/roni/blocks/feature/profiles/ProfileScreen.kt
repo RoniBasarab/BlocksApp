@@ -35,15 +35,12 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -79,6 +76,7 @@ import com.roni.blocks.core.system.AppRescue
 import com.roni.blocks.core.system.Failures
 import com.roni.blocks.core.system.ProblemAction
 import com.roni.blocks.designsystem.AppCard
+import com.roni.blocks.designsystem.AppSheet
 import com.roni.blocks.designsystem.AppShapes
 import com.roni.blocks.designsystem.AppTheme
 import com.roni.blocks.designsystem.ErrorCard
@@ -355,7 +353,6 @@ fun ProfileRoute(
 }
 
 /** The stateless profile page; [ProfileRoute] owns the ViewModel. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(state: ProfileState, onAction: (ProfileAction) -> Unit, onBack: () -> Unit) {
     val colors = AppTheme.colors
@@ -540,16 +537,9 @@ private fun TemplateCard(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DayPickerSheet(state: ProfileState, iso: Int, onAction: (ProfileAction) -> Unit) {
-    ModalBottomSheet(
-        onDismissRequest = { onAction(ProfileAction.DismissSheet) },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        shape = AppShapes.sheet,
-        containerColor = AppTheme.colors.surface,
-        dragHandle = null,
-    ) {
+    AppSheet(onDismiss = { onAction(ProfileAction.DismissSheet) }) {
         Column(Modifier.fillMaxWidth().padding(Spacing.l), verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
             Text(DAY_NAMES[iso - 1], style = MaterialTheme.typography.titleLarge, color = AppTheme.colors.textPrimary)
             state.templates.forEach { template ->
@@ -560,16 +550,9 @@ private fun DayPickerSheet(state: ProfileState, iso: Int, onAction: (ProfileActi
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddExistingSheet(rows: ImmutableList<ProfileTemplateUi>, onAction: (ProfileAction) -> Unit) {
-    ModalBottomSheet(
-        onDismissRequest = { onAction(ProfileAction.DismissSheet) },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        shape = AppShapes.sheet,
-        containerColor = AppTheme.colors.surface,
-        dragHandle = null,
-    ) {
+    AppSheet(onDismiss = { onAction(ProfileAction.DismissSheet) }) {
         Column(Modifier.fillMaxWidth().padding(Spacing.l), verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
             Text("Add existing", style = MaterialTheme.typography.titleLarge, color = AppTheme.colors.textPrimary)
             if (rows.isEmpty()) {

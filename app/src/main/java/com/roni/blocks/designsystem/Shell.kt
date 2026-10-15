@@ -170,7 +170,13 @@ fun WhatTheseMeanButton(onClick: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BackTopBar(title: String, onBack: () -> Unit, modifier: Modifier = Modifier, onExplain: (() -> Unit)? = null) {
+fun BackTopBar(
+    title: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    onExplain: (() -> Unit)? = null,
+    actions: @Composable RowScope.() -> Unit = {},
+) {
     CenterAlignedTopAppBar(
         title = { Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface) },
         navigationIcon = {
@@ -178,7 +184,10 @@ fun BackTopBar(title: String, onBack: () -> Unit, modifier: Modifier = Modifier,
                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back")
             }
         },
-        actions = { onExplain?.let { WhatTheseMeanButton(onClick = it) } },
+        actions = {
+            onExplain?.let { WhatTheseMeanButton(onClick = it) }
+            actions()
+        },
         colors = screenTopBarColors(),
         modifier = modifier.testTag("top_bar"),
     )

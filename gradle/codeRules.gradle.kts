@@ -14,8 +14,7 @@ val codeRules = tasks.register("codeRules") {
             Triple(Regex("!!"), false, "no !! - use ?:, ?.let, an early return, or a helper like Segment.actualMinutes (architecture.md §14)"),
             Triple(Regex("\\bGlobalScope\\b"), false, "no GlobalScope - inject @ApplicationScope"),
             Triple(Regex("\\brunBlocking\\b"), false, "no runBlocking in app code - make the caller suspend"),
-            // 3.5.1 turns this on
-            // Triple(Regex("@OptIn\\(|\\bExperimental\\w*Api\\b"), true, "experimental APIs only inside designsystem/ - wrap the component there"),
+            Triple(Regex("@OptIn\\(|\\bExperimental\\w*Api\\b"), true, "experimental APIs only inside designsystem/ - wrap the component there"),
         )
         val problems = mutableListOf<String>()
         sources.files.sortedBy { it.path }.forEach { file ->

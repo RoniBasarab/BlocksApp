@@ -29,8 +29,6 @@ import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,6 +63,7 @@ import com.roni.blocks.core.system.Failures
 import com.roni.blocks.core.system.ProblemAction
 import com.roni.blocks.designsystem.AppCard
 import com.roni.blocks.designsystem.AppTheme
+import com.roni.blocks.designsystem.BackTopBar
 import com.roni.blocks.designsystem.ErrorCard
 import com.roni.blocks.designsystem.HintCard
 import com.roni.blocks.designsystem.SectionHeader
@@ -324,26 +323,16 @@ fun ProfilesScreen(state: ProfilesState, onAction: (ProfilesAction) -> Unit, onB
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ProfilesTopBar(title: String = "Profiles", onBack: () -> Unit, onHowTo: () -> Unit) {
-    CenterAlignedTopAppBar(
-        title = { Text(title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface) },
-        navigationIcon = {
-            IconButton(onClick = onBack, modifier = Modifier.testTag("back_button")) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back")
-            }
-        },
+    BackTopBar(
+        title = title,
+        onBack = onBack,
         actions = {
             IconButton(onClick = onHowTo, modifier = Modifier.testTag("how_to")) {
                 Icon(Icons.Outlined.HelpOutline, "How to use")
             }
         },
-        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-            containerColor = Color.Transparent,
-            scrolledContainerColor = Color.Transparent,
-        ),
-        modifier = Modifier.testTag("top_bar"),
     )
 }
 

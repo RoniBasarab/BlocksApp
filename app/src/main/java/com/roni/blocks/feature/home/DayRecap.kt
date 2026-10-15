@@ -5,7 +5,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -364,7 +363,6 @@ object DayRecapMapper {
     private const val LATE_THRESHOLD = 5
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RecapSummaryCard(s: DayRecapUi) {
     val c = AppTheme.colors
@@ -386,7 +384,6 @@ fun RecapSummaryCard(s: DayRecapUi) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RecapRowCard(r: RecapRow, onClick: (() -> Unit)? = null) {
     val c = AppTheme.colors

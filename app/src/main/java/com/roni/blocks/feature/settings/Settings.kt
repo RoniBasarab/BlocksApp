@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -807,7 +806,6 @@ data class DebugButtonUi(
     val enabled: Boolean = true,
 )
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DeveloperToolsDialog(
     state: SettingsUiState,

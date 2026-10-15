@@ -178,3 +178,9 @@ Still-live rules first (decisions a future agent needs), then one section per ve
 - Slice 4: `gradle/codeRules.gradle.kts` runs from `app/build.gradle.kts` (`apply(from = rootProject.file(...))` + `preBuild` depends on `codeRules`) and scans `src/main/java`; the experimental-API rule is commented out for 3.5.1. Hand-checked: adding `val x: String? = null; val y = x!!` made `:app:compileDebugKotlin` fail with `Home.kt:<line>: no !! - ...` and the build returned exit=1; the probe was removed.
 - Slice 5: the developer button "Break a saved value" writes a raw `"not json"` under `PrefsFile.DAY`/`day_state` (a typed write could only store valid JSON) and reads it straight back, so `decodeOrSetAside` sets the value aside and the loud `Failures` crashes a debug build once; the key is `DayOrchestrator`'s `STATE` literal, spelled out in `SettingsViewModel.breakSavedValue`.
 
+
+## 3.5.1 (Task-28)
+- 3.5.0 release APK: 3802 KB.
+- Slice 1: the only opt-in the compiler still needs outside designsystem/ is kotlin.time.ExperimentalTime; it stays in app/build.gradle.kts. ExperimentalTime still needed with Kotlin 2.2.10.
+- Slice 1: the 8 sheets go through the new designsystem AppSheet; the one site with its own ModalBottomSheetProperties (EveningChoiceSheet) used the defaults, so AppSheet takes no properties parameter.
+- Slice 1: ProfilesTopBar's CenterAlignedTopAppBar also needed the opt-in, so BackTopBar got an actions slot (like AppTopBar) and ProfilesTopBar now builds on it.
