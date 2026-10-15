@@ -52,6 +52,7 @@ import com.roni.blocks.core.logging.AppLogger
 import com.roni.blocks.core.model.BlockType
 import com.roni.blocks.core.model.Categories
 import com.roni.blocks.core.model.CategoryInfo
+import com.roni.blocks.core.model.CategorySet
 import com.roni.blocks.core.model.OWN_TEMPLATE_ICONS
 import com.roni.blocks.core.model.StoredTemplate
 import com.roni.blocks.core.model.TemplateId
@@ -151,10 +152,13 @@ internal fun typeForCategory(info: CategoryInfo): BlockType = when (info.id) {
     else -> BlockType.Custom(info.id, info.name, info.colorArgb, info.work, info.pomodoro)
 }
 
+/** Every category in use (3.5.2): built-ins first, then customs, in their stored order. One list for every picker. */
+internal fun categoryChoices(set: CategorySet = Categories.current): List<BlockType> =
+    (set.builtIns + set.customs).map { typeForCategory(it) }
+
 /** The dropdown's options: every category in use, then kid time. */
 private fun templateCategories() =
-    (Categories.current.builtIns.map { typeForCategory(it) } + Categories.current.customs.map { typeForCategory(it) } + BlockType.KidTime)
-        .toPersistentList()
+    (categoryChoices() + BlockType.KidTime).toPersistentList()
 
 /** The template editor's own sheet state; [BlockSheetUi] is derived from it for the shared sheet. */
 private data class EditorSheet(

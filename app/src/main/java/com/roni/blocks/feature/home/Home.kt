@@ -134,7 +134,7 @@ import com.roni.blocks.designsystem.templateDisplay
 import com.roni.blocks.feature.templates.BlockSheet
 import com.roni.blocks.feature.templates.BlockSheetAction
 import com.roni.blocks.feature.templates.BlockSheetUi
-import com.roni.blocks.feature.templates.typeForCategory
+import com.roni.blocks.feature.templates.categoryChoices
 import com.roni.blocks.feature.weekly.tabKey
 import com.roni.blocks.navigation.HistoryKey
 import com.roni.blocks.navigation.ProfilesKey
@@ -527,7 +527,7 @@ private val day: DayOrchestrator,
         return BlockSheetUi(
             title = blockTitle(block.type),
             type = block.type,
-            categories = if (mode == BlockEdit.END_AND_TYPE) workCategories().toPersistentList() else persistentListOf(),
+            categories = if (mode == BlockEdit.END_AND_TYPE) retypeCategories() else persistentListOf(),
             startMin = null,
             lengthMin = block.length,
             line = line,
@@ -586,7 +586,7 @@ private val day: DayOrchestrator,
         val plan = day.todayPlan.value?.blocks?.toPlanBlocks() ?: return
         val nowMin = clock.now().minuteOfDay(zone)
         val current = day.currentForEditing()
-        val type = workCategories().firstOrNull() ?: BlockType.Cv
+        val type = categoryChoices().firstOrNull { Categories.infoFor(it)?.work == true } ?: BlockType.Cv
         val result = TodayEditor.addAfter(plan, id, type, nowMin, current) as? TodayEdit.Ok ?: return
         val newId = TodayEditor.newId(plan)
         val added = result.blocks.firstOrNull { it.id == newId } ?: return
@@ -732,13 +732,11 @@ private val day: DayOrchestrator,
         )
     }
 
-    /** The work categories in use plus Free, for a block ahead (3.3.0). */
-    private fun homeCategories() = (workCategories() + BlockType.Free).toPersistentList()
+    /** Every category, Free last (3.5.2: no longer only work ones). */
+    private fun homeCategories() = (categoryChoices().filter { it != BlockType.Free } + BlockType.Free).toPersistentList()
 
-    private fun workCategories(): List<BlockType> = buildList {
-        Categories.current.builtIns.filter { it.work }.forEach { add(typeForCategory(it)) }
-        Categories.current.customs.filter { it.work }.forEach { add(typeForCategory(it)) }
-    }
+    /** The running block can be retyped to any category but Free, as before. */
+    private fun retypeCategories() = categoryChoices().filter { it != BlockType.Free }.toPersistentList()
 
     /** The live line for a block ahead: what moves, or why TodayEditor refused (3.3.0). */
     private fun aheadLine(plan: List<PlanBlock>, id: String, type: BlockType, start: Int, length: Int, nowMin: Int, current: CurrentBlock?): Pair<String?, Boolean> =
